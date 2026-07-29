@@ -110,6 +110,7 @@ def test_claude_ready_scrubs_identity_and_only_keeps_safe_version(tmp_path):
         "capabilities": [
             "connection_status",
             "interactive_login",
+            "structured_judgment",
             "report_draft",
             "document_edit_plan",
         ],
@@ -233,17 +234,163 @@ def test_discovery_via_which_never_searches_aliases(tmp_path):
     assert calls == ["codex"]
 
 
+def test_native_official_executable_link_resolves_to_allowlisted_target(
+    tmp_path,
+):
+    target_directory = tmp_path / "installed" / "claude"
+    target_directory.mkdir(parents=True)
+    target = target_directory / "claude.exe"
+    target.write_bytes(b"MZ")
+    link = tmp_path / "claude.exe"
+    try:
+        link.symlink_to(target)
+    except OSError:
+        pytest.skip("symbolic links are unavailable on this Windows host")
+    runner = RecordingRunner(
+        CommandResult(
+            returncode=0,
+            stdout=b'{"loggedIn":true,"version":"2.1.201"}',
+        )
+    )
+
+    status = ProviderStatusService(
+        explicit_paths={"claude": link},
+        runner=runner,
+    ).get_status("claude")
+
+    assert status.state == "ready"
+    assert runner.calls[0]["argv"] == (
+        str(target.resolve()),
+        "auth",
+        "status",
+        "--json",
+    )
+
+
 def test_official_windows_cmd_wrapper_is_allowlisted(tmp_path):
     cli = tmp_path / "codex.cmd"
     cli.write_text("@echo off\r\n", encoding="ascii")
+    package_entry = (
+        tmp_path
+        / "node_modules"
+        / "@openai"
+        / "codex"
+        / "bin"
+        / "codex.js"
+    )
+    package_entry.parent.mkdir(parents=True)
+    package_entry.write_text("/* fixed package entry */\n", encoding="ascii")
+    node = tmp_path / "node.exe"
+    node.write_bytes(b"MZ")
+    runner = RecordingRunner(
+        CommandResult(returncode=0, stderr=b"Logged in using ChatGPT")
+    )
     status = ProviderStatusService(
         explicit_paths={"codex": cli},
-        runner=RecordingRunner(
-            CommandResult(returncode=0, stderr=b"Logged in using ChatGPT")
-        ),
+        which=lambda name: str(node) if name == "node" else None,
+        runner=runner,
     ).get_status("codex")
 
     assert status.state == "ready"
+    assert runner.calls[0]["argv"] == (
+        str(node.resolve()),
+        str(package_entry.resolve()),
+        "login",
+        "status",
+    )
+    assert runner.calls[1]["argv"] == (
+        str(node.resolve()),
+        str(package_entry.resolve()),
+        "--version",
+    )
+
+
+def test_cmd_wrapper_without_fixed_package_entry_is_not_executed(tmp_path):
+    cli = tmp_path / "claude.cmd"
+    cli.write_text("@echo off\r\n", encoding="ascii")
+
+    def forbidden_runner(*args, **kwargs):
+        raise AssertionError("an unverified npm shim must not be executed")
+
+    status = ProviderStatusService(
+        explicit_paths={"claude": cli},
+        which=lambda name: None,
+        runner=forbidden_runner,
+    ).get_status("claude")
+
+    assert status.state == "not_installed"
+
+
+@pytest.mark.parametrize(
+    ("provider", "output", "expected_state", "authentication", "network"),
+    [
+        (
+            "codex",
+            b"401 Unauthorized: failed to refresh token",
+            "expired",
+            "expired",
+            "unknown",
+        ),
+        (
+            "claude",
+            b"network is unreachable",
+            "network_unavailable",
+            "unknown",
+            "offline",
+        ),
+    ],
+)
+def test_expired_and_network_failures_are_distinct_without_leaking_output(
+    tmp_path,
+    provider,
+    output,
+    expected_state,
+    authentication,
+    network,
+):
+    cli = make_cli(tmp_path, provider)
+    status = ProviderStatusService(
+        explicit_paths={provider: cli},
+        runner=RecordingRunner(
+            CommandResult(
+                returncode=1,
+                stderr=output + b" person@example.com token=secret",
+            )
+        ),
+    ).get_status(provider)
+
+    assert status.state == expected_state
+    assert status.authentication_state == authentication
+    assert status.network_state == network
+    assert "person@example.com" not in repr(status.as_dict())
+    assert "secret" not in repr(status.as_dict())
+
+
+def test_version_uses_a_second_exact_allowlisted_command(tmp_path):
+    cli = make_cli(tmp_path, "codex")
+    results = iter(
+        [
+            CommandResult(returncode=0, stdout=b"Logged in using ChatGPT"),
+            CommandResult(returncode=0, stdout=b"codex-cli 0.136.0"),
+        ]
+    )
+    calls = []
+
+    def runner(argv, **kwargs):
+        calls.append(tuple(argv))
+        return next(results)
+
+    status = ProviderStatusService(
+        explicit_paths={"codex": cli},
+        runner=runner,
+    ).get_status("codex")
+
+    assert status.state == "ready"
+    assert status.version == "0.136.0"
+    assert calls == [
+        (str(cli.resolve()), "login", "status"),
+        (str(cli.resolve()), "--version"),
+    ]
 
 
 def test_safe_path_is_rebuilt_only_from_validated_directories(tmp_path):
@@ -282,7 +429,7 @@ def test_login_launch_is_exact_and_only_uses_injected_visible_launcher(tmp_path)
     assert codex_result.launched is True
     assert claude_result.launched is True
     assert launched == [
-        (str(codex.resolve()), "--login"),
+        (str(codex.resolve()), "login"),
         (str(claude.resolve()), "auth", "login"),
     ]
 

@@ -11,8 +11,9 @@ The grouping algorithm is conservative:
 * the gap to the last detection in a proposal must be bounded;
 * conflicting track hints keep detections separate by default;
 * comparable boxes must pass either the IoU or centre-distance gate;
+* untracked spatial matches must remain compatible with the proposal seed;
 * temporal-only merging is allowed only when spatial evidence is unavailable
-  and the policy explicitly permits it.
+  and the policy explicitly permits a review-only singleton pair.
 
 All validation happens before grouping.  Therefore malformed input never
 produces a partial set of proposals.
@@ -21,9 +22,11 @@ produces a partial set of proposals.
 from __future__ import annotations
 
 import hashlib
+import heapq
 import json
 import math
 import re
+from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
@@ -40,6 +43,7 @@ MAX_PROVENANCE_BYTES = 64 * 1024
 MAX_PROVENANCE_DEPTH = 8
 MAX_PROVENANCE_ITEMS = 2_048
 MAX_TEXT_LENGTH = 4_096
+_SPATIAL_GRID_SIZE = 0.20
 
 _SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _ISSUE_TYPE_INPUT = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
@@ -89,7 +93,10 @@ class TemporalGroupingPolicy:
     min_iou: float = 0.10
     max_center_distance: float = 0.15
     strict_track_separation: bool = True
-    allow_temporal_only_without_spatial_hints: bool = True
+    # Time proximity alone is not evidence that two road observations are the
+    # same incident.  A caller may opt in for legacy/manual experiments, but
+    # the product-safe default requires a track or comparable image geometry.
+    allow_temporal_only_without_spatial_hints: bool = False
 
     def __post_init__(self) -> None:
         _finite_number(
@@ -191,6 +198,163 @@ class _ProposalBuilder:
         return self.detections[0].detection_id
 
 
+@dataclass(frozen=True)
+class _IndexedBuilderState:
+    revision: int
+    track_hint: Optional[str]
+    box_cells: Tuple[Tuple[int, int], ...]
+    center_cell: Optional[Tuple[int, int]]
+
+
+class _ActiveProposalIndex:
+    """Expiry, track, and coarse-spatial index for one canonical issue type.
+
+    The final compatibility decision still runs through ``_match_builder``.
+    The index only removes builders that cannot possibly win, so deterministic
+    ordering and proposal identities do not depend on set iteration order.
+    """
+
+    def __init__(self, *, max_gap_seconds: float) -> None:
+        self._max_gap_seconds = max_gap_seconds
+        self._active: Dict[str, _ProposalBuilder] = {}
+        self._states: Dict[str, _IndexedBuilderState] = {}
+        self._expiry_heap: List[Tuple[float, str, int]] = []
+        self._track_index: Dict[str, set[str]] = defaultdict(set)
+        self._box_cell_index: Dict[Tuple[int, int], set[str]] = defaultdict(set)
+        self._center_cell_index: Dict[
+            Tuple[int, int], set[str]
+        ] = defaultdict(set)
+        self._unboxed: set[str] = set()
+
+    def expire(self, timestamp_seconds: float) -> None:
+        cutoff = timestamp_seconds - self._max_gap_seconds
+        while self._expiry_heap and self._expiry_heap[0][0] < cutoff:
+            _, seed_id, revision = heapq.heappop(self._expiry_heap)
+            state = self._states.get(seed_id)
+            if state is None or state.revision != revision:
+                continue
+            self._remove(seed_id)
+
+    def add_or_update(self, builder: _ProposalBuilder) -> None:
+        seed_id = builder.seed_id
+        previous_state = self._states.get(seed_id)
+        revision = 1 if previous_state is None else previous_state.revision + 1
+        if previous_state is not None:
+            self._remove_from_secondary_indexes(seed_id, previous_state)
+
+        last = builder.last
+        box_cells = (
+            _box_grid_cells(last.normalized_box)
+            if last.normalized_box is not None
+            else ()
+        )
+        center_cell = (
+            _box_center_cell(last.normalized_box)
+            if last.normalized_box is not None
+            else None
+        )
+        state = _IndexedBuilderState(
+            revision=revision,
+            track_hint=last.track_hint,
+            box_cells=box_cells,
+            center_cell=center_cell,
+        )
+        self._active[seed_id] = builder
+        self._states[seed_id] = state
+        if state.track_hint is not None:
+            self._track_index[state.track_hint].add(seed_id)
+        if state.box_cells:
+            for cell in state.box_cells:
+                self._box_cell_index[cell].add(seed_id)
+            assert state.center_cell is not None
+            self._center_cell_index[state.center_cell].add(seed_id)
+        else:
+            self._unboxed.add(seed_id)
+        heapq.heappush(
+            self._expiry_heap,
+            (last.timestamp_seconds, seed_id, revision),
+        )
+
+    def candidate_builders(
+        self,
+        detection: _Detection,
+        policy: TemporalGroupingPolicy,
+    ) -> Tuple[_ProposalBuilder, ...]:
+        candidate_ids: set[str] = set()
+
+        # A matching track has the strongest match rank.  No spatial candidate
+        # can beat it, so the indexed track set is sufficient when non-empty.
+        if detection.track_hint is not None:
+            same_track = self._track_index.get(detection.track_hint, set())
+            if same_track:
+                candidate_ids.update(same_track)
+                return self._ordered_builders(candidate_ids)
+
+        if detection.normalized_box is not None:
+            if policy.min_iou == 0:
+                # With a zero IoU threshold every pair of boxes is formally
+                # compatible, so preserve that legacy policy exactly.
+                candidate_ids.update(
+                    seed_id
+                    for seed_id, state in self._states.items()
+                    if state.box_cells
+                )
+            else:
+                for cell in _box_grid_cells(detection.normalized_box):
+                    candidate_ids.update(self._box_cell_index.get(cell, ()))
+            for cell in _nearby_center_cells(
+                detection.normalized_box,
+                policy.max_center_distance,
+            ):
+                candidate_ids.update(self._center_cell_index.get(cell, ()))
+
+            if policy.allow_temporal_only_without_spatial_hints:
+                candidate_ids.update(self._unboxed)
+        elif policy.allow_temporal_only_without_spatial_hints:
+            # Explicit legacy/manual mode: without current geometry, any
+            # active builder may be a temporal-only candidate.
+            candidate_ids.update(self._active)
+
+        return self._ordered_builders(candidate_ids)
+
+    def _ordered_builders(
+        self,
+        seed_ids: set[str],
+    ) -> Tuple[_ProposalBuilder, ...]:
+        return tuple(
+            self._active[seed_id]
+            for seed_id in sorted(seed_ids)
+            if seed_id in self._active
+        )
+
+    def _remove(self, seed_id: str) -> None:
+        state = self._states.pop(seed_id, None)
+        self._active.pop(seed_id, None)
+        if state is not None:
+            self._remove_from_secondary_indexes(seed_id, state)
+
+    def _remove_from_secondary_indexes(
+        self,
+        seed_id: str,
+        state: _IndexedBuilderState,
+    ) -> None:
+        if state.track_hint is not None:
+            _discard_index_value(
+                self._track_index,
+                state.track_hint,
+                seed_id,
+            )
+        for cell in state.box_cells:
+            _discard_index_value(self._box_cell_index, cell, seed_id)
+        if state.center_cell is not None:
+            _discard_index_value(
+                self._center_cell_index,
+                state.center_cell,
+                seed_id,
+            )
+        self._unboxed.discard(seed_id)
+
+
 def group_temporal_incident_proposals(
     detections: Sequence[Mapping[str, Any]],
     *,
@@ -207,7 +371,8 @@ def group_temporal_incident_proposals(
 
     The returned dictionaries are transport-safe proposal records.  They are
     not approved incidents and cannot be projected into training data without
-    a separate user-review boundary.
+    a separate user-review boundary.  The default policy never merges two
+    detections solely because their timestamps are close.
     """
 
     effective_policy = policy or TemporalGroupingPolicy()
@@ -221,7 +386,7 @@ def group_temporal_incident_proposals(
         return []
 
     builders: List[_ProposalBuilder] = []
-    by_issue_type: Dict[str, List[_ProposalBuilder]] = {}
+    by_issue_type: Dict[str, _ActiveProposalIndex] = {}
     for detection in sorted(
         validated,
         key=lambda item: (
@@ -230,9 +395,19 @@ def group_temporal_incident_proposals(
             item.detection_id,
         ),
     ):
+        active_index = by_issue_type.get(detection.issue_type)
+        if active_index is None:
+            active_index = _ActiveProposalIndex(
+                max_gap_seconds=effective_policy.max_gap_seconds,
+            )
+            by_issue_type[detection.issue_type] = active_index
+        active_index.expire(detection.timestamp_seconds)
         candidates: List[Tuple[Tuple[float, ...], str, _ProposalBuilder, _Match]] = []
-        for builder in by_issue_type.get(detection.issue_type, []):
-            match = _match(builder.last, detection, effective_policy)
+        for builder in active_index.candidate_builders(
+            detection,
+            effective_policy,
+        ):
+            match = _match_builder(builder, detection, effective_policy)
             if match is not None:
                 candidates.append(
                     (match.rank, builder.seed_id, builder, match)
@@ -244,7 +419,7 @@ def group_temporal_incident_proposals(
                 detections=[detection],
             )
             builders.append(builder)
-            by_issue_type.setdefault(detection.issue_type, []).append(builder)
+            active_index.add_or_update(builder)
             continue
 
         _, _, builder, match = min(
@@ -271,6 +446,7 @@ def group_temporal_incident_proposals(
                 ),
             }
         )
+        active_index.add_or_update(builder)
 
     proposals = [
         _serialize_proposal(
@@ -422,6 +598,64 @@ def _validated_detections(
     return validated
 
 
+def _match_builder(
+    builder: _ProposalBuilder,
+    current: _Detection,
+    policy: TemporalGroupingPolicy,
+) -> Optional[_Match]:
+    """Match against the latest evidence without permitting transitive drift.
+
+    Consecutive centre-distance matches alone can otherwise chain an incident
+    across the frame (A near B, B near C, while A is unrelated to C).  Stable
+    identical track hints may move freely.  Every other multi-frame merge must
+    also remain compatible with the proposal seed.  Explicit temporal-only
+    mode is limited to a singleton pair because it has no stable identity
+    evidence with which to anchor a longer proposal.
+    """
+
+    latest_match = _match(builder.last, current, policy)
+    if latest_match is None or len(builder.detections) == 1:
+        return latest_match
+    if latest_match.reason == "same_track_hint":
+        return latest_match
+    if latest_match.reason == "bounded_gap_without_comparable_spatial_hint":
+        return None
+
+    if not _has_identity_evidence(
+        builder.detections[0],
+        current,
+        policy,
+    ):
+        return None
+    return latest_match
+
+
+def _has_identity_evidence(
+    previous: _Detection,
+    current: _Detection,
+    policy: TemporalGroupingPolicy,
+) -> bool:
+    both_tracks = (
+        previous.track_hint is not None and current.track_hint is not None
+    )
+    if both_tracks:
+        if previous.track_hint == current.track_hint:
+            return True
+        if policy.strict_track_separation:
+            return False
+    if previous.normalized_box is None or current.normalized_box is None:
+        return False
+    return (
+        _box_iou(previous.normalized_box, current.normalized_box)
+        >= policy.min_iou
+        or _box_center_distance(
+            previous.normalized_box,
+            current.normalized_box,
+        )
+        <= policy.max_center_distance
+    )
+
+
 def _match(
     previous: _Detection,
     current: _Detection,
@@ -559,6 +793,74 @@ def _serialize_proposal(
             "grouping_policy": policy_dict,
         },
     }
+
+
+def _discard_index_value(
+    index: Dict[Any, set[str]],
+    key: Any,
+    seed_id: str,
+) -> None:
+    values = index.get(key)
+    if values is None:
+        return
+    values.discard(seed_id)
+    if not values:
+        index.pop(key, None)
+
+
+def _grid_index(coordinate: float) -> int:
+    bounded = min(max(coordinate, 0.0), math.nextafter(1.0, 0.0))
+    return min(
+        int(math.floor(bounded / _SPATIAL_GRID_SIZE)),
+        int(1.0 / _SPATIAL_GRID_SIZE) - 1,
+    )
+
+
+def _box_grid_cells(
+    box: Mapping[str, float],
+) -> Tuple[Tuple[int, int], ...]:
+    left = _grid_index(box["x"])
+    top = _grid_index(box["y"])
+    right = _grid_index(
+        math.nextafter(box["x"] + box["width"], -math.inf)
+    )
+    bottom = _grid_index(
+        math.nextafter(box["y"] + box["height"], -math.inf)
+    )
+    return tuple(
+        (x_index, y_index)
+        for x_index in range(left, right + 1)
+        for y_index in range(top, bottom + 1)
+    )
+
+
+def _box_center_cell(
+    box: Mapping[str, float],
+) -> Tuple[int, int]:
+    return (
+        _grid_index(box["x"] + box["width"] / 2.0),
+        _grid_index(box["y"] + box["height"] / 2.0),
+    )
+
+
+def _nearby_center_cells(
+    box: Mapping[str, float],
+    maximum_distance: float,
+) -> Tuple[Tuple[int, int], ...]:
+    center_x, center_y = _box_center_cell(box)
+    radius = int(math.ceil(maximum_distance / _SPATIAL_GRID_SIZE)) + 1
+    maximum_index = int(1.0 / _SPATIAL_GRID_SIZE) - 1
+    return tuple(
+        (x_index, y_index)
+        for x_index in range(
+            max(0, center_x - radius),
+            min(maximum_index, center_x + radius) + 1,
+        )
+        for y_index in range(
+            max(0, center_y - radius),
+            min(maximum_index, center_y + radius) + 1,
+        )
+    )
 
 
 def _validated_box(

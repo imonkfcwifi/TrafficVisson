@@ -1,8 +1,8 @@
-"""Offline ONNX Grounding DINO worker for TrafficVisson.
+"""Offline ONNX Grounding DINO worker for TrafficSuperVision.
 
 The executable produced from this module reads one bounded request from stdin
 and writes one bounded response to stdout.  It does not accept command-line
-paths, download models, persist labels, or write TrafficVisson state.
+paths, download models, persist labels, or write TrafficSuperVision state.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from uuid import UUID
 
 REQUEST_SCHEMA = "trafficvisson.command-proposal-request.v1"
 RESPONSE_SCHEMA = "trafficvisson.command-proposal-response.v1"
-MODEL_MANIFEST_SCHEMA = "trafficvisson.command-proposal-model-pack.v1"
+MODEL_MANIFEST_SCHEMA = "trafficvisson.command-proposal-model-pack.v2"
 MAX_REQUEST_BYTES = 2 * 1024 * 1024
 MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 MAX_IMAGE_BYTES = 24 * 1024 * 1024

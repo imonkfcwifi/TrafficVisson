@@ -375,7 +375,7 @@ def test_evaluator_exports_review_only_boxes_and_preserves_all_stores(
     output = (
         tmp_path
         / "EvaluationProgramData"
-        / "TrafficVisson"
+        / "TrafficSuperVision"
         / "ModelEvaluations"
         / "grounding-dino-fixture"
     )
@@ -523,7 +523,7 @@ def test_completed_job_command_uses_all_candidates_and_only_fixed_prompts(
     output = (
         tmp_path
         / "EvaluationProgramData"
-        / "TrafficVisson"
+        / "TrafficSuperVision"
         / "ModelEvaluations"
         / "grounding-dino-job-command-fixture"
     )

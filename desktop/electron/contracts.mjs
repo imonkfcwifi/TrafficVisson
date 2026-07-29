@@ -25,9 +25,25 @@ export const IPC_CHANNELS = Object.freeze({
   ANALYSIS_GET: "trafficvisson:analysis:get",
   ANALYSIS_CANCEL: "trafficvisson:analysis:cancel",
   ANALYSIS_PAUSE: "trafficvisson:analysis:pause",
+  DENSE_INDEX_START: "trafficvisson:dense-index:start",
+  DENSE_INDEX_LIST: "trafficvisson:dense-index:list",
+  DENSE_INDEX_GET: "trafficvisson:dense-index:get",
+  DENSE_INDEX_CANCEL: "trafficvisson:dense-index:cancel",
+  PIPELINE_PROFILE_CONFIGURE: "trafficvisson:pipeline:profile-configure",
+  PIPELINE_PROFILE_GET: "trafficvisson:pipeline:profile-get",
+  PIPELINE_START: "trafficvisson:pipeline:start",
+  PIPELINE_LIST: "trafficvisson:pipeline:list",
+  PIPELINE_GET: "trafficvisson:pipeline:get",
+  PIPELINE_CANCEL: "trafficvisson:pipeline:cancel",
+  PIPELINE_RESUME: "trafficvisson:pipeline:resume",
+  PIPELINE_REVIEW_COMPLETE: "trafficvisson:pipeline:review-complete",
   CANDIDATE_QUESTIONS_LIST:
     "trafficvisson:candidate-questions:list",
   CANDIDATE_ANSWER: "trafficvisson:candidate-questions:answer",
+  MASK_REFINEMENT_CAPABILITY:
+    "trafficvisson:mask-refinement:capability",
+  MASK_REFINEMENT_REQUEST:
+    "trafficvisson:mask-refinement:request",
   INCIDENT_LIST: "trafficvisson:incidents:list",
   AUTO_LABEL_COMPILE: "trafficvisson:auto-labeling:compile",
   AUTO_LABEL_RUN: "trafficvisson:auto-labeling:run",
@@ -39,9 +55,13 @@ export const IPC_CHANNELS = Object.freeze({
   DATASET_LIST: "trafficvisson:datasets:list",
   DATASET_CREATE: "trafficvisson:datasets:create",
   SOURCE_CANDIDATES_LIST: "trafficvisson:source-candidates:list",
+  WEAK_CASE_SOURCES_LIST:
+    "trafficvisson:weak-cases:sources-list",
+  WEAK_CASE_SEARCH: "trafficvisson:weak-cases:search",
   QUESTIONS_LIST: "trafficvisson:questions:list",
   QUESTION_ANSWER: "trafficvisson:questions:answer",
   HISTORY_GET: "trafficvisson:history:get",
+  RUNTIME_READINESS: "trafficvisson:runtime:readiness",
   GPX_TRACK_IMPORT: "trafficvisson:gpx-track:import",
   GPX_TRACK_GET: "trafficvisson:gpx-track:get",
   GPX_TRACK_OFFSET: "trafficvisson:gpx-track:offset",
@@ -185,7 +205,17 @@ const REVIEW_ISSUE_ALIASES = Object.freeze({
   colored_guidance_line_faded: "colored_guidance_faded",
 });
 
-function reviewIssueType(value, label, { allowOther = false } = {}) {
+function reviewIssueType(
+  value,
+  label,
+  { allowOther = false, optional = false } = {},
+) {
+  if (
+    optional &&
+    (value === undefined || value === null || value === "")
+  ) {
+    return undefined;
+  }
   const normalized =
     typeof value === "string"
       ? REVIEW_ISSUE_ALIASES[value] ?? value
@@ -393,6 +423,7 @@ export function validateIpcPayload(channel, payload) {
     channel === IPC_CHANNELS.HEALTH ||
     channel === IPC_CHANNELS.PROJECT_LIST ||
     channel === IPC_CHANNELS.SOURCE_CANDIDATES_LIST ||
+    channel === IPC_CHANNELS.RUNTIME_READINESS ||
     channel === IPC_CHANNELS.PROVIDERS_LIST ||
     channel === IPC_CHANNELS.HWP_PREFLIGHT
   ) {
@@ -596,6 +627,194 @@ export function validateIpcPayload(channel, payload) {
     };
   }
 
+  if (channel === IPC_CHANNELS.DENSE_INDEX_START) {
+    const value = record(payload, [
+      "projectId",
+      "analysisJobId",
+      "samplingFps",
+      "confirmReviewOnly",
+    ]);
+    if (
+      !Number.isSafeInteger(value.samplingFps) ||
+      value.samplingFps < 1 ||
+      value.samplingFps > 5
+    ) {
+      throw new IpcValidationError(
+        "samplingFps must be an integer from 1 to 5",
+      );
+    }
+    if (value.confirmReviewOnly !== true) {
+      throw new IpcValidationError(
+        "confirmReviewOnly must be explicitly true",
+      );
+    }
+    return {
+      projectId: uuid(value.projectId, "projectId"),
+      analysisJobId: uuid(
+        value.analysisJobId,
+        "analysisJobId",
+      ),
+      samplingFps: value.samplingFps,
+      confirmReviewOnly: true,
+    };
+  }
+
+  if (channel === IPC_CHANNELS.DENSE_INDEX_LIST) {
+    const value = record(payload, ["projectId"]);
+    return {
+      projectId: uuid(value.projectId, "projectId"),
+    };
+  }
+
+  if (
+    channel === IPC_CHANNELS.DENSE_INDEX_GET ||
+    channel === IPC_CHANNELS.DENSE_INDEX_CANCEL
+  ) {
+    const value = record(payload, ["projectId", "jobId"]);
+    return {
+      projectId: uuid(value.projectId, "projectId"),
+      jobId: uuid(value.jobId, "jobId"),
+    };
+  }
+
+  if (channel === IPC_CHANNELS.PIPELINE_PROFILE_CONFIGURE) {
+    const value = record(payload, [
+      "projectId",
+      "questionPolicy",
+      "reviewMode",
+      "defaultTemplateId",
+      "defaultTemplateSha256",
+      "detectorPackId",
+      "ocrPackId",
+      "sam2PackId",
+      "reportProvider",
+      "outputLocationId",
+      "candidateRescanFps",
+    ]);
+    const digest = text(
+      value.defaultTemplateSha256,
+      "defaultTemplateSha256",
+      { min: 64, max: 64 },
+    );
+    if (!/^[a-f0-9]{64}$/.test(digest)) {
+      throw new IpcValidationError(
+        "defaultTemplateSha256 must be a lowercase SHA-256 value",
+      );
+    }
+    if (
+      !Number.isSafeInteger(value.candidateRescanFps) ||
+      value.candidateRescanFps < 5 ||
+      value.candidateRescanFps > 10
+    ) {
+      throw new IpcValidationError(
+        "candidateRescanFps must be an integer from 5 to 10",
+      );
+    }
+    return {
+      projectId: uuid(value.projectId, "projectId"),
+      questionPolicy: enumValue(
+        value.questionPolicy,
+        "questionPolicy",
+        ["learning_assist", "full_review", "quick_review"],
+      ),
+      reviewMode: enumValue(
+        value.reviewMode,
+        "reviewMode",
+        ["precision", "quick"],
+      ),
+      defaultTemplateId: safeId(
+        value.defaultTemplateId,
+        "defaultTemplateId",
+      ),
+      defaultTemplateSha256: digest,
+      detectorPackId: safeId(value.detectorPackId, "detectorPackId"),
+      ocrPackId: safeId(value.ocrPackId, "ocrPackId"),
+      sam2PackId: safeId(value.sam2PackId, "sam2PackId"),
+      reportProvider: enumValue(
+        value.reportProvider,
+        "reportProvider",
+        ["codex", "claude", "local", "none"],
+      ),
+      outputLocationId: safeId(
+        value.outputLocationId,
+        "outputLocationId",
+      ),
+      candidateRescanFps: value.candidateRescanFps,
+    };
+  }
+
+  if (
+    channel === IPC_CHANNELS.PIPELINE_PROFILE_GET ||
+    channel === IPC_CHANNELS.PIPELINE_LIST
+  ) {
+    const value = record(payload, ["projectId"]);
+    return {
+      projectId: uuid(value.projectId, "projectId"),
+    };
+  }
+
+  if (channel === IPC_CHANNELS.PIPELINE_START) {
+    const value = record(payload, [
+      "projectId",
+      "snapshotId",
+      "fileName",
+      "rightsConfirmed",
+      "idempotencyKey",
+    ]);
+    const fileName = text(value.fileName, "fileName", { max: 255 });
+    if (/[\\/]/.test(fileName)) {
+      throw new IpcValidationError("fileName must not contain a path");
+    }
+    if (value.rightsConfirmed !== true) {
+      throw new IpcValidationError(
+        "rightsConfirmed must be explicitly true",
+      );
+    }
+    const idempotencyKey = text(
+      value.idempotencyKey,
+      "idempotencyKey",
+      { min: 16, max: 128 },
+    );
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$/.test(idempotencyKey)) {
+      throw new IpcValidationError("idempotencyKey is invalid");
+    }
+    return {
+      projectId: uuid(value.projectId, "projectId"),
+      snapshotId: uuid(value.snapshotId, "snapshotId"),
+      fileName,
+      rightsConfirmed: true,
+      idempotencyKey,
+    };
+  }
+
+  if (
+    channel === IPC_CHANNELS.PIPELINE_GET ||
+    channel === IPC_CHANNELS.PIPELINE_CANCEL ||
+    channel === IPC_CHANNELS.PIPELINE_RESUME
+  ) {
+    const value = record(payload, ["projectId", "jobId"]);
+    return {
+      projectId: uuid(value.projectId, "projectId"),
+      jobId: uuid(value.jobId, "jobId"),
+    };
+  }
+
+  if (channel === IPC_CHANNELS.PIPELINE_REVIEW_COMPLETE) {
+    const value = record(payload, [
+      "projectId",
+      "jobId",
+      "reviewCompletionId",
+    ]);
+    return {
+      projectId: uuid(value.projectId, "projectId"),
+      jobId: uuid(value.jobId, "jobId"),
+      reviewCompletionId: safeId(
+        value.reviewCompletionId,
+        "reviewCompletionId",
+      ),
+    };
+  }
+
   if (channel === IPC_CHANNELS.CANDIDATE_QUESTIONS_LIST) {
     const value = record(payload, ["projectId", "jobId"]);
     return {
@@ -623,11 +842,58 @@ export function validateIpcPayload(channel, payload) {
     };
   }
 
+  if (
+    channel === IPC_CHANNELS.MASK_REFINEMENT_CAPABILITY ||
+    channel === IPC_CHANNELS.MASK_REFINEMENT_REQUEST
+  ) {
+    const allowedKeys = [
+      "projectId",
+      "jobId",
+      "questionId",
+      "candidateId",
+      ...(channel === IPC_CHANNELS.MASK_REFINEMENT_REQUEST
+        ? ["click"]
+        : []),
+    ];
+    const value = record(payload, allowedKeys);
+    const candidateId = text(value.candidateId, "candidateId", {
+      min: 20,
+      max: 20,
+    });
+    if (!/^[a-f0-9]{20}$/.test(candidateId)) {
+      throw new IpcValidationError(
+        "candidateId must be a lowercase candidate identifier",
+      );
+    }
+    const result = {
+      projectId: uuid(value.projectId, "projectId"),
+      jobId: uuid(value.jobId, "jobId"),
+      questionId: uuid(value.questionId, "questionId"),
+      candidateId,
+    };
+    if (channel === IPC_CHANNELS.MASK_REFINEMENT_REQUEST) {
+      const click = record(value.click, ["x", "y"], "click");
+      result.click = {
+        x: finiteNumber(click.x, "click.x", {
+          minimum: 0,
+          maximum: 1,
+        }),
+        y: finiteNumber(click.y, "click.y", {
+          minimum: 0,
+          maximum: 1,
+        }),
+      };
+    }
+    return result;
+  }
+
   if (channel === IPC_CHANNELS.CANDIDATE_ANSWER) {
     const value = record(payload, [
       "projectId",
       "jobId",
       "candidateId",
+      "questionId",
+      "maskRefinementId",
       "answer",
       "selectedIssueType",
       "severity",
@@ -681,28 +947,43 @@ export function validateIpcPayload(channel, payload) {
       "edit",
       "skipped",
     ]);
-    if (answer === "edit" && !normalizedBox) {
+    const maskRefinementId = text(
+      value.maskRefinementId,
+      "maskRefinementId",
+      { min: 28, max: 28, optional: true },
+    );
+    if (
+      maskRefinementId !== undefined &&
+      !/^smr_[a-f0-9]{24}$/.test(maskRefinementId)
+    ) {
+      throw new IpcValidationError("maskRefinementId is invalid");
+    }
+    const questionId =
+      value.questionId === undefined
+        ? undefined
+        : uuid(value.questionId, "questionId");
+    if (
+      answer === "edit" &&
+      (Boolean(normalizedBox) === Boolean(maskRefinementId))
+    ) {
       throw new IpcValidationError(
-        "normalizedBox is required for an edited answer",
+        "edited answer requires exactly one trusted geometry source",
       );
     }
-    const selectedIssueType = enumValue(
+    if (maskRefinementId && !questionId) {
+      throw new IpcValidationError(
+        "questionId is required for a mask refinement",
+      );
+    }
+    if (questionId && !maskRefinementId) {
+      throw new IpcValidationError(
+        "questionId is accepted only with a mask refinement",
+      );
+    }
+    const selectedIssueType = reviewIssueType(
       value.selectedIssueType,
       "selectedIssueType",
-      [
-        "pothole",
-        "road_surface_damage",
-        "road_debris",
-        "median_barrier_damage",
-        "sign_vegetation_occlusion",
-        "roadside_mowing_required",
-        "sign_identity",
-        "tunnel_identity",
-        "lane_marking_faded",
-        "color_guidance_line_faded",
-        "other",
-      ],
-      { optional: true },
+      { allowOther: true, optional: true },
     );
     const severity = enumValue(
       value.severity,
@@ -730,7 +1011,9 @@ export function validateIpcPayload(channel, payload) {
         severity ||
         maintenanceAction ||
         ocrText ||
-        normalizedBox)
+        normalizedBox ||
+        maskRefinementId ||
+        questionId)
     ) {
       throw new IpcValidationError(
         "non-positive answers cannot contain positive label details",
@@ -740,6 +1023,8 @@ export function validateIpcPayload(channel, payload) {
       projectId: uuid(value.projectId, "projectId"),
       jobId: uuid(value.jobId, "jobId"),
       candidateId,
+      questionId,
+      maskRefinementId,
       answer,
       selectedIssueType,
       severity,
@@ -754,23 +1039,10 @@ export function validateIpcPayload(channel, payload) {
     return {
       projectId: uuid(value.projectId, "projectId"),
       command: text(value.command, "command", { min: 3, max: 500 }),
-      issueType: enumValue(
+      issueType: reviewIssueType(
         value.issueType,
         "issueType",
-        [
-          "pothole",
-          "road_surface_damage",
-          "road_debris",
-          "median_barrier_damage",
-          "sign_vegetation_occlusion",
-          "roadside_mowing_required",
-          "lane_marking_faded",
-          "color_guidance_line_faded",
-          "sign_identity",
-          "tunnel_identity",
-          "other",
-        ],
-        { optional: true },
+        { allowOther: true, optional: true },
       ),
     };
   }
@@ -816,19 +1088,11 @@ export function validateIpcPayload(channel, payload) {
       jobId,
       recipeId,
       command: text(value.command, "command", { min: 3, max: 500 }),
-      issueType: enumValue(value.issueType, "issueType", [
-        "pothole",
-        "road_surface_damage",
-        "road_debris",
-        "median_barrier_damage",
-        "sign_vegetation_occlusion",
-        "roadside_mowing_required",
-        "lane_marking_faded",
-        "color_guidance_line_faded",
-        "sign_identity",
-        "tunnel_identity",
-        "other",
-      ]),
+      issueType: reviewIssueType(
+        value.issueType,
+        "issueType",
+        { allowOther: true },
+      ),
       scope,
       mode: enumValue(value.mode, "mode", [
         "proposal_only",
@@ -1105,10 +1369,43 @@ export function validateIpcPayload(channel, payload) {
 
   if (
     channel === IPC_CHANNELS.LABEL_STATS ||
-    channel === IPC_CHANNELS.DATASET_LIST
+    channel === IPC_CHANNELS.DATASET_LIST ||
+    channel === IPC_CHANNELS.WEAK_CASE_SOURCES_LIST
   ) {
     const value = record(payload, ["projectId"]);
     return { projectId: uuid(value.projectId, "projectId") };
+  }
+
+  if (channel === IPC_CHANNELS.WEAK_CASE_SEARCH) {
+    const value = record(payload, [
+      "projectId",
+      "issueType",
+      "queryText",
+      "limit",
+    ]);
+    const issueType = reviewIssueType(
+      value.issueType,
+      "issueType",
+      { optional: true },
+    );
+    const queryText = text(value.queryText, "queryText", {
+      max: 240,
+      optional: true,
+    });
+    if (!issueType && !queryText) {
+      throw new IpcValidationError(
+        "weak-case search requires issueType or queryText",
+      );
+    }
+    return {
+      projectId: uuid(value.projectId, "projectId"),
+      issueType,
+      queryText,
+      limit: safeCount(value.limit ?? 5, "limit", {
+        minimum: 3,
+        maximum: 5,
+      }),
+    };
   }
 
   if (channel === IPC_CHANNELS.DATASET_CREATE) {
@@ -1268,111 +1565,33 @@ export function validateIpcPayload(channel, payload) {
   if (channel === IPC_CHANNELS.REPORT_GENERATE) {
     const value = record(payload, [
       "projectId",
+      "analysisJobId",
+      "sourceFileSha256",
+      "pipelineJobId",
+      "pipelineInputFingerprint",
+      "pipelineProfileSha256",
       "provider",
       "consent",
       "projectLabel",
-      "approvedIncidents",
+      "incidentIds",
       "documentStructureSummary",
       "mapRefs",
     ]);
-    if (
-      !Array.isArray(value.approvedIncidents) ||
-      value.approvedIncidents.length < 1 ||
-      value.approvedIncidents.length > 200
-    ) {
+    const incidentIds = stringArray(value.incidentIds, "incidentIds", {
+      maxItems: 200,
+      itemMax: 36,
+    }).map((incidentId, index) =>
+      uuid(incidentId, `incidentIds[${index}]`),
+    );
+    if (incidentIds.length < 1) {
       throw new IpcValidationError(
-        "approvedIncidents must contain 1 to 200 reviewed incidents",
+        "incidentIds must contain 1 to 200 approved incident IDs",
       );
     }
-    const approvedIncidents = value.approvedIncidents.map((raw, index) => {
-      const incident = record(
-        raw,
-        [
-          "incidentId",
-          "reviewState",
-          "incidentType",
-          "severity",
-          "maintenanceAction",
-          "ocrText",
-          "locationSummary",
-          "timeMs",
-          "evidenceRefs",
-        ],
-        `approvedIncidents[${index}]`,
-      );
-      const evidenceRefs = stringArray(
-        incident.evidenceRefs,
-        `approvedIncidents[${index}].evidenceRefs`,
-        { maxItems: 8, itemMax: 128 },
-      );
-      if (
-        evidenceRefs.length < 1 ||
-        new Set(evidenceRefs).size !== evidenceRefs.length ||
-        evidenceRefs.some(
-          (item) =>
-            !/^(?:deid|evidence|analysis):[A-Za-z0-9][A-Za-z0-9._:-]{0,117}$/.test(
-              item,
-            ),
-        )
-      ) {
-        throw new IpcValidationError(
-          `approvedIncidents[${index}].evidenceRefs contains an invalid reference`,
-        );
-      }
-      const timeMs = incident.timeMs;
-      if (
-        timeMs !== undefined &&
-        (!Number.isInteger(timeMs) ||
-          timeMs < 0 ||
-          timeMs > 2_678_400_000)
-      ) {
-        throw new IpcValidationError(
-          `approvedIncidents[${index}].timeMs is outside the safe range`,
-        );
-      }
-      return {
-        incidentId: uuid(
-          incident.incidentId,
-          `approvedIncidents[${index}].incidentId`,
-        ),
-        reviewState: enumValue(
-          incident.reviewState,
-          `approvedIncidents[${index}].reviewState`,
-          ["approved"],
-        ),
-        incidentType: safeId(
-          incident.incidentType,
-          `approvedIncidents[${index}].incidentType`,
-        ),
-        severity: enumValue(
-          incident.severity,
-          `approvedIncidents[${index}].severity`,
-          ["minor", "moderate", "major", "urgent"],
-        ),
-        maintenanceAction: text(
-          incident.maintenanceAction,
-          `approvedIncidents[${index}].maintenanceAction`,
-          { max: 1_000 },
-        ),
-        ocrText: text(
-          incident.ocrText,
-          `approvedIncidents[${index}].ocrText`,
-          { max: 1_000, optional: true },
-        ),
-        locationSummary: text(
-          incident.locationSummary,
-          `approvedIncidents[${index}].locationSummary`,
-          { max: 500, optional: true },
-        ),
-        timeMs,
-        evidenceRefs,
-      };
-    });
     if (
-      new Set(approvedIncidents.map((item) => item.incidentId)).size !==
-      approvedIncidents.length
+      new Set(incidentIds).size !== incidentIds.length
     ) {
-      throw new IpcValidationError("approvedIncidents must be unique");
+      throw new IpcValidationError("incidentIds must be unique");
     }
     const structure = record(
       value.documentStructureSummary,
@@ -1424,15 +1643,63 @@ export function validateIpcPayload(channel, payload) {
     ) {
       throw new IpcValidationError("mapRefs contains an invalid reference");
     }
+    const sourceFileSha256 = text(
+      value.sourceFileSha256,
+      "sourceFileSha256",
+      { min: 64, max: 64 },
+    );
+    if (!/^[a-f0-9]{64}$/.test(sourceFileSha256)) {
+      throw new IpcValidationError(
+        "sourceFileSha256 must be a lowercase SHA-256 value",
+      );
+    }
+    const rawPipelineBinding = [
+      value.pipelineJobId,
+      value.pipelineInputFingerprint,
+      value.pipelineProfileSha256,
+    ];
+    if (
+      rawPipelineBinding.some((item) => item !== undefined) &&
+      rawPipelineBinding.some((item) => item === undefined)
+    ) {
+      throw new IpcValidationError(
+        "pipeline provenance must be supplied as one complete binding",
+      );
+    }
+    const pipelineJobId =
+      value.pipelineJobId === undefined
+        ? undefined
+        : uuid(value.pipelineJobId, "pipelineJobId");
+    const pipelineDigest = (raw, label) => {
+      if (raw === undefined) return undefined;
+      const digest = text(raw, label, { min: 64, max: 64 });
+      if (!/^[a-f0-9]{64}$/.test(digest)) {
+        throw new IpcValidationError(
+          `${label} must be a lowercase SHA-256 value`,
+        );
+      }
+      return digest;
+    };
     return {
       projectId: uuid(value.projectId, "projectId"),
+      analysisJobId: uuid(value.analysisJobId, "analysisJobId"),
+      sourceFileSha256,
+      pipelineJobId,
+      pipelineInputFingerprint: pipelineDigest(
+        value.pipelineInputFingerprint,
+        "pipelineInputFingerprint",
+      ),
+      pipelineProfileSha256: pipelineDigest(
+        value.pipelineProfileSha256,
+        "pipelineProfileSha256",
+      ),
       provider: enumValue(value.provider, "provider", ["codex", "claude"]),
       consent: bool(value.consent, "consent"),
       projectLabel: text(value.projectLabel, "projectLabel", {
         max: 200,
         optional: true,
       }),
-      approvedIncidents,
+      incidentIds,
       documentStructureSummary: {
         documentSnapshotId: safeId(
           structure.documentSnapshotId,
@@ -1476,8 +1743,13 @@ export function validateIpcPayload(channel, payload) {
   }
 
   if (channel === IPC_CHANNELS.HWP_PREVIEW || channel === IPC_CHANNELS.HWP_APPLY) {
-    const value = record(payload, ["projectId", "documentSelectionId", "plan"]);
-    return {
+    const value = record(
+      payload,
+      channel === IPC_CHANNELS.HWP_APPLY
+        ? ["projectId", "documentSelectionId", "plan", "approvalToken"]
+        : ["projectId", "documentSelectionId", "plan"],
+    );
+    const normalized = {
       projectId: uuid(value.projectId, "projectId"),
       documentSelectionId: uuid(
         value.documentSelectionId,
@@ -1485,6 +1757,19 @@ export function validateIpcPayload(channel, payload) {
       ),
       plan: validatePlan(value.plan),
     };
+    if (channel === IPC_CHANNELS.HWP_APPLY) {
+      const approvalToken = text(value.approvalToken, "approvalToken", {
+        min: 64,
+        max: 64,
+      });
+      if (!/^[a-f0-9]{64}$/.test(approvalToken)) {
+        throw new IpcValidationError(
+          "approvalToken must be an opaque lowercase token",
+        );
+      }
+      normalized.approvalToken = approvalToken;
+    }
+    return normalized;
   }
 
   if (channel === IPC_CHANNELS.HWP_ROLLBACK) {

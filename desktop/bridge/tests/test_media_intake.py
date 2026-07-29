@@ -701,7 +701,7 @@ def test_explicit_hash_job_streams_chunks_and_returns_both_hex_forms(
     directory = tmp_path / "hash & whoami"
     directory.mkdir()
     media_name = "trip & whoami.mp4"
-    payload = (b"TrafficVisson-real-media-" * 200_000) + b"tail"
+    payload = (b"TrafficSuperVision-real-media-" * 200_000) + b"tail"
     media = directory / media_name
     media.write_bytes(payload)
     stable_snapshot_id = _confirm_stable(client, auth, directory)

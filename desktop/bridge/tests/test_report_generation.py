@@ -14,6 +14,8 @@ from app.report_generation import (
     GenerationCommandResult,
     InvalidModelOutput,
     InvalidRedactedPayload,
+    ProviderAuthenticationExpiredError,
+    ProviderNetworkError,
     ProviderNotReadyError,
     ReportGenerationError,
     ReportGenerationService,
@@ -140,7 +142,15 @@ def test_codex_jsonl_generates_bounded_draft_and_plan(tmp_path: Path) -> None:
     assert result["draft"]["sections"][0]["incident_ids"] == ["INC-001"]
     assert result["plan"]["operations"][0]["type"] == "fill_text"
     argv, call = runner.calls[0]
-    assert argv[1:] == ("exec", "--json", "-")
+    assert argv[1:] == (
+        "exec",
+        "--json",
+        "--sandbox",
+        "read-only",
+        "--skip-git-repo-check",
+        "--ephemeral",
+        "-",
+    )
     assert call["env"] == {"SYSTEMROOT": r"C:\Windows"}
     assert b"raw_video" not in call["stdin"]
     assert b"Never request tools" in call["stdin"]
@@ -164,8 +174,9 @@ def test_claude_uses_noninteractive_json_schema_flags(tmp_path: Path) -> None:
     argv, _ = runner.calls[0]
     assert argv[1:4] == ("-p", "--output-format", "json")
     assert "--json-schema" in argv
-    assert "--max-turns" in argv
+    assert "--max-turns" not in argv
     assert "--tools" in argv
+    assert "--no-session-persistence" in argv
     assert result["model"] == "claude-sonnet-4-5"
 
 
@@ -307,6 +318,35 @@ def test_cancelled_is_caller_safe(tmp_path: Path) -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("stderr", "error_type"),
+    [
+        (
+            b"401 Unauthorized: failed to refresh token user@example.com",
+            ProviderAuthenticationExpiredError,
+        ),
+        (
+            b"network is unreachable at C:\\secret\\provider",
+            ProviderNetworkError,
+        ),
+    ],
+)
+def test_provider_auth_and_network_failures_are_distinct_and_scrubbed(
+    tmp_path: Path,
+    stderr: bytes,
+    error_type,
+) -> None:
+    runner = Runner(
+        GenerationCommandResult(returncode=1, stderr=stderr)
+    )
+
+    with pytest.raises(error_type) as caught:
+        service(tmp_path, runner).generate("codex", payload())
+
+    assert "example.com" not in str(caught.value)
+    assert "secret" not in str(caught.value).casefold()
+
+
 def test_real_runner_kills_timeout_with_bounded_error_output() -> None:
     result = run_generation_command(
         [sys.executable, "-c", "import time; time.sleep(5)"],
@@ -331,6 +371,30 @@ def test_real_runner_kills_when_output_limit_is_exceeded() -> None:
     )
     assert result.output_truncated is True
     assert len(result.stdout) <= 8 * 1024
+
+
+def test_real_runner_uses_an_empty_ephemeral_working_directory() -> None:
+    result = run_generation_command(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import json, os; "
+                "print(json.dumps({'cwd': os.path.basename(os.getcwd()), "
+                "'entries': os.listdir('.')}))"
+            ),
+        ],
+        stdin=b"",
+        timeout_seconds=5,
+        output_limit_bytes=16 * 1024,
+        env={},
+        cancel_event=None,
+    )
+    observed = json.loads(result.stdout)
+
+    assert result.returncode == 0
+    assert observed["cwd"].startswith("trafficvisson-report-provider-")
+    assert observed["entries"] == []
 
 
 def test_provider_must_be_ready_and_runner_is_not_called(tmp_path: Path) -> None:
@@ -383,7 +447,15 @@ def test_windows_npm_cmd_is_resolved_to_node_entry_without_shell(
     svc.generate("codex", payload())
     argv, kwargs = runner.calls[0]
     assert argv[:2] == (str(node.resolve()), str(entry.resolve()))
-    assert argv[2:] == ("exec", "--json", "-")
+    assert argv[2:] == (
+        "exec",
+        "--json",
+        "--sandbox",
+        "read-only",
+        "--skip-git-repo-check",
+        "--ephemeral",
+        "-",
+    )
     assert kwargs["env"]["SYSTEMROOT"] == r"C:\Windows"
 
 

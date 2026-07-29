@@ -21,10 +21,10 @@ const workRoot = path.join(buildRoot, "command-proposal-runner-work");
 const distRoot = path.join(buildRoot, "command-proposal-runner-dist");
 const sourceRoot = path.join(desktopRoot, "vision-runner");
 const sourceModelRoot = path.resolve(
-  process.env.TRAFFICVISSON_ONNX_SOURCE_PACK ||
-    "C:\\ProgramData\\TrafficVisson\\ModelPacks\\trafficvisson-onnx-grounding-dino-tiny-0.1.0",
+  process.env.TRAFFICSUPERVISION_ONNX_SOURCE_PACK ||
+    "C:\\ProgramData\\TrafficSuperVision\\ModelPacks\\trafficvisson-onnx-grounding-dino-tiny-0.1.0",
 );
-const runnerName = "trafficvisson-command-proposal-runner.exe";
+const runnerName = "trafficsupervision-command-proposal-runner.exe";
 const expectedSourceHashes = new Map([
   ["config.json", "f4b79138d4a83efb56ebad85c194a5a99a57102204c9829f76c0cd109acb0aeb"],
   [
@@ -134,7 +134,7 @@ const pyinstallerArgs = [
   "--clean",
   "--onefile",
   "--name",
-  "trafficvisson-command-proposal-runner",
+  "trafficsupervision-command-proposal-runner",
   "--distpath",
   distRoot,
   "--workpath",
@@ -204,14 +204,36 @@ const artifacts = artifactRelatives.map((relative) => {
   };
 });
 const modelManifest = {
-  schema_version: "trafficvisson.command-proposal-model-pack.v1",
+  schema_version: "trafficvisson.command-proposal-model-pack.v2",
   pack_id: "trafficvisson-onnx-grounding-dino-tiny",
   pack_version: "0.2.0-review",
+  model: {
+    name: "Grounding DINO Tiny ONNX Q4",
+    version: "11778337bb87ff84af72a64928c86616d86c495e",
+    task: "zero_shot_object_detection",
+    format: "onnx",
+    selected_artifact: "onnx/model_q4.onnx",
+  },
   source: {
+    repository_url:
+      "https://huggingface.co/onnx-community/grounding-dino-tiny-ONNX",
     repo_id: "onnx-community/grounding-dino-tiny-ONNX",
     resolved_revision: "11778337bb87ff84af72a64928c86616d86c495e",
     selected_model: "onnx/model_q4.onnx",
-    license_spdx: "Apache-2.0",
+  },
+  license: {
+    weights_spdx: "Apache-2.0",
+    runtime_spdx: "MIT",
+    license_url: "https://www.apache.org/licenses/LICENSE-2.0",
+    commercial_use_confirmed: true,
+    redistribution_allowed: true,
+    notice_artifact: "THIRD-PARTY-NOTICES.md",
+  },
+  gpu_requirements: {
+    required: false,
+    cpu_fallback: true,
+    recommended_min_vram_mb: 4096,
+    cuda_min_version: null,
   },
   inference: {
     task: "zero_shot_object_detection",

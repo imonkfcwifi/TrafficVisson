@@ -82,7 +82,7 @@ def _make_gpx(tmp_path):
     source = source_dir / "route.gpx"
     source.write_text(
         """<?xml version="1.0" encoding="UTF-8"?>
-<gpx version="1.1" creator="TrafficVisson export test"
+<gpx version="1.1" creator="TrafficSuperVision export test"
   xmlns="http://www.topografix.com/GPX/1/1">
   <trk><name>내보내기 검증</name><trkseg>
     <trkpt lat="37.500000" lon="127.000000">
@@ -201,7 +201,7 @@ def _mock_road_model_service(tmp_path):
             "max_detections": 8,
         },
     }
-    manifest_path = pack_root / "trafficvisson-model-pack.json"
+    manifest_path = pack_root / "trafficsupervision-model-pack.json"
     manifest_path.write_text(
         json.dumps(manifest, ensure_ascii=False),
         encoding="utf-8",
@@ -597,6 +597,108 @@ def test_tiny_video_analysis_returns_real_artifact_metadata_and_provenance(
         image_path.write_bytes(image_path.read_bytes() + b"tampered")
         tampered = client.get(f"{evidence_base}/image", headers=_auth())
         assert tampered.status_code == 410
+
+
+def test_completed_analysis_drives_verified_review_only_dense_index(
+    tmp_path,
+):
+    source, ffmpeg, ffprobe = _make_video(tmp_path)
+    with _client(tmp_path, ffmpeg, ffprobe) as client:
+        analysis = _complete_analysis(client, source)
+        original_resolve = (
+            client.app.state.media_intake.resolve_completed_media
+        )
+        resolver_calls = []
+
+        def tracked_resolve(*args, **kwargs):
+            resolver_calls.append((args, kwargs))
+            return original_resolve(*args, **kwargs)
+
+        client.app.state.media_intake.resolve_completed_media = (
+            tracked_resolve
+        )
+        started = client.post(
+            f"/projects/{DEMO_PROJECT_ID}/dense-index/jobs",
+            headers=_auth(),
+            json={
+                "project_id": str(DEMO_PROJECT_ID),
+                "analysis_job_id": analysis["job_id"],
+                "sampling_fps": 2,
+                "confirm_review_only": True,
+            },
+        )
+        assert started.status_code == 202, started.text
+        assert started.json()["analysis_job_id"] == analysis["job_id"]
+        assert started.json()["safety"] == {
+            "review_only": True,
+            "automatic_incident_creation": False,
+            "automatic_annotation_creation": False,
+            "automatic_training_ingest": False,
+            "automatic_maintenance_decision": False,
+            "automatic_model_promotion": False,
+        }
+        assert str(source.parent) not in started.text
+
+        dense_job_id = started.json()["job_id"]
+        deadline = time.monotonic() + 30
+        terminal = None
+        while time.monotonic() < deadline:
+            current = client.get(
+                (
+                    f"/projects/{DEMO_PROJECT_ID}/dense-index/jobs/"
+                    f"{dense_job_id}"
+                ),
+                headers=_auth(),
+            )
+            assert current.status_code == 200, current.text
+            if current.json()["status"] in {
+                "completed",
+                "failed",
+                "cancelled",
+            }:
+                terminal = current.json()
+                break
+            time.sleep(0.02)
+        assert terminal is not None
+        assert terminal["status"] == "completed", terminal
+        assert terminal["progress_percent"] == 100
+        assert terminal["result"]["frame_count"] >= 2
+        assert terminal["result"]["total_frame_bytes"] > 0
+        assert len(resolver_calls) == 2
+        assert all(
+            call[0][0] == DEMO_PROJECT_ID
+            and str(call[0][1]) == analysis["snapshot_id"]
+            and call[0][2] == source.name
+            and str(call[0][3]) == analysis["hash_job_id"]
+            and call[0][4] == analysis["source_sha256"]
+            for call in resolver_calls
+        )
+
+        index = client.get(
+            (
+                f"/projects/{DEMO_PROJECT_ID}/dense-index/jobs/"
+                f"{dense_job_id}/artifacts/frame-index"
+            ),
+            headers=_auth(),
+        )
+        assert index.status_code == 200, index.text
+        assert index.headers["content-type"] == "application/json"
+        index_payload = index.json()
+        assert index_payload["frame_count"] == (
+            terminal["result"]["frame_count"]
+        )
+        first_frame_id = index_payload["frames"][0]["frame_id"]
+        frame = client.get(
+            (
+                f"/projects/{DEMO_PROJECT_ID}/dense-index/jobs/"
+                f"{dense_job_id}/artifacts/{first_frame_id}"
+            ),
+            headers=_auth(),
+        )
+        assert frame.status_code == 200, frame.text
+        assert frame.headers["content-type"] == "image/jpeg"
+        assert str(tmp_path) not in str(dict(frame.headers))
+        assert frame.content.startswith(b"\xff\xd8\xff")
 
 
 def test_running_analysis_can_be_cancelled_and_pause_is_explicitly_unsupported(
@@ -1047,7 +1149,7 @@ def test_production_export_preserves_local_model_proposals(tmp_path):
         )
         assert exported.status_code == 200, exported.text
 
-    output = next(export_root.glob("trafficvisson-export-*"))
+    output = next(export_root.glob("trafficsupervision-export-*"))
     with (output / "raw_detections.csv").open(
         "r", encoding="utf-8-sig", newline=""
     ) as source_file:
@@ -1187,7 +1289,7 @@ def test_production_export_contains_latest_reviewed_candidate_records(
         assert str(source.parent) not in exported.text
 
         export_directories = list(
-            export_root.glob("trafficvisson-export-*")
+            export_root.glob("trafficsupervision-export-*")
         )
         assert len(export_directories) == 1
         output = export_directories[0]
@@ -1369,7 +1471,7 @@ def test_production_export_contains_latest_reviewed_candidate_records(
         assert [
             item["name"] for item in manifest["evidence"]["members"]
         ] == [image_member, clip_member]
-        with zipfile.ZipFile(output / "trafficvisson-export.zip") as archive:
+        with zipfile.ZipFile(output / "trafficsupervision-export.zip") as archive:
             assert image_member in archive.namelist()
             assert clip_member in archive.namelist()
             image_bytes = archive.read(image_member)
@@ -1464,14 +1566,14 @@ def test_production_export_requires_and_packages_completed_real_analysis(
         assert exported.status_code == 200, exported.text
         payload = exported.json()
         assert payload["status"] == "completed"
-        assert payload["archive_file_name"] == "trafficvisson-export.zip"
+        assert payload["archive_file_name"] == "trafficsupervision-export.zip"
         assert payload["archive_size_bytes"] > 0
         assert len(payload["archive_sha256"]) == 64
         assert payload["artifact_count"] == 10
         assert str(tmp_path) not in exported.text
         archives = list(
             (tmp_path / "p" / "exports").rglob(
-                "trafficvisson-export.zip"
+                "trafficsupervision-export.zip"
             )
         )
         assert len(archives) == 1
@@ -1539,7 +1641,7 @@ def test_production_export_includes_exact_gpx_track_and_provenance(tmp_path):
     output_directories = [
         item
         for item in export_root.iterdir()
-        if item.is_dir() and item.name.startswith("trafficvisson-export-")
+        if item.is_dir() and item.name.startswith("trafficsupervision-export-")
     ]
     assert len(output_directories) == 1
     output = output_directories[0]
@@ -1585,7 +1687,7 @@ def test_production_export_includes_exact_gpx_track_and_provenance(tmp_path):
     assert len(gpx_provenance["track_record_sha256"]) == 64
     assert gpx_provenance["source_integrity_verified"] is True
     assert str(tmp_path) not in json.dumps(manifest, ensure_ascii=False)
-    with zipfile.ZipFile(output / "trafficvisson-export.zip") as archive:
+    with zipfile.ZipFile(output / "trafficsupervision-export.zip") as archive:
         assert archive.read("route_points.csv") == (
             output / "route_points.csv"
         ).read_bytes()
@@ -1718,7 +1820,7 @@ def test_production_export_uses_the_explicit_selected_analysis_job(tmp_path):
         assert exported.json()["evidence_incident_count"] == 1
         assert exported.json()["evidence_file_count"] == 2
 
-    output = next(export_root.glob("trafficvisson-export-*"))
+    output = next(export_root.glob("trafficsupervision-export-*"))
     manifest = json.loads(
         (output / "manifest.json").read_text(encoding="utf-8")
     )
@@ -1726,7 +1828,7 @@ def test_production_export_uses_the_explicit_selected_analysis_job(tmp_path):
     assert manifest["provenance"]["analysis_job_id"] != newer["job_id"]
     selected_prefix = f"evidence/{approved[0]['question_id']}/"
     newer_prefix = f"evidence/{approved[1]['question_id']}/"
-    with zipfile.ZipFile(output / "trafficvisson-export.zip") as archive:
+    with zipfile.ZipFile(output / "trafficsupervision-export.zip") as archive:
         evidence_names = [
             name for name in archive.namelist()
             if name.startswith("evidence/")
@@ -1804,12 +1906,12 @@ def test_production_export_excludes_superseded_incident_evidence(tmp_path):
         assert payload["evidence_size_bytes"] == 0
         assert payload["artifact_count"] == 10
 
-    output = next(export_root.glob("trafficvisson-export-*"))
+    output = next(export_root.glob("trafficsupervision-export-*"))
     with (output / "reviewed_incidents.csv").open(
         "r", encoding="utf-8-sig", newline=""
     ) as handle:
         assert list(csv.DictReader(handle)) == []
-    with zipfile.ZipFile(output / "trafficvisson-export.zip") as archive:
+    with zipfile.ZipFile(output / "trafficsupervision-export.zip") as archive:
         assert not any(
             name.startswith("evidence/") for name in archive.namelist()
         )

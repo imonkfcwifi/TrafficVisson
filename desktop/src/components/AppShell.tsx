@@ -12,7 +12,6 @@ import {
   History,
   Import,
   Menu,
-  Settings2,
   Tags,
   X,
 } from "lucide-react";
@@ -27,6 +26,18 @@ import {
   selectProject,
   useProjectCatalog,
 } from "../projectCatalog";
+import {
+  markPipelineHydrated,
+  parsePipelineJob,
+  parsePipelineList,
+  pipelineQuestionQueueBinding,
+  pipelinePointerForProject,
+  pipelineStatusLabel,
+  publishPipelineError,
+  publishPipelineJob,
+  resetPipelineUiState,
+  usePipelineUi,
+} from "../pipelineJobs";
 import {
   reviewRecordsFromQuestionList,
   reviewStorageKey,
@@ -49,21 +60,204 @@ const FOCUSABLE_SELECTOR = [
   "[tabindex]:not([tabindex='-1'])",
 ].join(",");
 
+type ShellProviderStatus = {
+  state: string;
+  version: string | null;
+  diagnosticState: string;
+  authenticationState: string;
+  networkState: string;
+};
+
+type RuntimeReadinessLoadState = "checking" | "loaded" | "unavailable";
+type RuntimeComponentState =
+  | "ready"
+  | "incomplete"
+  | "unavailable"
+  | "failed"
+  | "external_required"
+  | "disabled";
+
+type ShellRuntimeComponent = {
+  componentId: string;
+  displayName: string;
+  state: RuntimeComponentState;
+  message: string;
+  version: string | null;
+};
+
+const RUNTIME_COMPONENT_STATES = new Set<RuntimeComponentState>([
+  "ready",
+  "incomplete",
+  "unavailable",
+  "failed",
+  "external_required",
+  "disabled",
+]);
+
+const ANALYSIS_RUNTIME_COMPONENTS = [
+  ["pytorch_cuda", "PyTorch CUDA"],
+  ["grounding_dino", "Grounding DINO"],
+  ["sam2", "SAM 2"],
+  ["opencv", "OpenCV"],
+  ["korean_ocr", "한국어 OCR"],
+  ["embedding_search", "유사 사례 검색"],
+] as const;
+
+function parseRuntimeReadiness(value: unknown): ShellRuntimeComponent[] | null {
+  if (!value || typeof value !== "object") return null;
+  const response = value as {
+    schema_version?: unknown;
+    components?: unknown;
+  };
+  if (
+    response.schema_version !== "trafficvisson.runtime-readiness.v1" ||
+    !Array.isArray(response.components)
+  ) {
+    return null;
+  }
+  const parsed: ShellRuntimeComponent[] = [];
+  const componentIds = new Set<string>();
+  for (const candidate of response.components) {
+    if (!candidate || typeof candidate !== "object") return null;
+    const row = candidate as {
+      component_id?: unknown;
+      display_name?: unknown;
+      state?: unknown;
+      message?: unknown;
+      version?: unknown;
+    };
+    if (
+      typeof row.component_id !== "string" ||
+      componentIds.has(row.component_id) ||
+      typeof row.display_name !== "string" ||
+      typeof row.state !== "string" ||
+      !RUNTIME_COMPONENT_STATES.has(row.state as RuntimeComponentState) ||
+      typeof row.message !== "string" ||
+      (row.version !== undefined && typeof row.version !== "string")
+    ) {
+      return null;
+    }
+    componentIds.add(row.component_id);
+    parsed.push({
+      componentId: row.component_id,
+      displayName: row.display_name,
+      state: row.state as RuntimeComponentState,
+      message: row.message,
+      version: typeof row.version === "string" ? row.version : null,
+    });
+  }
+  return parsed;
+}
+
+function runtimeStateLabel(
+  loadState: RuntimeReadinessLoadState,
+  component: ShellRuntimeComponent | null,
+) {
+  if (loadState === "checking") return "확인 중";
+  if (loadState === "unavailable" || !component) return "확인 불가";
+  switch (component.state) {
+    case "ready":
+      return "준비됨";
+    case "incomplete":
+      return "설치됨 · 추가 구성 필요";
+    case "unavailable":
+      return "사용 불가";
+    case "failed":
+      return "확인 실패";
+    case "external_required":
+      return "외부 설치 필요";
+    case "disabled":
+      return "비활성";
+  }
+}
+
+function runtimeStateTone(
+  loadState: RuntimeReadinessLoadState,
+  component: ShellRuntimeComponent | null,
+): "success" | "warning" | "danger" | "neutral" {
+  if (loadState !== "loaded" || !component) return "neutral";
+  if (component.state === "ready") return "success";
+  if (component.state === "failed") return "danger";
+  if (
+    component.state === "incomplete" ||
+    component.state === "unavailable" ||
+    component.state === "external_required"
+  ) {
+    return "warning";
+  }
+  return "neutral";
+}
+
 const NAV_ITEMS: Array<{
   id: ScreenId;
   label: string;
+  compactLabel: string;
   shortcut: string;
   icon: typeof FolderKanban;
 }> = [
-  { id: "home", label: "프로젝트 홈", shortcut: "1", icon: FolderKanban },
-  { id: "import", label: "영상 가져오기", shortcut: "2", icon: Import },
-  { id: "label", label: "질문 라벨링", shortcut: "3", icon: Tags },
-  { id: "analysis", label: "분석", shortcut: "4", icon: Activity },
-  { id: "review", label: "사건 검토", shortcut: "5", icon: ClipboardCheck },
-  { id: "models", label: "모델 관리", shortcut: "6", icon: BrainCircuit },
-  { id: "history", label: "GPS 히스토리", shortcut: "7", icon: History },
-  { id: "report", label: "보고서", shortcut: "8", icon: FileText },
-  { id: "export", label: "내보내기", shortcut: "9", icon: FileOutput },
+  {
+    id: "home",
+    label: "프로젝트 홈",
+    compactLabel: "홈",
+    shortcut: "1",
+    icon: FolderKanban,
+  },
+  {
+    id: "import",
+    label: "영상 가져오기",
+    compactLabel: "영상",
+    shortcut: "2",
+    icon: Import,
+  },
+  {
+    id: "label",
+    label: "질문 라벨링",
+    compactLabel: "질문",
+    shortcut: "3",
+    icon: Tags,
+  },
+  {
+    id: "analysis",
+    label: "분석",
+    compactLabel: "진행",
+    shortcut: "4",
+    icon: Activity,
+  },
+  {
+    id: "review",
+    label: "사건 검토",
+    compactLabel: "사건",
+    shortcut: "5",
+    icon: ClipboardCheck,
+  },
+  {
+    id: "models",
+    label: "모델 관리",
+    compactLabel: "모델",
+    shortcut: "6",
+    icon: BrainCircuit,
+  },
+  {
+    id: "history",
+    label: "GPS 히스토리",
+    compactLabel: "지도",
+    shortcut: "7",
+    icon: History,
+  },
+  {
+    id: "report",
+    label: "보고서",
+    compactLabel: "보고서",
+    shortcut: "8",
+    icon: FileText,
+  },
+  {
+    id: "export",
+    label: "내보내기",
+    compactLabel: "내보내기",
+    shortcut: "9",
+    icon: FileOutput,
+  },
 ];
 
 export function AppShell({
@@ -86,8 +280,10 @@ export function AppShell({
   children: ReactNode;
 }) {
   const runtime = useRuntimeState();
+  const pipeline = usePipelineUi();
   const projectCatalog = useProjectCatalog();
   const hydratedAnalysisJobRef = useRef<string | null>(null);
+  const pipelineAutoNavigationRef = useRef<string | null>(null);
   const appShellRef = useRef<HTMLDivElement>(null);
   const diagnosticsDrawerRef = useRef<HTMLElement>(null);
   const diagnosticsReturnFocusRef = useRef<HTMLElement | null>(null);
@@ -96,17 +292,247 @@ export function AppShell({
   );
   const [bridgeHealthy, setBridgeHealthy] = useState<boolean | null>(null);
   const [providerState, setProviderState] = useState<{
-    codex: string | null;
-    claude: string | null;
+    codex: ShellProviderStatus | null;
+    claude: ShellProviderStatus | null;
   }>({ codex: null, claude: null });
   const [hwpAvailable, setHwpAvailable] = useState<boolean | null>(null);
+  const [runtimeReadinessLoadState, setRuntimeReadinessLoadState] =
+    useState<RuntimeReadinessLoadState>("checking");
+  const [runtimeComponents, setRuntimeComponents] = useState<
+    ShellRuntimeComponent[]
+  >([]);
 
   useEffect(() => {
-    if (!window.trafficVisson) return;
+    if (!window.trafficSuperVision) return;
     void refreshProjects().catch(() => {
       // The project selector exposes the catalog error without blocking the shell.
     });
   }, []);
+
+  useEffect(() => {
+    const projectId = projectCatalog.activeProjectId;
+    if (!window.trafficSuperVision?.pipeline || !projectId) {
+      resetPipelineUiState();
+      return;
+    }
+    let active = true;
+    void (async () => {
+      const pointer = pipelinePointerForProject(projectId);
+      if (pointer) {
+        try {
+          const restored = parsePipelineJob(
+            await window.trafficSuperVision!.pipeline.get({
+              projectId,
+              jobId: pointer.jobId,
+            }),
+          );
+          if (active) markPipelineHydrated(projectId, restored);
+          return;
+        } catch {
+          // A stale renderer pointer is never trusted. Fall back to the
+          // bridge-owned project list and persist only its opaque identity.
+        }
+      }
+      const jobs = parsePipelineList(
+        await window.trafficSuperVision!.pipeline.list({ projectId }),
+      ).sort(
+        (left, right) =>
+          Date.parse(right.updatedAt) - Date.parse(left.updatedAt),
+      );
+      if (active) markPipelineHydrated(projectId, jobs[0] ?? null);
+    })().catch((error) => {
+      if (!active) return;
+      publishPipelineError(
+        projectId,
+        error instanceof Error
+          ? error.message
+          : "자동 파이프라인 기록을 복구하지 못했습니다.",
+      );
+    });
+    return () => {
+      active = false;
+    };
+  }, [projectCatalog.activeProjectId]);
+
+  useEffect(() => {
+    const projectId = projectCatalog.activeProjectId;
+    const job =
+      pipeline.projectId === projectId ? pipeline.job : null;
+    if (
+      !window.trafficSuperVision?.pipeline ||
+      !projectId ||
+      !job ||
+      !["queued", "running", "cancelling"].includes(job.status)
+    ) {
+      return;
+    }
+    let active = true;
+    let fetching = false;
+    const refresh = () => {
+      if (!active || fetching) return;
+      fetching = true;
+      void window.trafficSuperVision!.pipeline
+        .get({ projectId, jobId: job.jobId })
+        .then(parsePipelineJob)
+        .then((next) => {
+          if (active) publishPipelineJob(next);
+        })
+        .catch((error) => {
+          if (!active) return;
+          publishPipelineError(
+            projectId,
+            error instanceof Error
+              ? error.message
+              : "자동 파이프라인 상태를 읽지 못했습니다.",
+          );
+        })
+        .finally(() => {
+          fetching = false;
+        });
+    };
+    const timer = window.setInterval(refresh, 800);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [
+    pipeline.job?.jobId,
+    pipeline.job?.status,
+    pipeline.job?.updatedAt,
+    pipeline.projectId,
+    projectCatalog.activeProjectId,
+  ]);
+
+  useEffect(() => {
+    const projectId = projectCatalog.activeProjectId;
+    const job =
+      pipeline.projectId === projectId ? pipeline.job : null;
+    if (
+      !window.trafficSuperVision?.pipeline ||
+      !projectId ||
+      !job ||
+      job.status !== "completed"
+    ) {
+      return;
+    }
+    let active = true;
+    void window.trafficSuperVision.pipeline
+      .list({ projectId })
+      .then(parsePipelineList)
+      .then((jobs) => {
+        if (!active) return;
+        const priority = (status: string) => {
+          if (status === "awaiting_review") return 0;
+          if (status === "blocked" || status === "failed") return 1;
+          if (status === "running" || status === "cancelling") return 2;
+          if (status === "queued") return 3;
+          return 4;
+        };
+        const next = jobs
+          .filter(
+            (candidate) =>
+              candidate.jobId !== job.jobId &&
+              candidate.snapshotId === job.snapshotId &&
+              candidate.status !== "completed" &&
+              candidate.status !== "cancelled",
+          )
+          .sort(
+            (left, right) =>
+              priority(left.status) - priority(right.status) ||
+              Date.parse(left.createdAt) - Date.parse(right.createdAt),
+          )[0];
+        if (next) publishPipelineJob(next);
+      })
+      .catch(() => {
+        // A completed item remains selected if the next folder item cannot be
+        // refreshed. The durable server queue is unaffected.
+      });
+    return () => {
+      active = false;
+    };
+  }, [
+    pipeline.job?.jobId,
+    pipeline.job?.snapshotId,
+    pipeline.job?.status,
+    pipeline.job?.updatedAt,
+    pipeline.projectId,
+    projectCatalog.activeProjectId,
+  ]);
+
+  useEffect(() => {
+    const job =
+      pipeline.projectId === projectCatalog.activeProjectId
+        ? pipeline.job
+        : null;
+    if (!job || job.status !== "awaiting_review") return;
+    const navigationKey = `${job.jobId}:${job.updatedAt}`;
+    if (pipelineAutoNavigationRef.current === navigationKey) return;
+    pipelineAutoNavigationRef.current = navigationKey;
+    if (activeScreen !== "label") onScreenChange("label");
+  }, [
+    activeScreen,
+    onScreenChange,
+    pipeline.job,
+    pipeline.projectId,
+    projectCatalog.activeProjectId,
+  ]);
+
+  useEffect(() => {
+    const projectId = projectCatalog.activeProjectId;
+    const job =
+      pipeline.projectId === projectId ? pipeline.job : null;
+    if (!window.trafficSuperVision || !projectId || !job) return;
+    const binding = pipelineQuestionQueueBinding(job);
+    if (!binding) return;
+    if (
+      runtime.analysisSummary?.jobId === binding.analysisJobId &&
+      runtime.analysisSummary.sourceSha256 === binding.sourceSha256
+    ) {
+      return;
+    }
+    let active = true;
+    void window.trafficSuperVision.analysis
+      .get({ projectId, jobId: binding.analysisJobId })
+      .then(parseAnalysisJob)
+      .then((persisted) => {
+        if (
+          !active ||
+          persisted.status !== "completed" ||
+          persisted.result === null ||
+          persisted.project_id !== projectId ||
+          persisted.source_sha256 !== binding.sourceSha256
+        ) {
+          throw new Error(
+            "파이프라인 질문 큐와 분석 증거의 provenance가 일치하지 않습니다.",
+          );
+        }
+        const restored = toRestoredRuntime(persisted);
+        hydratedAnalysisJobRef.current =
+          `${projectId}:${binding.analysisJobId}`;
+        restoreCompletedAnalysis(
+          restored.activeImport,
+          restored.analysisSummary,
+        );
+      })
+      .catch((error) => {
+        if (!active) return;
+        publishPipelineError(
+          projectId,
+          error instanceof Error
+            ? error.message
+            : "파이프라인 질문 증거를 복구하지 못했습니다.",
+        );
+      });
+    return () => {
+      active = false;
+    };
+  }, [
+    pipeline.job,
+    pipeline.projectId,
+    projectCatalog.activeProjectId,
+    runtime.analysisSummary?.jobId,
+    runtime.analysisSummary?.sourceSha256,
+  ]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia(MOBILE_NAV_QUERY);
@@ -120,13 +546,13 @@ export function AppShell({
 
   useEffect(() => {
     let active = true;
-    if (!window.trafficVisson) {
+    if (!window.trafficSuperVision) {
       setBridgeHealthy(false);
       return () => {
         active = false;
       };
     }
-    window.trafficVisson
+    window.trafficSuperVision
       .health()
       .then((response) => {
         if (!active) return;
@@ -142,7 +568,7 @@ export function AppShell({
   }, []);
 
   useEffect(() => {
-    if (!window.trafficVisson) return;
+    if (!window.trafficSuperVision) return;
     const activeProjectId = projectCatalog.activeProjectId;
     if (!activeProjectId) return;
     const currentSummary = runtime.analysisSummary;
@@ -164,7 +590,7 @@ export function AppShell({
     let active = true;
     void (async () => {
       if (currentSummary) {
-        const response = await window.trafficVisson!.analysis.get({
+        const response = await window.trafficSuperVision!.analysis.get({
           projectId: currentSummary.projectId,
           jobId: currentSummary.jobId,
         });
@@ -183,7 +609,7 @@ export function AppShell({
         );
         return;
       }
-      const response = await window.trafficVisson!.analysis.list({
+      const response = await window.trafficSuperVision!.analysis.list({
         projectId: activeProjectId,
       });
       const latest = parseAnalysisJobList(response).find(
@@ -211,9 +637,9 @@ export function AppShell({
 
   useEffect(() => {
     const summary = runtime.analysisSummary;
-    if (!summary || !window.trafficVisson) return;
+    if (!summary || !window.trafficSuperVision) return;
     let active = true;
-    void window.trafficVisson.candidateQuestions
+    void window.trafficSuperVision.candidateQuestions
       .list({ projectId: summary.projectId, jobId: summary.jobId })
       .then((value) => {
         if (!active) return;
@@ -235,26 +661,63 @@ export function AppShell({
 
   useEffect(() => {
     let active = true;
-    if (!window.trafficVisson) return;
-    void window.trafficVisson.providers
+    if (!window.trafficSuperVision) return;
+    void window.trafficSuperVision.providers
       .list()
       .then((response) => {
         if (!active) return;
         const rows = (
           response as {
-            providers?: Array<{ provider?: string; state?: string }>;
+            providers?: Array<{
+              provider?: string;
+              state?: string;
+              version?: string;
+              diagnostic_state?: string;
+              authentication_state?: string;
+              network_state?: string;
+            }>;
           }
         ).providers;
         if (!Array.isArray(rows)) return;
+        const summary = (
+          row:
+            | {
+                state?: string;
+                version?: string;
+                diagnostic_state?: string;
+                authentication_state?: string;
+                network_state?: string;
+              }
+            | undefined,
+        ): ShellProviderStatus | null =>
+          row && typeof row.state === "string"
+            ? {
+                state: row.state,
+                version:
+                  typeof row.version === "string" ? row.version : null,
+                diagnosticState:
+                  typeof row.diagnostic_state === "string"
+                    ? row.diagnostic_state
+                    : "unknown",
+                authenticationState:
+                  typeof row.authentication_state === "string"
+                    ? row.authentication_state
+                    : "unknown",
+                networkState:
+                  typeof row.network_state === "string"
+                    ? row.network_state
+                    : "unknown",
+              }
+            : null;
         setProviderState({
-          codex: rows.find((row) => row.provider === "codex")?.state ?? null,
-          claude: rows.find((row) => row.provider === "claude")?.state ?? null,
+          codex: summary(rows.find((row) => row.provider === "codex")),
+          claude: summary(rows.find((row) => row.provider === "claude")),
         });
       })
       .catch(() => {
         if (active) setProviderState({ codex: null, claude: null });
       });
-    void window.trafficVisson.hwp
+    void window.trafficSuperVision.hwp
       .preflight()
       .then((response) => {
         if (active) {
@@ -268,6 +731,37 @@ export function AppShell({
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!diagnosticsOpen) return;
+    let active = true;
+    const readiness = window.trafficSuperVision?.runtime?.readiness;
+    setRuntimeReadinessLoadState("checking");
+    setRuntimeComponents([]);
+    if (!readiness) {
+      setRuntimeReadinessLoadState("unavailable");
+      return;
+    }
+    void readiness()
+      .then((response) => {
+        if (!active) return;
+        const parsed = parseRuntimeReadiness(response);
+        if (!parsed) {
+          setRuntimeReadinessLoadState("unavailable");
+          return;
+        }
+        setRuntimeComponents(parsed);
+        setRuntimeReadinessLoadState("loaded");
+      })
+      .catch(() => {
+        if (!active) return;
+        setRuntimeComponents([]);
+        setRuntimeReadinessLoadState("unavailable");
+      });
+    return () => {
+      active = false;
+    };
+  }, [diagnosticsOpen]);
 
   useEffect(() => {
     if (!diagnosticsOpen) return;
@@ -358,8 +852,23 @@ export function AppShell({
     };
   }, [diagnosticsOpen, onDiagnosticsOpenChange]);
 
-  const analysisBadge =
-    runtime.status === "running" || runtime.status === "paused"
+  const currentPipeline =
+    pipeline.projectId === projectCatalog.activeProjectId
+      ? pipeline.job
+      : null;
+  const analysisBadge = currentPipeline
+    ? currentPipeline.status === "blocked"
+      ? currentPipeline.outcomeCode === "partial"
+        ? "산출"
+        : "모델"
+      : currentPipeline.status === "failed"
+        ? "오류"
+        : currentPipeline.status === "awaiting_review"
+          ? "검토"
+          : currentPipeline.status === "completed"
+            ? "완료"
+            : `${currentPipeline.progressPercent}%`
+    : runtime.status === "running" || runtime.status === "paused"
       ? `${Math.round(runtime.progress)}%`
       : runtime.status === "complete"
         ? "완료"
@@ -368,9 +877,12 @@ export function AppShell({
           : runtime.activeImport
             ? "준비"
             : undefined;
-  const labelBadge = runtime.analysisSummary
-    ? String(runtime.analysisSummary.candidateCount)
-    : undefined;
+  const labelBadge =
+    currentPipeline?.status === "awaiting_review"
+      ? "대기"
+      : runtime.analysisSummary
+        ? String(runtime.analysisSummary.candidateCount)
+        : undefined;
 
   function badgeFor(screen: ScreenId) {
     if (screen === "analysis") return analysisBadge;
@@ -380,10 +892,54 @@ export function AppShell({
   }
 
   const providerReady =
-    providerState.codex === "ready" || providerState.claude === "ready";
+    providerState.codex?.state === "ready" ||
+    providerState.claude?.state === "ready";
+  const runtimeComponentsById = new Map(
+    runtimeComponents.map((component) => [component.componentId, component]),
+  );
+  const ffmpegComponent = runtimeComponentsById.get("ffmpeg") ?? null;
+  const analysisRuntimeRows = ANALYSIS_RUNTIME_COMPONENTS.map(
+    ([componentId, label]) => ({
+      componentId,
+      label,
+      component: runtimeComponentsById.get(componentId) ?? null,
+    }),
+  );
+  const analysisRuntimeReadyCount = analysisRuntimeRows.filter(
+    ({ component }) => component?.state === "ready",
+  ).length;
+  const analysisRuntimeHasFailure = analysisRuntimeRows.some(
+    ({ component }) => component?.state === "failed",
+  );
+  const analysisRuntimeTone =
+    runtimeReadinessLoadState === "checking"
+      ? "neutral"
+      : runtimeReadinessLoadState === "unavailable" ||
+          analysisRuntimeHasFailure
+        ? "danger"
+        : analysisRuntimeReadyCount === analysisRuntimeRows.length
+          ? "success"
+          : "warning";
+  const analysisRuntimeSummary =
+    runtimeReadinessLoadState === "checking"
+      ? "확인 중"
+      : runtimeReadinessLoadState === "unavailable"
+        ? "확인 불가"
+        : analysisRuntimeReadyCount === analysisRuntimeRows.length
+          ? `${analysisRuntimeReadyCount}개 모두 준비됨`
+          : `${analysisRuntimeReadyCount}개 준비 · ${
+              analysisRuntimeRows.length - analysisRuntimeReadyCount
+            }개 미준비`;
   const activeProject = projectCatalog.projects.find(
     (project) => project.id === projectCatalog.activeProjectId,
   );
+  const activeNavigationItem =
+    NAV_ITEMS.find((item) => item.id === activeScreen) ?? NAV_ITEMS[0];
+  const activeProjectSecondaryStatus = currentPipeline
+    ? `${pipelineStatusLabel(currentPipeline)} · ${currentPipeline.progressPercent}%`
+    : runtime.activeImport
+      ? runtime.activeImport.fileName
+      : projectCatalog.error ?? "입력 대기";
 
   return (
     <div className="app-canvas">
@@ -404,7 +960,7 @@ export function AppShell({
             </IconButton>
             <span className="brand-mark" aria-hidden="true">
               <img
-                src="/trafficvisson-app-icon.png"
+                src="/trafficsupervision-app-icon.png"
                 alt=""
                 width={96}
                 height={96}
@@ -412,7 +968,7 @@ export function AppShell({
                 draggable={false}
               />
             </span>
-            <span className="brand-name">TrafficVisson</span>
+            <span className="brand-name">TrafficSuperVision</span>
           </div>
 
           <label
@@ -424,11 +980,7 @@ export function AppShell({
           >
             <span>
               <strong>{activeProject?.name ?? "프로젝트 불러오는 중"}</strong>
-              <small>
-                {runtime.activeImport
-                  ? runtime.activeImport.fileName
-                  : projectCatalog.error ?? "입력 대기"}
-              </small>
+              <small>{activeProjectSecondaryStatus}</small>
             </span>
             <select
               aria-label="활성 프로젝트"
@@ -440,7 +992,13 @@ export function AppShell({
                 if (!event.target.value) return;
                 selectProject(event.target.value);
                 hydratedAnalysisJobRef.current = null;
+                pipelineAutoNavigationRef.current = null;
                 clearRuntime();
+                resetPipelineUiState();
+                // Hand keyboard ownership back to the active workbench after
+                // a deliberate project switch. A focused native select would
+                // otherwise consume Y/N/U/E or 1/2/3 review shortcuts.
+                event.currentTarget.blur();
               }}
             >
               {projectCatalog.projects.length === 0 ? (
@@ -455,12 +1013,35 @@ export function AppShell({
             <ChevronDown size={15} aria-hidden="true" />
           </label>
 
+          <div
+            className="shell-screen-context"
+            aria-label={`현재 작업 화면: ${activeNavigationItem.label}`}
+          >
+            <span>현재 화면</span>
+            <strong>{activeNavigationItem.label}</strong>
+            <kbd aria-label={`${activeNavigationItem.shortcut}번 단축키`}>
+              {activeNavigationItem.shortcut}
+            </kbd>
+          </div>
+
           <div className="runtime-strip" aria-label="현재 작업 상태">
             <StatusDot tone={bridgeHealthy ? "success" : "neutral"}>
               {bridgeHealthy ? "로컬 준비" : "로컬 확인 중"}
             </StatusDot>
-            <StatusDot tone={runtime.status === "running" ? "accent" : "neutral"}>
-              {runtime.status === "running"
+            <StatusDot
+              tone={
+                currentPipeline?.status === "running" ||
+                runtime.status === "running"
+                  ? "accent"
+                  : currentPipeline?.status === "blocked" ||
+                      currentPipeline?.status === "failed"
+                    ? "warning"
+                    : "neutral"
+              }
+            >
+              {currentPipeline
+                ? `${pipelineStatusLabel(currentPipeline)} · ${currentPipeline.progressPercent}%`
+                : runtime.status === "running"
                 ? `분석 ${Math.round(runtime.progress)}%`
                 : runtime.analysisSummary
                   ? `검토 ${runtime.analysisSummary.candidateCount}건`
@@ -470,10 +1051,12 @@ export function AppShell({
 
           <IconButton
             id="diagnostics-trigger"
-            label="진단 패널 열기"
+            label="연결·환경 상태 열기"
+            className="shell-diagnostics-button"
             onClick={() => onDiagnosticsOpenChange(true)}
           >
-            <Settings2 size={19} />
+            <CircleGauge size={17} />
+            <span>환경 상태</span>
           </IconButton>
         </header>
 
@@ -519,6 +1102,9 @@ export function AppShell({
                       <Icon size={20} strokeWidth={1.8} aria-hidden="true" />
                     </span>
                     <span className="nav-label">{item.label}</span>
+                    <span className="nav-label-compact" aria-hidden="true">
+                      {item.compactLabel}
+                    </span>
                     {badgeFor(item.id) ? (
                       <span className="nav-badge">
                         {badgeFor(item.id)}
@@ -534,7 +1120,9 @@ export function AppShell({
               <div>
                 <strong>프로젝트 상태</strong>
                 <span>
-                  {runtime.activeImport
+                  {currentPipeline
+                    ? `${currentPipeline.fileName} · ${pipelineStatusLabel(currentPipeline)}`
+                    : runtime.activeImport
                     ? `${runtime.activeImport.fileName} · ${runtime.message}`
                     : "검증된 입력 대기"}
                 </span>
@@ -551,20 +1139,36 @@ export function AppShell({
           <div>
             <Activity size={14} aria-hidden="true" />
             <span>
-              {runtime.activeImport
+              {currentPipeline
+                ? `${currentPipeline.fileName} · ${pipelineStatusLabel(currentPipeline)}`
+                : runtime.activeImport
                 ? `${runtime.activeImport.fileName} · ${runtime.message}`
                 : "입력 대기 · 영상 가져오기를 시작하세요"}
             </span>
-            {runtime.activeImport ? (
+            {currentPipeline || runtime.activeImport ? (
               <span className="statusbar-progress" aria-hidden="true">
-                <i style={{ width: `${runtime.progress}%` }} />
+                <i
+                  style={{
+                    width: `${
+                      currentPipeline
+                        ? currentPipeline.progressPercent
+                        : runtime.progress
+                    }%`,
+                  }}
+                />
               </span>
             ) : null}
           </div>
           <div>
             <HardDrive size={14} aria-hidden="true" />
             <span>
-              {runtime.status === "running"
+              {currentPipeline
+                ? currentPipeline.status === "blocked"
+                  ? currentPipeline.outcomeCode === "partial"
+                    ? "CSV·증거 저장 완료 · 보고서 준비 경계에서 재개"
+                    : "빈 성공 아님 · 필요한 로컬 모델팩을 설치한 뒤 재개"
+                  : "한 PipelineJob · 재시작 복구 · 프로젝트 provenance"
+                : runtime.status === "running"
                 ? "로컬 후보 추출 · 장면 변화·선명도"
                 : "분석 산출물·라벨은 로컬 프로젝트에 보관"}
             </span>
@@ -609,8 +1213,58 @@ export function AppShell({
               </code>
             </div>
             <div className="diagnostic-card">
-              <StatusDot tone="neutral">FFmpeg · 작업 전</StatusDot>
-              <code>미디어 검증을 실행해야 준비 상태를 확정합니다.</code>
+              <StatusDot
+                tone={runtimeStateTone(
+                  runtimeReadinessLoadState,
+                  ffmpegComponent,
+                )}
+              >
+                FFmpeg ·{" "}
+                {runtimeStateLabel(
+                  runtimeReadinessLoadState,
+                  ffmpegComponent,
+                )}
+              </StatusDot>
+              <code>
+                {runtimeReadinessLoadState === "checking"
+                  ? "고정 실행 파일과 로컬 미디어 처리 구성을 확인하고 있습니다."
+                  : runtimeReadinessLoadState === "unavailable"
+                    ? "런타임 준비 상태를 읽지 못했습니다. Python bridge 연결을 확인하세요."
+                    : ffmpegComponent?.message ??
+                      "응답에 FFmpeg 준비 상태가 없습니다."}
+              </code>
+            </div>
+            <div className="diagnostic-card diagnostic-card--runtime">
+              <StatusDot tone={analysisRuntimeTone}>
+                로컬 분석 구성 · {analysisRuntimeSummary}
+              </StatusDot>
+              <ul className="diagnostic-runtime-list" aria-label="로컬 분석 구성">
+                {analysisRuntimeRows.map(
+                  ({ componentId, label, component }) => (
+                    <li key={componentId} title={component?.message}>
+                      <span>{label}</span>
+                      <strong
+                        className={`diagnostic-runtime-state diagnostic-runtime-state--${
+                          component?.state ?? runtimeReadinessLoadState
+                        }`}
+                      >
+                        {runtimeStateLabel(
+                          runtimeReadinessLoadState,
+                          component,
+                        )}
+                        {component?.version ? ` · ${component.version}` : ""}
+                      </strong>
+                    </li>
+                  ),
+                )}
+              </ul>
+              <code>
+                {runtimeReadinessLoadState === "checking"
+                  ? "설치본과 Model Pack 무결성 상태를 읽고 있습니다."
+                  : runtimeReadinessLoadState === "unavailable"
+                    ? "준비 상태를 확인하지 못했으며 미설치를 완료로 간주하지 않습니다."
+                    : "준비됨은 해당 구성의 로컬 무결성 계약을 통과한 상태입니다."}
+              </code>
             </div>
             <div className="diagnostic-card">
               <StatusDot tone={hwpAvailable ? "success" : "neutral"}>
@@ -628,8 +1282,24 @@ export function AppShell({
                 AI CLI · {providerReady ? "연결됨" : "미연결"}
               </StatusDot>
               <p>
-                Codex {providerState.codex ?? "미확인"} · Claude{" "}
-                {providerState.claude ?? "미확인"}. 인증 파일은 읽지 않습니다.
+                Codex{" "}
+                {providerState.codex
+                  ? `${providerState.codex.version ?? "버전 미확인"} · ${
+                      providerState.codex.diagnosticState
+                    } · 인증 ${providerState.codex.authenticationState} · 네트워크 ${
+                      providerState.codex.networkState
+                    }`
+                  : "미확인"}
+                <br />
+                Claude{" "}
+                {providerState.claude
+                  ? `${providerState.claude.version ?? "버전 미확인"} · ${
+                      providerState.claude.diagnosticState
+                    } · 인증 ${providerState.claude.authenticationState} · 네트워크 ${
+                      providerState.claude.networkState
+                    }`
+                  : "미확인"}
+                . 인증 파일은 읽지 않습니다.
               </p>
             </div>
             <div className="diagnostic-card diagnostic-card--quiet">

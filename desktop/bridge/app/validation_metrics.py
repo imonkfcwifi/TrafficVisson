@@ -12,7 +12,8 @@ more event identifiers for a positive sample.  Prediction records use
 ``matched_truth_event_id`` only when an upstream, fixed matching procedure has
 assigned the prediction to a truth event.  Additional predictions assigned to
 the same truth event are counted as both duplicate predictions and false
-positives.
+positives.  Event identifiers are local to a sample/type pair; metric identity
+is always ``(sample_id, issue_type, event_id)``.
 """
 
 from __future__ import annotations
@@ -69,7 +70,7 @@ CanonicalIssueType = Literal[
 _ISSUE_ORDER = {
     issue_type: index for index, issue_type in enumerate(CANONICAL_ISSUE_TYPES)
 }
-# Model versions elsewhere in TrafficVisson use the canonical
+# Model versions elsewhere in TrafficSuperVision use the canonical
 # ``pack-name@version`` form.  Keep validation identifiers compatible with
 # that existing product contract while retaining a small, path-free alphabet.
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$")
@@ -370,11 +371,16 @@ def _normalize_prediction_records(
     )
     prediction_ids = set()
     for record in predictions:
-        if record.prediction_event_id in prediction_ids:
+        identity = (
+            record.sample_id,
+            record.issue_type,
+            record.prediction_event_id,
+        )
+        if identity in prediction_ids:
             raise ValidationMetricsError(
-                "prediction_records contain duplicate prediction_event_id values"
+                "prediction_records contain duplicate sample/type/event identities"
             )
-        prediction_ids.add(record.prediction_event_id)
+        prediction_ids.add(identity)
     return tuple(sorted(predictions, key=_prediction_identity))
 
 
@@ -456,7 +462,7 @@ def evaluate_model(
         )
 
         truth_event_ids = {
-            truth_event_id
+            (record.sample_id, record.issue_type, truth_event_id)
             for record in type_truth
             for truth_event_id in record.truth_event_ids
         }
@@ -467,10 +473,16 @@ def evaluate_model(
             matched = prediction.matched_truth_event_id
             if matched is None:
                 unmatched_count += 1
-            elif matched in matched_event_ids:
-                duplicate_count += 1
             else:
-                matched_event_ids.add(matched)
+                matched_identity = (
+                    prediction.sample_id,
+                    prediction.issue_type,
+                    matched,
+                )
+                if matched_identity in matched_event_ids:
+                    duplicate_count += 1
+                else:
+                    matched_event_ids.add(matched_identity)
 
         true_positive_count = len(matched_event_ids)
         false_positive_count = unmatched_count + duplicate_count
@@ -589,6 +601,23 @@ def _ratio_increased(
     return (
         candidate_numerator * active_denominator
         > active_numerator * candidate_denominator
+    )
+
+
+def _absolute_or_sample_rate_increased(
+    *,
+    candidate_count: int,
+    candidate_sample_count: int,
+    active_count: int,
+    active_sample_count: int,
+) -> bool:
+    """Fail closed on either a larger count or burden per fixed sample."""
+
+    return candidate_count > active_count or _ratio_increased(
+        candidate_numerator=candidate_count,
+        candidate_denominator=candidate_sample_count,
+        active_numerator=active_count,
+        active_denominator=active_sample_count,
     )
 
 
@@ -716,45 +745,101 @@ def compare_candidate_to_active(
                     )
                 )
 
-        if _ratio_increased(
+        false_positive_sample_burden_increased = (
+            _absolute_or_sample_rate_increased(
+                candidate_count=candidate.false_positive_count,
+                candidate_sample_count=candidate.validation_sample_count,
+                active_count=active.false_positive_count,
+                active_sample_count=active.validation_sample_count,
+            )
+        )
+        false_positive_prediction_share_increased = _ratio_increased(
             candidate_numerator=candidate.false_positive_count,
             candidate_denominator=candidate.prediction_event_count,
             active_numerator=active.false_positive_count,
             active_denominator=active.prediction_event_count,
+        )
+        if (
+            false_positive_sample_burden_increased
+            or false_positive_prediction_share_increased
         ):
+            if false_positive_sample_burden_increased:
+                active_value = _safe_ratio(
+                    active.false_positive_count,
+                    active.validation_sample_count,
+                )
+                candidate_value = _safe_ratio(
+                    candidate.false_positive_count,
+                    candidate.validation_sample_count,
+                )
+                basis = "per-validation-sample burden"
+            else:
+                active_value = active.false_positive_rate
+                candidate_value = candidate.false_positive_rate
+                basis = "prediction share"
             reasons.append(
                 PromotionReviewReason(
                     code="false_positive_rate_increased",
                     issue_type=issue_type,
                     message=(
-                        f"{issue_type}: false-positive rate increased from "
-                        f"{active.false_positive_rate:.6f} to "
-                        f"{candidate.false_positive_rate:.6f}"
+                        f"{issue_type}: false-positive {basis} increased "
+                        f"from {active_value:.6f} to "
+                        f"{candidate_value:.6f} "
+                        f"(count {active.false_positive_count} to "
+                        f"{candidate.false_positive_count})"
                     ),
-                    active_value=active.false_positive_rate,
-                    candidate_value=candidate.false_positive_rate,
-                    limit_value=active.false_positive_rate,
+                    active_value=active_value,
+                    candidate_value=candidate_value,
+                    limit_value=active_value,
                 )
             )
 
-        if _ratio_increased(
+        duplicate_sample_burden_increased = (
+            _absolute_or_sample_rate_increased(
+                candidate_count=candidate.duplicate_prediction_count,
+                candidate_sample_count=candidate.validation_sample_count,
+                active_count=active.duplicate_prediction_count,
+                active_sample_count=active.validation_sample_count,
+            )
+        )
+        duplicate_prediction_share_increased = _ratio_increased(
             candidate_numerator=candidate.duplicate_prediction_count,
             candidate_denominator=candidate.prediction_event_count,
             active_numerator=active.duplicate_prediction_count,
             active_denominator=active.prediction_event_count,
+        )
+        if (
+            duplicate_sample_burden_increased
+            or duplicate_prediction_share_increased
         ):
+            if duplicate_sample_burden_increased:
+                active_value = _safe_ratio(
+                    active.duplicate_prediction_count,
+                    active.validation_sample_count,
+                )
+                candidate_value = _safe_ratio(
+                    candidate.duplicate_prediction_count,
+                    candidate.validation_sample_count,
+                )
+                basis = "per-validation-sample burden"
+            else:
+                active_value = active.duplicate_burden
+                candidate_value = candidate.duplicate_burden
+                basis = "prediction share"
             reasons.append(
                 PromotionReviewReason(
                     code="duplicate_burden_increased",
                     issue_type=issue_type,
                     message=(
-                        f"{issue_type}: duplicate burden increased from "
-                        f"{active.duplicate_burden:.6f} to "
-                        f"{candidate.duplicate_burden:.6f}"
+                        f"{issue_type}: duplicate {basis} increased from "
+                        f"{active_value:.6f} to "
+                        f"{candidate_value:.6f} "
+                        f"(count {active.duplicate_prediction_count} to "
+                        f"{candidate.duplicate_prediction_count})"
                     ),
-                    active_value=active.duplicate_burden,
-                    candidate_value=candidate.duplicate_burden,
-                    limit_value=active.duplicate_burden,
+                    active_value=active_value,
+                    candidate_value=candidate_value,
+                    limit_value=active_value,
                 )
             )
 

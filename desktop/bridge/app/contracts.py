@@ -743,6 +743,399 @@ class AnalysisJobListResponse(StrictModel):
     jobs: List[AnalysisJobResponse] = Field(max_length=128)
 
 
+class DenseIndexJobStartRequest(StrictModel):
+    project_id: UUID
+    analysis_job_id: UUID
+    sampling_fps: int = Field(ge=1, le=5)
+    confirm_review_only: Literal[True]
+
+    @field_validator("sampling_fps", mode="before")
+    @classmethod
+    def strict_sampling_fps(cls, value: object) -> int:
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError("sampling_fps must be an integer from 1 to 5")
+        return value
+
+    @field_validator("confirm_review_only", mode="before")
+    @classmethod
+    def require_explicit_review_confirmation(cls, value: object) -> bool:
+        if value is not True:
+            raise ValueError("confirm_review_only must be explicitly true")
+        return True
+
+
+class DenseIndexReviewSafety(StrictModel):
+    review_only: Literal[True]
+    automatic_incident_creation: Literal[False]
+    automatic_annotation_creation: Literal[False]
+    automatic_training_ingest: Literal[False]
+    automatic_maintenance_decision: Literal[False]
+    automatic_model_promotion: Literal[False]
+
+
+class DenseIndexResultSummary(StrictModel):
+    artifact_set_id: UUID
+    frame_count: int = Field(ge=1, le=30_000)
+    total_frame_bytes: int = Field(gt=0, le=16 * 1024**3)
+    index_artifact_ref: str = Field(
+        pattern=(
+            r"^dense-index:[0-9a-f]{8}-[0-9a-f]{4}-"
+            r"[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-"
+            r"[0-9a-f]{12}:frame-index$"
+        )
+    )
+
+
+class DenseIndexJobResponse(StrictModel):
+    job_id: UUID
+    project_id: UUID
+    analysis_job_id: UUID
+    source_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    sampling_fps: int = Field(ge=1, le=5)
+    status: Literal[
+        "queued",
+        "running",
+        "cancelling",
+        "completed",
+        "cancelled",
+        "failed",
+    ]
+    stage: Literal[
+        "queued",
+        "resolving_source",
+        "indexing_frames",
+        "finalizing",
+        "cancelling",
+        "completed",
+        "cancelled",
+        "failed",
+    ]
+    progress_percent: Optional[int] = Field(default=None, ge=0, le=100)
+    progress_state: Literal[
+        "waiting",
+        "determinate",
+        "indeterminate",
+        "terminal",
+    ]
+    progress_basis: Literal["stage_only_no_fabricated_frame_progress"]
+    pause_supported: Literal[False]
+    error_code: Optional[
+        Literal[
+            "source_changed",
+            "timeout",
+            "output_limit",
+            "indexing_failed",
+            "persistence_failed",
+            "internal_error",
+        ]
+    ] = None
+    created_at: datetime
+    updated_at: datetime
+    record_sha256: Optional[str] = Field(
+        default=None, pattern=r"^[a-f0-9]{64}$"
+    )
+    safety: DenseIndexReviewSafety
+    result: Optional[DenseIndexResultSummary] = None
+
+    @model_validator(mode="after")
+    def validate_dense_index_state(self) -> "DenseIndexJobResponse":
+        if self.status == "completed":
+            if (
+                self.stage != "completed"
+                or self.progress_percent != 100
+                or self.progress_state != "determinate"
+                or self.error_code is not None
+                or self.result is None
+                or self.record_sha256 is None
+            ):
+                raise ValueError(
+                    "completed dense-index jobs require verified output"
+                )
+        elif self.status == "failed":
+            if (
+                self.stage != "failed"
+                or self.error_code is None
+                or self.result is not None
+            ):
+                raise ValueError(
+                    "failed dense-index jobs require an error code"
+                )
+        elif self.status == "cancelled":
+            if (
+                self.stage != "cancelled"
+                or self.error_code is not None
+                or self.result is not None
+            ):
+                raise ValueError(
+                    "cancelled dense-index jobs cannot expose output"
+                )
+        elif (
+            self.error_code is not None
+            or self.result is not None
+            or self.record_sha256 is not None
+        ):
+            raise ValueError(
+                "active dense-index jobs cannot expose terminal output"
+            )
+        return self
+
+
+class DenseIndexJobListResponse(StrictModel):
+    jobs: List[DenseIndexJobResponse] = Field(max_length=128)
+
+
+PipelineStageName = Literal[
+    "intake_validation",
+    "sha256",
+    "metadata_gps_preflight",
+    "dense_index_2fps",
+    "candidate_rescan_5_10fps",
+    "detection_ocr",
+    "sam2_segmentation_tracking",
+    "temporal_merge",
+    "similar_case_search",
+    "vision_proposal",
+    "question_queue",
+    "derived_outputs",
+]
+PipelineOutcomeCode = Literal[
+    "success",
+    "zero_detections",
+    "model_unavailable",
+    "blocked_gpx_required",
+    "partial",
+    "failed",
+    "cancelled",
+]
+
+
+class PipelineProfileConfigureRequest(StrictModel):
+    project_id: UUID
+    question_policy: PolicyMode
+    review_mode: Literal["precision", "quick"]
+    default_template_id: str = Field(
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+    )
+    default_template_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    detector_pack_id: str = Field(
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+    )
+    ocr_pack_id: str = Field(
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+    )
+    sam2_pack_id: str = Field(
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+    )
+    report_provider: Literal["codex", "claude", "local", "none"]
+    output_location_id: str = Field(
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+    )
+    candidate_rescan_fps: int = Field(ge=5, le=10)
+
+    @field_validator("candidate_rescan_fps", mode="before")
+    @classmethod
+    def strict_rescan_fps(cls, value: object) -> int:
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError("candidate_rescan_fps must be an integer")
+        return value
+
+
+class PipelineProfileResponse(StrictModel):
+    schema_version: Literal["trafficvisson.pipeline-profile.v1"]
+    project_id: UUID
+    question_policy: PolicyMode
+    review_mode: Literal["precision", "quick"]
+    default_template_id: str = Field(
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+    )
+    default_template_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    detector_pack_id: str = Field(
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+    )
+    ocr_pack_id: str = Field(
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+    )
+    sam2_pack_id: str = Field(
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+    )
+    report_provider: Literal["codex", "claude", "local", "none"]
+    output_location_id: str = Field(
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+    )
+    candidate_rescan_fps: int = Field(ge=5, le=10)
+    gps_policy: Literal["timed_track_required_for_route"]
+    bulk_frame_provider_policy: Literal["local_models_only"]
+    revision: int = Field(ge=1)
+    updated_at: datetime
+
+
+class PipelineJobStartRequest(StrictModel):
+    project_id: UUID
+    snapshot_id: UUID
+    file_name: str = Field(min_length=1, max_length=255)
+    rights_confirmed: Literal[True]
+    idempotency_key: str = Field(
+        min_length=16,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$",
+    )
+
+    @field_validator("rights_confirmed", mode="before")
+    @classmethod
+    def explicit_rights_confirmation(cls, value: object) -> bool:
+        if value is not True:
+            raise ValueError("rights_confirmed must be explicitly true")
+        return True
+
+    @field_validator("file_name")
+    @classmethod
+    def plain_file_name(cls, value: str) -> str:
+        if "/" in value or "\\" in value or "\x00" in value:
+            raise ValueError("file_name must not contain a path")
+        return value
+
+
+class PipelineReviewCompleteRequest(StrictModel):
+    review_completion_id: str = Field(
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+    )
+
+
+class PipelineStageResponse(StrictModel):
+    name: PipelineStageName
+    status: Literal[
+        "pending",
+        "running",
+        "success",
+        "blocked",
+        "failed",
+        "skipped",
+        "cancelled",
+    ]
+    outcome: Optional[PipelineOutcomeCode]
+    attempts: int = Field(ge=0, le=64)
+    started_at: Optional[datetime]
+    completed_at: Optional[datetime]
+    error_code: Optional[str] = Field(
+        default=None, pattern=r"^[a-z][a-z0-9_]{2,63}$"
+    )
+    checkpoint: Dict[str, Any]
+    metrics: Dict[str, Any]
+
+
+class PipelineJobResponse(StrictModel):
+    job_id: UUID
+    project_id: UUID
+    snapshot_id: UUID
+    file_name: str = Field(min_length=1, max_length=255)
+    idempotency_key: str = Field(
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$"
+    )
+    input_fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
+    profile_snapshot: PipelineProfileResponse
+    capability_snapshot: Dict[str, Any]
+    status: Literal[
+        "queued",
+        "running",
+        "cancelling",
+        "awaiting_review",
+        "blocked",
+        "failed",
+        "cancelled",
+        "completed",
+    ]
+    current_stage: PipelineStageName
+    progress_percent: int = Field(ge=0, le=100)
+    outcome_code: Optional[PipelineOutcomeCode]
+    error_code: Optional[str] = Field(
+        default=None, pattern=r"^[a-z][a-z0-9_]{2,63}$"
+    )
+    retry_count: int = Field(ge=0, le=5)
+    resume_count: int = Field(ge=0, le=5)
+    review_completion_id: Optional[str] = Field(
+        default=None,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+    )
+    stages: List[PipelineStageResponse] = Field(
+        min_length=12, max_length=12
+    )
+    provenance: Dict[str, Any]
+    created_at: datetime
+    updated_at: datetime
+    recovered_after_restart: bool
+    record_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+    @model_validator(mode="after")
+    def validate_pipeline_state(self) -> "PipelineJobResponse":
+        if [stage.name for stage in self.stages] != [
+            "intake_validation",
+            "sha256",
+            "metadata_gps_preflight",
+            "dense_index_2fps",
+            "candidate_rescan_5_10fps",
+            "detection_ocr",
+            "sam2_segmentation_tracking",
+            "temporal_merge",
+            "similar_case_search",
+            "vision_proposal",
+            "question_queue",
+            "derived_outputs",
+        ]:
+            raise ValueError("pipeline stages are not in canonical DAG order")
+        if self.status == "completed":
+            if self.progress_percent != 100 or self.outcome_code not in {
+                "success",
+                "zero_detections",
+            }:
+                raise ValueError("completed pipeline state is inconsistent")
+        if self.status == "blocked" and self.outcome_code not in {
+            "model_unavailable",
+            "partial",
+        }:
+            raise ValueError(
+                "blocked pipeline must expose model_unavailable or partial"
+            )
+        if (
+            self.status == "blocked"
+            and self.outcome_code == "partial"
+            and self.current_stage != "derived_outputs"
+        ):
+            raise ValueError(
+                "partial pipeline must remain at derived_outputs"
+            )
+        if self.status == "failed" and self.outcome_code != "failed":
+            raise ValueError("failed pipeline must expose failed outcome")
+        if self.status == "cancelled" and self.outcome_code != "cancelled":
+            raise ValueError("cancelled pipeline must expose cancelled outcome")
+        if (
+            self.status == "awaiting_review"
+            and self.current_stage != "question_queue"
+        ):
+            raise ValueError("review wait must be at question_queue")
+        return self
+
+
+class PipelineJobStartResponse(StrictModel):
+    job: PipelineJobResponse
+    idempotent_replay: bool
+
+
+class PipelineJobListResponse(StrictModel):
+    jobs: List[PipelineJobResponse] = Field(max_length=128)
+
+
 CandidateIssueType = VisionIssueType
 
 
@@ -759,6 +1152,167 @@ class CandidateNormalizedBox(StrictModel):
         return self
 
 
+class CandidateNormalizedPoint(StrictModel):
+    x: float = Field(ge=0, le=1)
+    y: float = Field(ge=0, le=1)
+
+    @field_validator("x", "y", mode="before")
+    @classmethod
+    def strict_finite_coordinate(cls, value: object) -> float:
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+        ):
+            raise ValueError("mask refinement coordinates must be finite")
+        return float(value)
+
+
+class MaskRefinementIdentityRequest(StrictModel):
+    project_id: UUID
+    analysis_job_id: UUID
+    question_id: UUID
+    candidate_id: str = Field(pattern=r"^[a-f0-9]{20}$")
+
+
+class MaskRefinementRequest(MaskRefinementIdentityRequest):
+    click: CandidateNormalizedPoint
+
+
+class MaskRefinementModelManifest(StrictModel):
+    pack_id: str = Field(pattern=r"^[a-z0-9][a-z0-9._-]{0,63}$")
+    pack_version: str = Field(
+        pattern=r"^[0-9A-Za-z][0-9A-Za-z._+-]{0,31}$"
+    )
+    manifest_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+class MaskRefinementCapabilityResponse(StrictModel):
+    schema_version: Literal[
+        "trafficvisson.sam2-mask-refinement-capability.v1"
+    ]
+    project_id: UUID
+    analysis_job_id: UUID
+    question_id: UUID
+    candidate_id: str = Field(pattern=r"^[a-f0-9]{20}$")
+    state: Literal["ready", "model_unavailable"]
+    error_code: Optional[Literal["model_pack_not_configured"]]
+    message: str = Field(min_length=1, max_length=500)
+    model_manifest: Optional[MaskRefinementModelManifest]
+    click_prompt_enabled: bool
+
+    @model_validator(mode="after")
+    def consistent_state(self) -> "MaskRefinementCapabilityResponse":
+        if self.state == "ready":
+            if (
+                self.error_code is not None
+                or self.model_manifest is None
+                or not self.click_prompt_enabled
+            ):
+                raise ValueError("ready mask refinement capability is invalid")
+        elif (
+            self.error_code != "model_pack_not_configured"
+            or self.model_manifest is not None
+            or self.click_prompt_enabled
+        ):
+            raise ValueError(
+                "unavailable mask refinement capability is invalid"
+            )
+        return self
+
+
+class MaskRefinementResponse(StrictModel):
+    schema_version: Literal["trafficvisson.sam2-mask-refinement.v1"]
+    project_id: UUID
+    analysis_job_id: UUID
+    question_id: UUID
+    candidate_id: str = Field(pattern=r"^[a-f0-9]{20}$")
+    status: Literal["refined", "model_unavailable"]
+    error_code: Optional[Literal["model_pack_not_configured"]]
+    message: str = Field(min_length=1, max_length=500)
+    refinement_id: Optional[str] = Field(
+        default=None,
+        pattern=r"^smr_[a-f0-9]{24}$",
+    )
+    click: CandidateNormalizedPoint
+    polygon: Optional[List[Tuple[float, float]]] = Field(
+        default=None,
+        min_length=3,
+        max_length=256,
+    )
+    normalized_box: Optional[CandidateNormalizedBox]
+    mask_artifact_ref: Optional[str] = Field(
+        default=None,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+    )
+    tracked_frame_refs: List[str] = Field(max_length=32)
+    input_sha256: Optional[str] = Field(
+        default=None,
+        pattern=r"^[a-f0-9]{64}$",
+    )
+    output_sha256: Optional[str] = Field(
+        default=None,
+        pattern=r"^[a-f0-9]{64}$",
+    )
+    model_manifest: Optional[MaskRefinementModelManifest]
+    requires_user_confirmation: Literal[True]
+    automatic_annotation_allowed: Literal[False]
+    automatic_incident_creation_allowed: Literal[False]
+    training_membership_allowed: Literal[False]
+
+    @field_validator("polygon", mode="before")
+    @classmethod
+    def strict_polygon(
+        cls,
+        value: object,
+    ) -> object:
+        if value is None:
+            return value
+        if not isinstance(value, list):
+            raise ValueError("mask refinement polygon must be a list")
+        for point in value:
+            if (
+                not isinstance(point, list)
+                or len(point) != 2
+                or any(
+                    isinstance(coordinate, bool)
+                    or not isinstance(coordinate, (int, float))
+                    or not math.isfinite(float(coordinate))
+                    or not 0 <= float(coordinate) <= 1
+                    for coordinate in point
+                )
+            ):
+                raise ValueError(
+                    "mask refinement polygon coordinates are invalid"
+                )
+        return value
+
+    @model_validator(mode="after")
+    def consistent_state(self) -> "MaskRefinementResponse":
+        refined_fields = (
+            self.refinement_id,
+            self.polygon,
+            self.normalized_box,
+            self.mask_artifact_ref,
+            self.input_sha256,
+            self.output_sha256,
+            self.model_manifest,
+        )
+        if self.status == "refined":
+            if (
+                self.error_code is not None
+                or any(value is None for value in refined_fields)
+            ):
+                raise ValueError("refined SAM2 response is incomplete")
+        elif (
+            self.error_code != "model_pack_not_configured"
+            or any(value is not None for value in refined_fields)
+            or self.tracked_frame_refs
+        ):
+            raise ValueError("unavailable SAM2 response is inconsistent")
+        return self
+
+
 class CandidateLabelAnswerRequest(StrictModel):
     project_id: UUID
     analysis_job_id: UUID
@@ -770,6 +1324,31 @@ class CandidateLabelAnswerRequest(StrictModel):
     maintenance_action: Optional[str] = Field(default=None, max_length=500)
     ocr_text: Optional[str] = Field(default=None, max_length=500)
     normalized_box: Optional[CandidateNormalizedBox] = None
+    question_id: Optional[UUID] = None
+    mask_refinement_id: Optional[str] = Field(
+        default=None,
+        pattern=r"^smr_[a-f0-9]{24}$",
+    )
+
+    @model_validator(mode="after")
+    def refinement_identity_is_bounded(
+        self,
+    ) -> "CandidateLabelAnswerRequest":
+        if self.mask_refinement_id is not None:
+            if self.answer != "edit" or self.question_id is None:
+                raise ValueError(
+                    "mask refinement identity requires an edited answer "
+                    "and question_id"
+                )
+            if self.normalized_box is not None:
+                raise ValueError(
+                    "renderer geometry cannot accompany mask refinement"
+                )
+        elif self.question_id is not None:
+            raise ValueError(
+                "question_id is accepted only with a mask refinement"
+            )
+        return self
 
 
 class CandidateLatestAnswer(StrictModel):
@@ -1153,7 +1732,7 @@ class TemporalGroupingPolicyRequest(StrictModel):
         le=math.sqrt(2.0),
     )
     strict_track_separation: bool = True
-    allow_temporal_only_without_spatial_hints: bool = True
+    allow_temporal_only_without_spatial_hints: bool = False
 
     @field_validator(
         "max_gap_seconds",
@@ -1574,6 +2153,201 @@ class SourceCandidateCatalogResponse(StrictModel):
         return self
 
 
+WeakCaseSourceStatus = Literal[
+    "ready",
+    "source_missing",
+    "source_sha256_mismatch",
+    "source_changed",
+    "source_invalid",
+    "source_unavailable",
+    "source_path_rejected",
+    "source_contract_mismatch",
+]
+
+
+class WeakCaseSourceResponse(StrictModel):
+    source_id: str = Field(
+        pattern=r"^sample-hwpx-[34]q-[a-f0-9]{16}$"
+    )
+    document_name: str = Field(min_length=1, max_length=120)
+    document_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    authorization_purpose: Literal[
+        "sample_hwpx_read_only_weak_case_index"
+    ]
+    quarter: Literal[3, 4]
+    status: WeakCaseSourceStatus
+    case_count: int = Field(ge=0, le=10_000)
+    resolved_case_count: int = Field(ge=0, le=10_000)
+    review_required_count: int = Field(ge=0, le=10_000)
+    approved_reference_count: Literal[0]
+    training_eligible_count: Literal[0]
+    annotation_count: Literal[0]
+    incident_count: Literal[0]
+    index_manifest_sha256: Optional[str] = Field(
+        default=None, pattern=r"^[a-f0-9]{64}$"
+    )
+
+    @model_validator(mode="after")
+    def validate_state(self) -> "WeakCaseSourceResponse":
+        if self.status == "ready":
+            if (
+                self.index_manifest_sha256 is None
+                or self.case_count != self.review_required_count
+                or self.resolved_case_count > self.case_count
+            ):
+                raise ValueError("ready weak-case source counts are invalid")
+        elif (
+            self.index_manifest_sha256 is not None
+            or self.case_count != 0
+            or self.resolved_case_count != 0
+            or self.review_required_count != 0
+        ):
+            raise ValueError("unavailable weak-case source exposes index data")
+        return self
+
+
+class WeakCaseSourceListResponse(StrictModel):
+    schema_version: Literal["trafficvisson.weak-case-catalog.v1"]
+    catalog_role: Literal["sample_hwpx_weak_unconfirmed_reference"]
+    capability_state: Literal["weak_reference_only", "unavailable"]
+    automatic_promotion: Literal[False]
+    automatic_annotation_creation: Literal[False]
+    automatic_incident_creation: Literal[False]
+    automatic_training_ingest: Literal[False]
+    sources: List[WeakCaseSourceResponse] = Field(max_length=4)
+    ready_source_count: int = Field(ge=0, le=4)
+    source_count: int = Field(ge=0, le=4)
+
+    @model_validator(mode="after")
+    def validate_counts(self) -> "WeakCaseSourceListResponse":
+        if (
+            self.source_count != len(self.sources)
+            or self.ready_source_count
+            != sum(source.status == "ready" for source in self.sources)
+        ):
+            raise ValueError("weak-case source counts are inconsistent")
+        if (
+            self.capability_state == "weak_reference_only"
+            and self.ready_source_count < 1
+        ) or (
+            self.capability_state == "unavailable"
+            and self.ready_source_count != 0
+        ):
+            raise ValueError("weak-case capability state is inconsistent")
+        return self
+
+
+class WeakCaseSearchRequest(StrictModel):
+    project_id: UUID
+    issue_type: Optional[CandidateIssueType] = None
+    query_text: Optional[str] = Field(default=None, max_length=240)
+    limit: int = Field(default=5, ge=3, le=5)
+
+    @model_validator(mode="after")
+    def validate_query(self) -> "WeakCaseSearchRequest":
+        if self.issue_type is None and not self.query_text:
+            raise ValueError(
+                "weak-case search requires issue_type or query_text"
+            )
+        return self
+
+
+class WeakCaseSearchResult(StrictModel):
+    source_id: str = Field(
+        pattern=r"^sample-hwpx-[34]q-[a-f0-9]{16}$"
+    )
+    case_id: str = Field(
+        pattern=r"^hwpx-weak-case-[a-f0-9]{32}$"
+    )
+    rank: int = Field(ge=1, le=5)
+    similarity_score: int = Field(gt=0, le=10_000)
+    matched_terms: List[str] = Field(max_length=8)
+    reference_state: Literal["weak_unconfirmed"]
+    review_required: Literal[True]
+    approved_reference: Literal[False]
+    training_eligible: Literal[False]
+    annotation_created: Literal[False]
+    incident_created: Literal[False]
+    quarter: Literal[3, 4]
+    document_name: str = Field(min_length=1, max_length=120)
+    document_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    page_hint: int = Field(ge=1, le=10_000)
+    page_hint_source: str = Field(min_length=1, max_length=120)
+    table_index: Optional[int] = Field(default=None, ge=0, le=100_000)
+    cell_row: Optional[int] = Field(default=None, ge=0, le=100_000)
+    cell_column: Optional[int] = Field(default=None, ge=0, le=100_000)
+    picture_index: int = Field(ge=0, le=100_000)
+    caption: Optional[str] = Field(default=None, max_length=320)
+    route: Optional[str] = Field(default=None, max_length=320)
+    location: Optional[str] = Field(default=None, max_length=320)
+    evaluation: Optional[str] = Field(default=None, max_length=320)
+    opinion: Optional[str] = Field(default=None, max_length=320)
+    image_available: bool
+    image_media_type: Optional[
+        Literal[
+            "image/bmp",
+            "image/png",
+            "image/jpeg",
+            "image/gif",
+            "image/webp",
+        ]
+    ] = None
+    image_width: Optional[int] = Field(default=None, ge=1, le=65_535)
+    image_height: Optional[int] = Field(default=None, ge=1, le=65_535)
+
+    @model_validator(mode="after")
+    def validate_image(self) -> "WeakCaseSearchResult":
+        image_fields = (
+            self.image_media_type,
+            self.image_width,
+            self.image_height,
+        )
+        if self.image_available and any(value is None for value in image_fields):
+            raise ValueError("available weak-case image metadata is incomplete")
+        return self
+
+
+class WeakCaseSearchResponse(StrictModel):
+    schema_version: Literal["trafficvisson.weak-case-search.v1"]
+    search_mode: Literal["bounded_text_and_structure_metadata"]
+    semantic_image_embedding_used: Literal[False]
+    capability_state: Literal["weak_reference_only", "unavailable"]
+    issue_type: Optional[CandidateIssueType]
+    query_text: Optional[str] = Field(default=None, max_length=240)
+    requested_limit: int = Field(ge=3, le=5)
+    result_count: int = Field(ge=0, le=5)
+    cases: List[WeakCaseSearchResult] = Field(max_length=5)
+    source_states: List[WeakCaseSourceResponse] = Field(max_length=4)
+    review_required_before_promotion: Literal[True]
+    approved_reference_count: Literal[0]
+    annotation_count: Literal[0]
+    incident_count: Literal[0]
+    training_eligible_count: Literal[0]
+
+    @model_validator(mode="after")
+    def validate_results(self) -> "WeakCaseSearchResponse":
+        if (
+            self.result_count != len(self.cases)
+            or self.result_count > self.requested_limit
+        ):
+            raise ValueError("weak-case search result counts are inconsistent")
+        if [case.rank for case in self.cases] != list(
+            range(1, len(self.cases) + 1)
+        ):
+            raise ValueError("weak-case search ranks are invalid")
+        ready_count = sum(
+            source.status == "ready" for source in self.source_states
+        )
+        if (
+            self.capability_state == "weak_reference_only"
+            and ready_count < 1
+        ) or (
+            self.capability_state == "unavailable" and ready_count != 0
+        ):
+            raise ValueError("weak-case search capability is inconsistent")
+        return self
+
+
 class ProjectIncidentResponse(StrictModel):
     incident_id: UUID
     project_id: UUID
@@ -1853,6 +2627,8 @@ class GpxTrackResponse(StrictModel):
 
 
 class ProviderCapabilities(StrictModel):
+    structured_judgment: bool
+    bulk_frame_detection: Literal[False]
     report_draft: bool
     document_edit_plan: bool
     usage_information: bool
@@ -1865,6 +2641,31 @@ class ProviderResponse(StrictModel):
     authentication_owner: Literal["official_cli", "not_applicable"]
     capabilities: ProviderCapabilities
     message: str
+    diagnostic_state: Literal[
+        "not_installed",
+        "installed",
+        "not_connected",
+        "ready",
+        "expired",
+        "network_unavailable",
+        "error",
+        "coming_soon",
+    ]
+    installation_state: Literal["installed", "not_installed", "disabled"]
+    authentication_state: Literal[
+        "ready",
+        "signed_out",
+        "expired",
+        "unknown",
+        "not_applicable",
+    ]
+    network_state: Literal["not_checked", "offline", "unknown", "not_applicable"]
+    version: Optional[str] = Field(
+        default=None,
+        min_length=1,
+        max_length=64,
+        pattern=r"^[vV]?[0-9][0-9A-Za-z.+-]{0,63}$",
+    )
 
 
 class ProviderListResponse(StrictModel):
@@ -1875,6 +2676,116 @@ class ProviderLoginResponse(StrictModel):
     provider: Literal["codex", "claude"]
     state: Literal["external_cli_owned"]
     message: str
+
+
+class RuntimeModelPackIdentity(StrictModel):
+    provider: Optional[str] = Field(
+        default=None,
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+    )
+    pack_id: Optional[str] = Field(
+        default=None,
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+    )
+    pack_version: Optional[str] = Field(
+        default=None,
+        min_length=1,
+        max_length=64,
+        pattern=r"^[0-9A-Za-z][0-9A-Za-z._+-]{0,63}$",
+    )
+    manifest_sha256: Optional[str] = Field(
+        default=None, pattern=r"^[a-f0-9]{64}$"
+    )
+    weights_spdx: Optional[str] = Field(
+        default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9.+-]{0,63}$"
+    )
+    runtime_spdx: Optional[str] = Field(
+        default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9.+-]{0,63}$"
+    )
+    review_only: Optional[bool] = None
+
+
+class RuntimeComponentResponse(StrictModel):
+    component_id: Literal[
+        "electron_host",
+        "python_bridge",
+        "pytorch_cuda",
+        "grounding_dino",
+        "sam2",
+        "opencv",
+        "ffmpeg",
+        "korean_ocr",
+        "embedding_search",
+        "codex_cli",
+        "claude_code",
+        "hancom_com",
+        "local_model_provider",
+    ]
+    display_name: str = Field(min_length=1, max_length=80)
+    state: Literal[
+        "ready",
+        "incomplete",
+        "unavailable",
+        "failed",
+        "external_required",
+        "disabled",
+    ]
+    management: Literal[
+        "installer",
+        "installer_or_model_pack",
+        "model_pack",
+        "official_cli",
+        "external_installation",
+        "provider_slot",
+    ]
+    required_for: List[
+        str
+    ] = Field(min_length=1, max_length=8)
+    message: str = Field(min_length=1, max_length=500)
+    version: Optional[str] = Field(default=None, min_length=1, max_length=64)
+    error_code: Optional[str] = Field(
+        default=None, pattern=r"^[a-z][a-z0-9_]{2,63}$"
+    )
+    model_pack: Optional[RuntimeModelPackIdentity] = None
+
+
+class RuntimeReadinessCounts(StrictModel):
+    disabled: int = Field(ge=0, le=13)
+    external_required: int = Field(ge=0, le=13)
+    failed: int = Field(ge=0, le=13)
+    incomplete: int = Field(ge=0, le=13)
+    ready: int = Field(ge=0, le=13)
+    unavailable: int = Field(ge=0, le=13)
+
+
+class RuntimeProviderPolicy(StrictModel):
+    bulk_frame_detection: Literal["local_models_only"]
+    structured_judgment_providers: List[
+        Literal["codex", "claude"]
+    ] = Field(min_length=2, max_length=2)
+    provider_authentication_owner: Literal["official_cli"]
+    authentication_files_read_by_app: Literal[False]
+    local_model_provider: Literal["disabled"]
+
+
+class RuntimePipelineOutcomeContract(StrictModel):
+    model_unavailable: Literal["unavailable"]
+    model_runtime_failed: Literal["failed"]
+    successful_zero_predictions: Literal["zero_detections"]
+
+
+class RuntimeReadinessResponse(StrictModel):
+    schema_version: Literal["trafficvisson.runtime-readiness.v1"]
+    provider_policy: RuntimeProviderPolicy
+    pipeline_outcome_contract: RuntimePipelineOutcomeContract
+    counts: RuntimeReadinessCounts
+    components: List[RuntimeComponentResponse] = Field(
+        min_length=13, max_length=13
+    )
 
 
 class ReportDraftRequest(StrictModel):
@@ -1901,14 +2812,15 @@ class ReportDraftResponse(StrictModel):
 
 class ApprovedReportIncident(StrictModel):
     incident_id: UUID
-    review_state: Literal["approved"]
     incident_type: str = Field(
         min_length=1,
         max_length=128,
         pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
     )
-    severity: Literal["minor", "moderate", "major", "urgent"]
-    maintenance_action: str = Field(min_length=1, max_length=1_000)
+    severity: Literal[
+        "minor", "moderate", "major", "urgent", "unassessed"
+    ]
+    maintenance_action: Optional[str] = Field(default=None, max_length=1_000)
     ocr_text: Optional[str] = Field(default=None, max_length=1_000)
     location_summary: Optional[str] = Field(default=None, max_length=500)
     time_ms: Optional[int] = Field(default=None, ge=0, le=2_678_400_000)
@@ -1971,24 +2883,45 @@ class ReportDocumentStructureSummary(StrictModel):
 
 class ReportGenerateRequest(StrictModel):
     project_id: UUID
+    analysis_job_id: UUID
+    source_file_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    pipeline_job_id: Optional[UUID] = None
+    pipeline_input_fingerprint: Optional[str] = Field(
+        default=None, pattern=r"^[a-f0-9]{64}$"
+    )
+    pipeline_profile_sha256: Optional[str] = Field(
+        default=None, pattern=r"^[a-f0-9]{64}$"
+    )
     provider: Literal["codex", "claude"]
     consent: bool
     project_label: Optional[str] = Field(default=None, max_length=200)
-    approved_incidents: List[ApprovedReportIncident] = Field(
-        min_length=1, max_length=200
-    )
+    incident_ids: List[UUID] = Field(min_length=1, max_length=200)
     document_structure_summary: ReportDocumentStructureSummary
     map_refs: List[str] = Field(default_factory=list, max_length=20)
 
-    @field_validator("approved_incidents")
+    @field_validator("incident_ids")
     @classmethod
     def unique_incidents(
-        cls, incidents: List[ApprovedReportIncident]
-    ) -> List[ApprovedReportIncident]:
-        incident_ids = [incident.incident_id for incident in incidents]
+        cls, incident_ids: List[UUID]
+    ) -> List[UUID]:
         if len(incident_ids) != len(set(incident_ids)):
-            raise ValueError("approved incidents must be unique")
-        return incidents
+            raise ValueError("incident IDs must be unique")
+        return incident_ids
+
+    @model_validator(mode="after")
+    def complete_pipeline_binding(self) -> "ReportGenerateRequest":
+        binding = (
+            self.pipeline_job_id,
+            self.pipeline_input_fingerprint,
+            self.pipeline_profile_sha256,
+        )
+        if any(value is not None for value in binding) and any(
+            value is None for value in binding
+        ):
+            raise ValueError(
+                "pipeline provenance must be supplied as one complete binding"
+            )
+        return self
 
     @field_validator("map_refs")
     @classmethod
@@ -2133,12 +3066,119 @@ class HwpDocumentRequest(StrictModel):
     plan: DocumentEditPlan
 
 
+class HwpApplyDocumentRequest(HwpDocumentRequest):
+    approval_token: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+class HwpApprovalTargetSummary(StrictModel):
+    operation_count: int = Field(ge=1, le=100)
+    operation_types: Dict[str, int]
+    targets: List[str] = Field(min_length=1, max_length=100)
+
+
 class HwpPreviewResponse(StrictModel):
     mode: Literal["preview"]
     operation_count: int = Field(ge=1, le=500)
     operation_types: Dict[str, int]
     structure: HwpStructureSummary
     message: str = Field(min_length=1, max_length=500)
+    approval_token: str = Field(pattern=r"^[a-f0-9]{64}$")
+    approval_expires_at: datetime
+    document_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    plan_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    target_summary: HwpApprovalTargetSummary
+
+
+class HwpSampleLayoutCounts(StrictModel):
+    rendered_page_count_baseline: Literal[48]
+    page_pair_count: Literal[24]
+    section_count: Literal[1]
+    table_count: Literal[72]
+    cell_count: int = Field(ge=1)
+    picture_count: int = Field(ge=1)
+    fixed_inspection_picture_count: Literal[24]
+    existing_photo_picture_count: int = Field(ge=1)
+    explicit_page_break_count: int = Field(ge=1)
+
+
+class HwpSampleLayoutOperationBinding(StrictModel):
+    operation_id: UUID
+    operation_type: Literal[
+        "fill_cell", "insert_image", "insert_map"
+    ]
+    target_id: str = Field(
+        pattern=r"^hwpx-(?:cell|picture)-[a-f0-9]{24}$"
+    )
+    target_kind: Literal["cell", "picture"]
+    table_index: int = Field(ge=0, le=71)
+    page_number: int = Field(ge=1, le=48)
+    page_kind: Literal["inspection", "photo"]
+    layout_role: str = Field(
+        min_length=1,
+        max_length=80,
+        pattern=r"^[a-z][a-z0-9_]{2,79}$",
+    )
+    cell_row: Optional[int] = Field(default=None, ge=0)
+    cell_column: Optional[int] = Field(default=None, ge=0)
+    source_ref: str = Field(
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+    )
+
+
+class HwpSampleLayoutPreviewResponse(StrictModel):
+    schema_version: Literal[
+        "trafficvisson.hwpx-sample-layout-preview.v1"
+    ]
+    state: Literal["validated_structure_preview_apply_blocked"]
+    template_id: Literal["sample-3q-v1", "sample-4q-v1"]
+    quarter: Literal[3, 4]
+    document_snapshot_id: str = Field(
+        pattern=r"^hwpx-sample-[34]q-[a-f0-9]{24}$"
+    )
+    document_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    structure_target_summary_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    baseline_manifest_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    baseline_pdf_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    weak_case_index_manifest_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    plan_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    layout_contract_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    expected_rendered_page_count: Literal[48]
+    output_rendered_page_count: Optional[int] = Field(
+        default=None, ge=1
+    )
+    output_render_validation_status: Literal["not_run"]
+    page_pattern: Literal["odd_inspection_even_photo"]
+    page_mapping: Literal["audited_three_table_pair_contract"]
+    counts: HwpSampleLayoutCounts
+    operation_bindings: List[
+        HwpSampleLayoutOperationBinding
+    ] = Field(min_length=1, max_length=100)
+    apply_eligible: Literal[False]
+    blocking_reasons: List[str] = Field(min_length=3, max_length=3)
+    source_renamed: bool
+    read_only: Literal[True]
+    no_com: Literal[True]
+    no_document_write: Literal[True]
+
+    @field_validator("blocking_reasons")
+    @classmethod
+    def exact_blocking_reasons(cls, values: List[str]) -> List[str]:
+        expected = [
+            "exact_hwpml_target_writer_not_implemented",
+            "semantic_cell_role_map_not_approved",
+            "output_reopen_and_48_page_render_validation_not_implemented",
+        ]
+        if values != expected:
+            raise ValueError(
+                "sample HWPX apply blockers must be explicit and complete"
+            )
+        return values
 
 
 class HwpApplyResponse(StrictModel):

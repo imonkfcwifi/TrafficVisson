@@ -22,20 +22,47 @@ test("the full SUIT variable face and final polish layer load last", () => {
     /@sun-typeface\/suit\/fonts\/variable\/woff2\/SUIT-Variable\.css";[\s\S]*styles-compact-analysis-labeling\.css";\s*import "\.\/styles-visual-polish\.css";/,
   );
   assert.doesNotMatch(entrySource, /pretendard/i);
+  assert.doesNotMatch(entrySource, /jetbrains|fontsource-variable/i);
+  assert.match(
+    polishStyles,
+    /#root \*\s*,[\s\S]*\.maplibregl-ctrl\s*\{[^}]*font-family:\s*var\(--font-sans\)\s*!important;/s,
+  );
 });
 
 test("home hierarchy is asymmetric without a hidden metric scroller", () => {
   assert.match(
     polishStyles,
-    /\.hero-metrics\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1\.35fr\) repeat\(3,\s*minmax\(0,\s*1fr\)\);[^}]*overflow:\s*visible;/s,
+    /\.home-overview\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1\.72fr\) repeat\(2,\s*minmax\(210px,\s*0\.62fr\)\);/s,
   );
   assert.doesNotMatch(
     homeSource,
-    /className="mono">공통 초기 슬롯 · 장면 후보 추출 전용/,
+    /프로젝트 입력 열기|후보 추출[\s\S]*metric-link-icon/,
   );
+  assert.match(homeSource, /title: "영상 넣기"/);
+  assert.match(homeSource, /title: "자동 분석"/);
+  assert.match(homeSource, /title: "질문 검토"/);
+  assert.match(homeSource, /title: "결과 자동 갱신"/);
+  assert.match(homeSource, /영상 하나만 넣으면 질문 준비까지 자동으로 진행됩니다/);
+  assert.match(homeSource, /화면을 옮겨 다니며 중간 분석 버튼을 누를 필요가 없습니다/);
   assert.match(
     polishStyles,
     /\.home-grid\s*\{[^}]*height:\s*auto;[^}]*flex:\s*1 1 0;[^}]*align-self:\s*stretch;/s,
+  );
+  assert.match(
+    polishStyles,
+    /\.screen--home\s*\{[^}]*grid-template-rows:\s*auto 178px minmax\(0,\s*1fr\);/s,
+  );
+  assert.match(
+    polishStyles,
+    /\.home-pipeline-hero__top p\s*\{[^}]*display:\s*-webkit-box;[^}]*overflow:\s*hidden;[^}]*-webkit-line-clamp:\s*2;/s,
+  );
+  assert.match(
+    polishStyles,
+    /\.home-summary-card > p\s*\{[^}]*display:\s*-webkit-box;[^}]*overflow:\s*hidden;[^}]*-webkit-line-clamp:\s*2;/s,
+  );
+  assert.match(
+    polishStyles,
+    /\.home-summary-card > \.home-summary-card__status\s*\{[^}]*display:\s*-webkit-box;[^}]*overflow:\s*hidden;[^}]*-webkit-line-clamp:\s*2;/s,
   );
   assert.match(homeSource, /className=\{`trip-evidence-showcase/);
   assert.match(
@@ -50,6 +77,11 @@ test("home hierarchy is asymmetric without a hidden metric scroller", () => {
     polishStyles,
     /\.trip-evidence-showcase\s*\{\s*display:\s*none;/,
   );
+  assert.match(
+    homeSource,
+    /\.filter\(\(candidate\) => !reviewedCandidateIds\.has\(candidate\.candidateId\)\)[\s\S]*\.slice\(0, 3\)/,
+  );
+  assert.doesNotMatch(homeSource, /realTunnelEvidenceImage/);
 });
 
 test("Korean badges and short-window controls keep readable line boxes", () => {

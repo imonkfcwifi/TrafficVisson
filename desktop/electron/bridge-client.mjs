@@ -4,7 +4,15 @@ export const MAX_REQUEST_TIMEOUT_MS = 30 * 60 * 1000;
 const MAX_RESPONSE_BYTES = 5 * 1024 * 1024;
 export const MAX_BINARY_RESPONSE_BYTES = 128 * 1024 * 1024;
 const MAX_ERROR_RESPONSE_BYTES = 16 * 1024;
-const BINARY_MEDIA_TYPES = new Set(["image/jpeg", "video/mp4"]);
+const ALLOWED_JSON_METHODS = new Set(["GET", "POST", "PUT"]);
+const BINARY_MEDIA_TYPES = new Set([
+  "image/bmp",
+  "image/gif",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "video/mp4",
+]);
 
 export class BridgeHttpError extends Error {
   constructor(message, { status = 0, code = "BRIDGE_REQUEST_FAILED" } = {}) {
@@ -155,7 +163,7 @@ export class BridgeClient {
   }
 
   async request(method, pathname, { body, query, timeoutMs } = {}) {
-    if (!["GET", "POST"].includes(method)) {
+    if (!ALLOWED_JSON_METHODS.has(method)) {
       throw new TypeError("Only allowlisted bridge methods are supported");
     }
     const url = new URL(safePath(pathname), this.#baseUrl);
@@ -261,7 +269,8 @@ export class BridgeClient {
       const response = await this.#fetch(url, {
         method: "GET",
         headers: {
-          Accept: "image/jpeg, video/mp4",
+          Accept:
+            "image/jpeg, image/png, image/bmp, image/gif, image/webp, video/mp4",
           Authorization: `Bearer ${this.#token}`,
           ...(range ? { Range: range } : {}),
         },

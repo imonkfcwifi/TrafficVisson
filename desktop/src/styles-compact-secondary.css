@@ -456,12 +456,13 @@
   .screen--report .report-layout {
     min-height: 0;
     height: 100%;
+    grid-template-columns: minmax(320px, 34fr) minmax(0, 66fr);
     gap: 8px;
   }
 
   .screen--report .report-controls {
     min-height: 0;
-    grid-template-rows: minmax(310px, 1.55fr) minmax(176px, 0.85fr);
+    grid-template-rows: minmax(380px, 1fr) 140px;
     gap: 8px;
     overflow: hidden;
   }
@@ -473,8 +474,7 @@
   }
 
   .screen--report .provider-panel {
-    overflow: auto;
-    overscroll-behavior: contain;
+    overflow: hidden;
   }
 
   .screen--report .provider-tabs {
@@ -483,26 +483,82 @@
   }
 
   .screen--report .provider-tabs button {
-    min-height: 54px;
-    padding: 7px;
+    min-height: 48px;
+    padding: 6px 7px;
+  }
+
+  .screen--report .provider-tabs button strong {
+    font-size: 12px;
+  }
+
+  .screen--report .provider-tabs small {
+    font-size: 11px;
   }
 
   .screen--report .send-scope {
-    margin-top: 7px;
-    padding-top: 7px;
+    margin-top: 5px;
+    padding-top: 5px;
   }
 
   .screen--report .send-scope h3 {
-    margin-bottom: 5px;
+    margin-bottom: 4px;
+    font-size: 12px;
+  }
+
+  .screen--report .send-scope .chip-row {
+    gap: 5px;
+  }
+
+  .screen--report .send-scope .badge {
+    min-height: 22px;
+    padding: 2px 7px;
+    font-size: 11px;
   }
 
   .screen--report .send-scope .rights-check {
-    margin: 7px 0;
+    gap: 7px;
+    margin: 5px 0;
+  }
+
+  .screen--report .send-scope .rights-check strong {
+    font-size: 11.5px;
+    line-height: 1.25;
+  }
+
+  .screen--report .send-scope .rights-check small {
+    margin-top: 0;
+    font-size: 11px;
+    line-height: 1.25;
+  }
+
+  .screen--report .provider-actions {
+    gap: 6px;
+  }
+
+  .screen--report .provider-actions .button {
+    min-height: 36px;
+    padding-inline: 9px;
+    font-size: 11.5px;
   }
 
   .screen--report .provider-message {
+    margin-top: 5px;
+    font-size: 11px;
+    line-height: 1.3;
+  }
+
+  .screen--report .provider-panel .notice {
+    gap: 7px;
     margin-top: 6px;
-    font-size: 12px;
+    padding: 8px 9px;
+  }
+
+  .screen--report .provider-panel .notice strong {
+    font-size: 11px;
+  }
+
+  .screen--report .provider-panel .notice p {
+    font-size: 11px;
     line-height: 1.3;
   }
 
@@ -533,9 +589,32 @@
     line-height: 1.35;
   }
 
+  .screen--report .edit-plan-panel:has(.edit-plan-empty) .edit-op-list {
+    display: flex;
+    margin-bottom: 0;
+    overflow: hidden;
+  }
+
+  .screen--report .edit-plan-panel:has(.edit-plan-empty) > .button:last-child {
+    display: none;
+  }
+
   .screen--report .document-toolbar,
   .screen--report .document-footer {
     min-height: 44px;
+  }
+
+  .screen--report .document-preview-controls {
+    min-height: 40px;
+    padding: 4px 10px;
+  }
+
+  .screen--report .document-page-indicator {
+    min-width: 116px;
+  }
+
+  .screen--report .document-fit-button {
+    min-height: 30px;
   }
 
   .screen--report .document-runtime-notice {
@@ -544,7 +623,7 @@
   }
 
   .screen--report .document-stage {
-    padding: 16px;
+    padding: 14px 16px 34px;
   }
 
   /* Export: package choices and generated artifact state remain side by side. */

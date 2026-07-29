@@ -10,10 +10,10 @@ const electronExecutable = require("electron");
 const vitePackageRoot = path.dirname(require.resolve("vite/package.json"));
 const viteCli = path.join(vitePackageRoot, "bin", "vite.js");
 
-const portText = process.env.TRAFFICVISSON_DEV_PORT || "5173";
+const portText = process.env.TRAFFICSUPERVISION_DEV_PORT || "5173";
 const port = Number(portText);
 if (!Number.isInteger(port) || port < 1024 || port > 65_535) {
-  throw new Error("TRAFFICVISSON_DEV_PORT must be an integer between 1024 and 65535");
+  throw new Error("TRAFFICSUPERVISION_DEV_PORT must be an integer between 1024 and 65535");
 }
 
 const rendererUrl = `http://127.0.0.1:${port}`;
@@ -85,7 +85,7 @@ try {
 const electron = spawnChild(electronExecutable, [path.join("electron", "main.mjs")], {
   env: {
     ...process.env,
-    TRAFFICVISSON_RENDERER_URL: rendererUrl,
+    TRAFFICSUPERVISION_RENDERER_URL: rendererUrl,
   },
 });
 

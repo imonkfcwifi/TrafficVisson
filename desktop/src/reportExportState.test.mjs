@@ -15,12 +15,17 @@ const vite = await createServer({
 const reportSession = await vite.ssrLoadModule("/src/reportSessionState.ts");
 const exportResults = await vite.ssrLoadModule("/src/exportResults.ts");
 const exportScreen = await vite.ssrLoadModule("/src/screens/ExportScreen.tsx");
+const reportScreen = await vite.ssrLoadModule("/src/screens/ReportScreen.tsx");
 const reportSessionSource = await readFile(
   new URL("./reportSessionState.ts", import.meta.url),
   "utf8",
 );
 const exportScreenSource = await readFile(
   new URL("./screens/ExportScreen.tsx", import.meta.url),
+  "utf8",
+);
+const reportScreenSource = await readFile(
+  new URL("./screens/ReportScreen.tsx", import.meta.url),
   "utf8",
 );
 
@@ -84,7 +89,7 @@ test("report workflow survives navigation in memory for the same analysis", () =
   reportSession.setReportSessionField("applyResult", {
     mode: "applied",
     rollback_token: "a".repeat(32),
-    output_file_name: "점검 양식_TrafficVisson.hwpx",
+    output_file_name: "점검 양식_TrafficSuperVision.hwpx",
     size_bytes: 1234,
     sha256: "b".repeat(64),
     readback: {
@@ -158,6 +163,65 @@ test("new analysis or renderer restart clears document and COM one-shot state", 
   );
 });
 
+test("HWP apply forwards only the server preview approval and burns local preview on failure", () => {
+  assert.match(
+    reportScreenSource,
+    /approvalToken:\s*previewResult\.approval_token/,
+  );
+  assert.match(
+    reportScreenSource,
+    /\^\[a-f0-9\]\{64\}\$[\s\S]*approval_expires_at[\s\S]*document_sha256[\s\S]*plan_sha256[\s\S]*target_summary/,
+  );
+  assert.match(
+    reportScreenSource,
+    /catch \(error\) \{\s*if \(!reportOperationIsCurrent\(request\)\) return;\s*setPreviewedPlan\(null\);\s*setPreviewResult\(null\);\s*setWorkflow\("error"\);[\s\S]*한\/글 문서에 편집 계획을 적용하지 못했습니다/,
+  );
+});
+
+test("report async completions are bound to one operation nonce and project session", () => {
+  const scopeA = "project-a:job-a";
+  const scopeB = "project-b:job-b";
+  assert.equal(
+    reportScreen.isCurrentReportOperation(7, 7, scopeA, scopeA),
+    true,
+  );
+  assert.equal(
+    reportScreen.isCurrentReportOperation(7, 8, scopeA, scopeA),
+    false,
+    "a newer operation in the same session invalidates an older response",
+  );
+  assert.equal(
+    reportScreen.isCurrentReportOperation(7, 7, scopeA, scopeB),
+    false,
+    "a response from project A cannot update project B",
+  );
+  assert.equal(
+    reportScreen.isCurrentReportOperation(7, 9, scopeA, scopeA),
+    false,
+    "A to B to A still rejects the first A nonce",
+  );
+  assert.match(
+    reportScreenSource,
+    /latestReportScopeKeyRef\.current !== reportScopeKey[\s\S]*activeReportOperationRef\.current \+= 1/,
+  );
+  assert.match(
+    reportScreenSource,
+    /return \(\) => \{[\s\S]*activeReportOperationRef\.current \+= 1;[\s\S]*\};/,
+    "unmounting the report screen must invalidate same-scope callbacks",
+  );
+  assert.ok(
+    (reportScreenSource.match(/!reportOperationIsCurrent\(request\)/g) ?? [])
+      .length >= 9,
+    "document selection plus generate, preview, apply, and rollback success/error paths must be guarded",
+  );
+});
+
+test("document fit zoom is bounded and derived from the visible sketch width", () => {
+  assert.equal(reportScreen.calculateDocumentFitZoom(712, 32), 100);
+  assert.equal(reportScreen.calculateDocumentFitZoom(120, 32), 40);
+  assert.equal(reportScreen.calculateDocumentFitZoom(1400, 32), 150);
+});
+
 function completedExportResponse() {
   const artifacts = exportResults.EXPORT_ARTIFACTS.map((item, index) => ({
     artifact: item.artifact,
@@ -169,7 +233,7 @@ function completedExportResponse() {
   return {
     status: "completed",
     export_id: "99999999-9999-4999-8999-999999999999",
-    archive_file_name: "trafficvisson-export.zip",
+    archive_file_name: "trafficsupervision-export.zip",
     archive_size_bytes: 123456,
     archive_sha256: "f".repeat(64),
     artifact_count: 14,
@@ -283,7 +347,7 @@ test("export consumes a one-shot destination before IPC and requires reselection
     '? { ...current, selectionId: "" }',
   );
   const requestIndex = exportScreenSource.indexOf(
-    "await window.trafficVisson.exports.create",
+    "await window.trafficSuperVision.exports.create",
   );
   assert.ok(consumeIndex >= 0 && requestIndex > consumeIndex);
   assert.match(

@@ -1077,6 +1077,14 @@ class CandidateExtractionEngine:
                 self._limits.group_gap_seconds,
                 self._limits.max_candidate_groups,
             )
+            # Keep evidence inside the configured width without upscaling and
+            # force FFmpeg's computed height to an even value.  The previous
+            # force_original_aspect_ratio form could turn a 1440x1200 frame
+            # into 1600x1333 on FFmpeg 4.4.1, which libx264 rejects.
+            evidence_scale_filter = (
+                f"scale=w=min(iw\\,{self._limits.max_frame_width}):"
+                "h=-2:flags=lanczos"
+            )
 
             source_fingerprint_material = (
                 source_sha256
@@ -1152,10 +1160,7 @@ class CandidateExtractionEngine:
                     "-sn",
                     "-dn",
                     "-vf",
-                    (
-                        f"scale={self._limits.max_frame_width}:-2:"
-                        "force_original_aspect_ratio=decrease"
-                    ),
+                    evidence_scale_filter,
                     "-q:v",
                     "3",
                     "-fs",
@@ -1224,10 +1229,7 @@ class CandidateExtractionEngine:
                     "-sn",
                     "-dn",
                     "-vf",
-                    (
-                        f"scale={self._limits.max_frame_width}:-2:"
-                        "force_original_aspect_ratio=decrease"
-                    ),
+                    evidence_scale_filter,
                     "-c:v",
                     "libx264",
                     "-preset",

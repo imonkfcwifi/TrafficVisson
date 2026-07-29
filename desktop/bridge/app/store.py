@@ -48,7 +48,7 @@ def evidence(prefix: str) -> Dict[str, str]:
     }
 
 
-class TrafficVissonStore:
+class TrafficSuperVisionStore:
     """Project store with a durable production catalog and isolated fixtures."""
 
     def __init__(
@@ -201,9 +201,13 @@ class TrafficVissonStore:
             return deepcopy(projected)
 
     def project_label_records(
-        self, project_id: UUID, records: List[Dict]
+        self,
+        project_id: UUID,
+        records: List[Dict],
+        *,
+        materialize_analysis_job_ids: Optional[List[UUID]] = None,
     ) -> List[Dict]:
-        """Idempotently reconcile an audit-log prefix into SQLite."""
+        """Reconcile the audit ledger and approved normalized projections."""
 
         with self._lock:
             self._project(project_id)
@@ -211,12 +215,20 @@ class TrafficVissonStore:
                 return []
             try:
                 projected = self._project_catalog.project_label_records(
-                    project_id, records
+                    project_id,
+                    records,
+                    materialize_analysis_job_ids=(
+                        materialize_analysis_job_ids
+                    ),
                 )
             except LabelProjectionError:
                 self._project_catalog.backfill_completed_analysis_records()
                 projected = self._project_catalog.project_label_records(
-                    project_id, records
+                    project_id,
+                    records,
+                    materialize_analysis_job_ids=(
+                        materialize_analysis_job_ids
+                    ),
                 )
             return deepcopy(projected)
 
@@ -521,11 +533,17 @@ class TrafficVissonStore:
                 "state": "not_connected",
                 "authentication_owner": "official_cli",
                 "capabilities": {
+                    "structured_judgment": False,
+                    "bulk_frame_detection": False,
                     "report_draft": True,
                     "document_edit_plan": True,
                     "usage_information": True,
                 },
                 "message": "로그인과 토큰은 공식 Codex CLI가 관리합니다.",
+                "diagnostic_state": "not_connected",
+                "installation_state": "installed",
+                "authentication_state": "signed_out",
+                "network_state": "not_checked",
             },
             {
                 "provider": "claude",
@@ -533,11 +551,17 @@ class TrafficVissonStore:
                 "state": "not_connected",
                 "authentication_owner": "official_cli",
                 "capabilities": {
+                    "structured_judgment": False,
+                    "bulk_frame_detection": False,
                     "report_draft": True,
                     "document_edit_plan": True,
                     "usage_information": True,
                 },
                 "message": "로그인과 토큰은 공식 Claude Code가 관리합니다.",
+                "diagnostic_state": "not_connected",
+                "installation_state": "installed",
+                "authentication_state": "signed_out",
+                "network_state": "not_checked",
             },
             {
                 "provider": "local",
@@ -545,11 +569,17 @@ class TrafficVissonStore:
                 "state": "coming_soon",
                 "authentication_owner": "not_applicable",
                 "capabilities": {
+                    "structured_judgment": False,
+                    "bulk_frame_detection": False,
                     "report_draft": False,
                     "document_edit_plan": False,
                     "usage_information": False,
                 },
                 "message": "Provider 계약만 등록된 비활성 슬롯입니다.",
+                "diagnostic_state": "coming_soon",
+                "installation_state": "disabled",
+                "authentication_state": "not_applicable",
+                "network_state": "not_applicable",
             },
         ]
 

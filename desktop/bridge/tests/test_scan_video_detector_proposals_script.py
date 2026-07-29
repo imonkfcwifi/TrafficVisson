@@ -134,7 +134,7 @@ class FakeService:
 def _fixture(tmp_path: Path):
     source = tmp_path / "source.mp4"
     source.write_bytes(b"read-only-source-video-fixture")
-    manifest = tmp_path / "trafficvisson-model-pack.json"
+    manifest = tmp_path / "trafficsupervision-model-pack.json"
     manifest.write_text('{"fixture":"manifest"}\n', encoding="utf-8")
     model = tmp_path / "model.onnx"
     model.write_bytes(b"fixture-onnx-model")
@@ -284,7 +284,7 @@ def test_dense_scan_exports_bounded_review_only_artifacts_without_mutating_input
 
     run_root = (
         fixture["program_data"]
-        / "TrafficVisson"
+        / "TrafficSuperVision"
         / "ModelEvaluations"
         / "fixture-dense-scan"
     )
@@ -350,7 +350,7 @@ def test_interrupted_scan_resumes_from_checkpoint_without_resampling(tmp_path):
         )
     run_root = (
         fixture["program_data"]
-        / "TrafficVisson"
+        / "TrafficSuperVision"
         / "ModelEvaluations"
         / "resume-dense-scan"
     )
@@ -419,7 +419,7 @@ def test_invalid_detector_score_is_rejected_before_publication(tmp_path):
         )
     run_root = (
         fixture["program_data"]
-        / "TrafficVisson"
+        / "TrafficSuperVision"
         / "ModelEvaluations"
         / "invalid-contract"
     )

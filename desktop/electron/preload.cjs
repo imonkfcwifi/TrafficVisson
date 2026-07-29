@@ -25,8 +25,24 @@ const CHANNELS = Object.freeze({
   ANALYSIS_GET: "trafficvisson:analysis:get",
   ANALYSIS_CANCEL: "trafficvisson:analysis:cancel",
   ANALYSIS_PAUSE: "trafficvisson:analysis:pause",
+  DENSE_INDEX_START: "trafficvisson:dense-index:start",
+  DENSE_INDEX_LIST: "trafficvisson:dense-index:list",
+  DENSE_INDEX_GET: "trafficvisson:dense-index:get",
+  DENSE_INDEX_CANCEL: "trafficvisson:dense-index:cancel",
+  PIPELINE_PROFILE_CONFIGURE: "trafficvisson:pipeline:profile-configure",
+  PIPELINE_PROFILE_GET: "trafficvisson:pipeline:profile-get",
+  PIPELINE_START: "trafficvisson:pipeline:start",
+  PIPELINE_LIST: "trafficvisson:pipeline:list",
+  PIPELINE_GET: "trafficvisson:pipeline:get",
+  PIPELINE_CANCEL: "trafficvisson:pipeline:cancel",
+  PIPELINE_RESUME: "trafficvisson:pipeline:resume",
+  PIPELINE_REVIEW_COMPLETE: "trafficvisson:pipeline:review-complete",
   CANDIDATE_QUESTIONS_LIST: "trafficvisson:candidate-questions:list",
   CANDIDATE_ANSWER: "trafficvisson:candidate-questions:answer",
+  MASK_REFINEMENT_CAPABILITY:
+    "trafficvisson:mask-refinement:capability",
+  MASK_REFINEMENT_REQUEST:
+    "trafficvisson:mask-refinement:request",
   INCIDENT_LIST: "trafficvisson:incidents:list",
   AUTO_LABEL_COMPILE: "trafficvisson:auto-labeling:compile",
   AUTO_LABEL_RUN: "trafficvisson:auto-labeling:run",
@@ -38,9 +54,13 @@ const CHANNELS = Object.freeze({
   DATASET_LIST: "trafficvisson:datasets:list",
   DATASET_CREATE: "trafficvisson:datasets:create",
   SOURCE_CANDIDATES_LIST: "trafficvisson:source-candidates:list",
+  WEAK_CASE_SOURCES_LIST:
+    "trafficvisson:weak-cases:sources-list",
+  WEAK_CASE_SEARCH: "trafficvisson:weak-cases:search",
   QUESTIONS_LIST: "trafficvisson:questions:list",
   QUESTION_ANSWER: "trafficvisson:questions:answer",
   HISTORY_GET: "trafficvisson:history:get",
+  RUNTIME_READINESS: "trafficvisson:runtime:readiness",
   GPX_TRACK_IMPORT: "trafficvisson:gpx-track:import",
   GPX_TRACK_GET: "trafficvisson:gpx-track:get",
   GPX_TRACK_OFFSET: "trafficvisson:gpx-track:offset",
@@ -102,9 +122,34 @@ const api = Object.freeze({
     cancel: (request) => invoke(CHANNELS.ANALYSIS_CANCEL, request),
     pause: (request) => invoke(CHANNELS.ANALYSIS_PAUSE, request),
   }),
+  denseIndex: Object.freeze({
+    start: (request) => invoke(CHANNELS.DENSE_INDEX_START, request),
+    list: (request) => invoke(CHANNELS.DENSE_INDEX_LIST, request),
+    get: (request) => invoke(CHANNELS.DENSE_INDEX_GET, request),
+    cancel: (request) => invoke(CHANNELS.DENSE_INDEX_CANCEL, request),
+  }),
+  pipeline: Object.freeze({
+    configureProfile: (request) =>
+      invoke(CHANNELS.PIPELINE_PROFILE_CONFIGURE, request),
+    getProfile: (request) =>
+      invoke(CHANNELS.PIPELINE_PROFILE_GET, request),
+    start: (request) => invoke(CHANNELS.PIPELINE_START, request),
+    list: (request) => invoke(CHANNELS.PIPELINE_LIST, request),
+    get: (request) => invoke(CHANNELS.PIPELINE_GET, request),
+    cancel: (request) => invoke(CHANNELS.PIPELINE_CANCEL, request),
+    resume: (request) => invoke(CHANNELS.PIPELINE_RESUME, request),
+    completeReview: (request) =>
+      invoke(CHANNELS.PIPELINE_REVIEW_COMPLETE, request),
+  }),
   candidateQuestions: Object.freeze({
     list: (request) => invoke(CHANNELS.CANDIDATE_QUESTIONS_LIST, request),
     answer: (request) => invoke(CHANNELS.CANDIDATE_ANSWER, request),
+  }),
+  maskRefinements: Object.freeze({
+    capability: (request) =>
+      invoke(CHANNELS.MASK_REFINEMENT_CAPABILITY, request),
+    refine: (request) =>
+      invoke(CHANNELS.MASK_REFINEMENT_REQUEST, request),
   }),
   incidents: Object.freeze({
     list: (request) => invoke(CHANNELS.INCIDENT_LIST, request),
@@ -131,12 +176,21 @@ const api = Object.freeze({
   sources: Object.freeze({
     candidates: () => invoke(CHANNELS.SOURCE_CANDIDATES_LIST),
   }),
+  referenceCases: Object.freeze({
+    sources: (request) =>
+      invoke(CHANNELS.WEAK_CASE_SOURCES_LIST, request),
+    search: (request) =>
+      invoke(CHANNELS.WEAK_CASE_SEARCH, request),
+  }),
   questions: Object.freeze({
     list: (request) => invoke(CHANNELS.QUESTIONS_LIST, request),
     answer: (request) => invoke(CHANNELS.QUESTION_ANSWER, request),
   }),
   history: Object.freeze({
     get: (request) => invoke(CHANNELS.HISTORY_GET, request),
+  }),
+  runtime: Object.freeze({
+    readiness: () => invoke(CHANNELS.RUNTIME_READINESS),
   }),
   gps: Object.freeze({
     importTrack: (request) => invoke(CHANNELS.GPX_TRACK_IMPORT, request),
@@ -166,4 +220,4 @@ const api = Object.freeze({
   }),
 });
 
-contextBridge.exposeInMainWorld("trafficVisson", api);
+contextBridge.exposeInMainWorld("trafficSuperVision", api);

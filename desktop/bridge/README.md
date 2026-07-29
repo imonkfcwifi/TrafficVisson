@@ -1,4 +1,4 @@
-# TrafficVisson local bridge
+# TrafficSuperVision local bridge
 
 This directory is the Python service supervised by Electron main. It is not a
 general web API.
@@ -102,8 +102,8 @@ as `scene_fallback` / `model_pack_not_configured`. It is not presented as a
 road-defect classification.
 
 A local model is activated only when
-`TRAFFICVISSON_VISION_MODEL_PACK` points to an absolute, regular
-`trafficvisson-model-pack.json`. The pack is never downloaded by the bridge.
+`TRAFFICSUPERVISION_VISION_MODEL_PACK` points to an absolute, regular
+`trafficsupervision-model-pack.json`. The pack is never downloaded by the bridge.
 The manifest and every model artifact are size-bounded and SHA-256 checked,
 linked/reparse files are rejected, and the installer must record the runtime
 and weight SPDX identifiers plus a positive commercial-use-rights

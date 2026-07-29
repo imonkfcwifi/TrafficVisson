@@ -1,4 +1,4 @@
-"""Safe, deterministic TrafficVisson evidence-package export.
+"""Safe, deterministic TrafficSuperVision evidence-package export.
 
 The bridge resolves project authorization before calling this module.  This
 module deliberately has no knowledge of Electron, HTTP, HWP COM, or fixture
@@ -910,7 +910,7 @@ def export_artifacts(
     try:
         job_directory = Path(
             tempfile.mkdtemp(
-                prefix=f"trafficvisson-export-{export_id}-", dir=os.fspath(root)
+                prefix=f"trafficsupervision-export-{export_id}-", dir=os.fspath(root)
             )
         )
         os.chmod(job_directory, 0o700)
@@ -1007,7 +1007,7 @@ def export_artifacts(
                 "Export destination does not have enough free space"
             )
 
-        archive_path = job_directory / "trafficvisson-export.zip"
+        archive_path = job_directory / "trafficsupervision-export.zip"
         archive_members = [
             _ArchiveMember(path=path, digest=digest)
             for path, digest in zip(data_paths, data_digests)

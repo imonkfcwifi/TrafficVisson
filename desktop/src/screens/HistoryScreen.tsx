@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronRight,
   Eye,
@@ -19,7 +19,6 @@ import {
   loadSelectedCandidateId,
   saveSelectedCandidateId,
 } from "../candidateSelection";
-import { HistoryMap } from "../components/HistoryMap";
 import {
   Badge,
   Button,
@@ -42,6 +41,12 @@ import {
 } from "../persistentIncidents";
 import type { AnalysisCandidate } from "../runtimeState";
 import { useRuntimeState } from "../runtimeState";
+
+const HistoryMap = lazy(() =>
+  import("../components/HistoryMap").then((module) => ({
+    default: module.HistoryMap,
+  })),
+);
 
 function formatTime(seconds: number, milliseconds = false) {
   const safeSeconds = Math.max(0, seconds);
@@ -99,7 +104,7 @@ export function HistoryScreen({
   }, [summary]);
 
   useEffect(() => {
-    if (!summary || !window.trafficVisson) {
+    if (!summary || !window.trafficSuperVision) {
       setGpxTrack(null);
       setGpxLoading(false);
       return;
@@ -107,7 +112,7 @@ export function HistoryScreen({
     let active = true;
     setGpxLoading(true);
     setGpxError(null);
-    void window.trafficVisson.gps
+    void window.trafficSuperVision.gps
       .getTrack({
         projectId: summary.projectId,
         tripId: summary.jobId,
@@ -134,13 +139,13 @@ export function HistoryScreen({
   }, [summary]);
 
   useEffect(() => {
-    if (!summary || !window.trafficVisson) {
+    if (!summary || !window.trafficSuperVision) {
       setIncidents([]);
       return;
     }
     let active = true;
     setIncidentError(null);
-    void window.trafficVisson.incidents
+    void window.trafficSuperVision.incidents
       .list({
         projectId: summary.projectId,
         analysisJobId: summary.jobId,
@@ -293,13 +298,13 @@ export function HistoryScreen({
   };
 
   const importGpx = async () => {
-    if (!window.trafficVisson || !summary) return;
+    if (!window.trafficSuperVision || !summary) return;
     setGpxError(null);
     try {
-      const selection = await window.trafficVisson.dialogs.selectGpxFile();
+      const selection = await window.trafficSuperVision.dialogs.selectGpxFile();
       if (!selection.selectionId || !selection.file) return;
       setGpxLoading(true);
-      const value = await window.trafficVisson.gps.importTrack({
+      const value = await window.trafficSuperVision.gps.importTrack({
         projectId: summary.projectId,
         tripId: summary.jobId,
         gpxSelectionId: selection.selectionId,
@@ -318,11 +323,11 @@ export function HistoryScreen({
   };
 
   const updateGpxOffset = async (videoOffsetSeconds: number) => {
-    if (!window.trafficVisson || !summary || !gpxTrack) return;
+    if (!window.trafficSuperVision || !summary || !gpxTrack) return;
     setGpxLoading(true);
     setGpxError(null);
     try {
-      const value = await window.trafficVisson.gps.updateOffset({
+      const value = await window.trafficSuperVision.gps.updateOffset({
         projectId: summary.projectId,
         tripId: summary.jobId,
         videoOffsetSeconds,
@@ -533,7 +538,7 @@ export function HistoryScreen({
           ) : null}
           <Button
             onClick={() => void importGpx()}
-            disabled={gpxLoading || !window.trafficVisson}
+            disabled={gpxLoading || !window.trafficSuperVision}
             title={
               gpxTrack
                 ? "현재 주행의 GPX 원본을 교체합니다."
@@ -635,17 +640,37 @@ export function HistoryScreen({
         </GlassPanel>
 
         <GlassPanel className="map-panel">
-          <HistoryMap
-            sourceFileName={summary.sourceFileName}
-            candidateCount={candidates.length}
-            sourceLocation={sourceLocation}
-            track={gpxTrack}
-            currentVideoTimeSeconds={absoluteTimeSeconds}
-            candidates={candidates}
-            selectedCandidateId={selectedCandidate.candidateId}
-            approvedCandidateIds={approvedCandidateIds}
-            onSelectCandidate={selectCandidateById}
-          />
+          <Suspense
+            fallback={
+              <div
+                className="history-map-wrap history-map-unavailable"
+                role="status"
+                aria-live="polite"
+              >
+                <div className="history-map-unavailable__icon">
+                  <MapPin size={30} />
+                </div>
+                <Badge tone="neutral">지도 준비 중</Badge>
+                <h2>경로 모듈을 불러오고 있습니다</h2>
+                <p>
+                  영상과 사건 타임라인은 유지한 채 로컬 지도 모듈만 분리해
+                  준비합니다.
+                </p>
+              </div>
+            }
+          >
+            <HistoryMap
+              sourceFileName={summary.sourceFileName}
+              candidateCount={candidates.length}
+              sourceLocation={sourceLocation}
+              track={gpxTrack}
+              currentVideoTimeSeconds={absoluteTimeSeconds}
+              candidates={candidates}
+              selectedCandidateId={selectedCandidate.candidateId}
+              approvedCandidateIds={approvedCandidateIds}
+              onSelectCandidate={selectCandidateById}
+            />
+          </Suspense>
           {gpxError ? (
             <p className="map-inline-error" role="alert">
               {gpxError}

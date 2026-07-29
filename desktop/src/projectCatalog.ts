@@ -155,7 +155,7 @@ export function selectProject(projectId: string) {
 }
 
 export async function refreshProjects() {
-  if (!window.trafficVisson) {
+  if (!window.trafficSuperVision) {
     publish({
       ...state,
       loading: false,
@@ -167,7 +167,7 @@ export async function refreshProjects() {
   publish({ ...state, loading: true, error: null });
   try {
     const projects = parseProjectList(
-      await window.trafficVisson.projects.list(),
+      await window.trafficSuperVision.projects.list(),
     );
     if (generation !== loadGeneration) return projects;
     const preferred = readStoredProjectId() ?? state.activeProjectId;
@@ -221,11 +221,11 @@ export async function createProject(
   if (trimmedDescription && trimmedDescription.length > 2_000) {
     throw new Error("프로젝트 설명은 2,000자 이내로 입력하세요.");
   }
-  if (!window.trafficVisson) {
+  if (!window.trafficSuperVision) {
     throw new Error("새 프로젝트는 설치형 Electron 앱에서 만들 수 있습니다.");
   }
   const project = parseProject(
-    await window.trafficVisson.projects.create({
+    await window.trafficSuperVision.projects.create({
       name: trimmedName,
       ...(trimmedDescription ? { description: trimmedDescription } : {}),
     }),

@@ -1,6 +1,6 @@
 """Opt-in, offline local vision inference for extracted evidence candidates.
 
-The default TrafficVisson candidate extractor is deliberately non-classifying.
+The default TrafficSuperVision candidate extractor is deliberately non-classifying.
 This module adds a separate model-pack boundary without changing that fallback:
 
 * no model pack path means no model code is imported or executed;
@@ -54,6 +54,12 @@ from uuid import uuid4
 MODEL_PACK_SCHEMA = "trafficvisson.vision-model-pack.v1"
 INFERENCE_SCHEMA = "trafficvisson.vision-inference.v1"
 WORKER_SCHEMA = "trafficvisson.vision-worker.v1"
+MODEL_PACK_MANIFEST_NAMES = frozenset(
+    {
+        "trafficsupervision-model-pack.json",
+        "traffic" + "visson-model-pack.json",
+    }
+)
 
 CANONICAL_ISSUE_TYPES = (
     "pothole",
@@ -414,7 +420,7 @@ def load_model_pack(manifest_path: Path | str) -> VisionModelPack:
         raw_path.is_symlink()
         or _is_reparse_point(raw_path)
         or not manifest_resolved.is_file()
-        or manifest_resolved.name != "trafficvisson-model-pack.json"
+        or manifest_resolved.name not in MODEL_PACK_MANIFEST_NAMES
     ):
         raise VisionModelPackError("The model-pack manifest is invalid")
     root = _safe_real_directory(manifest_resolved.parent, "Model-pack directory")
@@ -1195,7 +1201,7 @@ class LocalVisionInferenceService:
             Path(tempfile.gettempdir()), "Vision worker temporary directory"
         )
         work_directory = Path(
-            tempfile.mkdtemp(prefix="TrafficVissonVision-", dir=work_parent)
+            tempfile.mkdtemp(prefix="TrafficSuperVisionVision-", dir=work_parent)
         )
         request_path = work_directory / "request.json"
         output_path = work_directory / "result.json"
@@ -1301,7 +1307,7 @@ class LocalVisionInferenceService:
                 if (
                     work_directory.parent == work_parent
                     and work_directory.name.startswith(
-                        "TrafficVissonVision-"
+                        "TrafficSuperVisionVision-"
                     )
                 ):
                     shutil.rmtree(work_directory)

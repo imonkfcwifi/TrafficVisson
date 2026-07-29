@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import subprocess
 import threading
 from typing import Callable, Mapping, Protocol, Sequence
@@ -24,17 +25,27 @@ _STATUS_ARGV: dict[str, tuple[str, ...]] = {
     "codex": ("login", "status"),
     "claude": ("auth", "status", "--json"),
 }
+_VERSION_ARGV: dict[str, tuple[str, ...]] = {
+    "codex": ("--version",),
+    "claude": ("--version",),
+}
 _LOGIN_ARGV: dict[str, tuple[str, ...]] = {
-    "codex": ("--login",),
+    "codex": ("login",),
     "claude": ("auth", "login"),
 }
 _EXECUTABLE_NAMES: dict[str, frozenset[str]] = {
     "codex": frozenset({"codex", "codex.exe", "codex.cmd"}),
     "claude": frozenset({"claude", "claude.exe", "claude.cmd"}),
 }
+_NPM_ENTRY_RELATIVE: dict[str, tuple[str, ...]] = {
+    "codex": ("node_modules", "@openai", "codex", "bin", "codex.js"),
+    "claude": ("node_modules", "@anthropic-ai", "claude-code", "cli.js"),
+}
+_NODE_EXECUTABLE_NAMES = frozenset({"node", "node.exe"})
 _READY_CAPABILITIES = (
     "connection_status",
     "interactive_login",
+    "structured_judgment",
     "report_draft",
     "document_edit_plan",
 )
@@ -55,6 +66,30 @@ _SAFE_ENV_NAMES = (
 _VERSION_RE = re.compile(
     r"^[vV]?\d{1,5}(?:\.\d{1,5}){1,3}(?:[-+][0-9A-Za-z.-]{1,48})?$"
 )
+_EXPIRED_MARKERS = (
+    "token expired",
+    "authentication expired",
+    "session expired",
+    "failed to refresh token",
+    "token_invalidated",
+    "app_session_terminated",
+    "401 unauthorized",
+    "invalid authentication credentials",
+)
+_NETWORK_MARKERS = (
+    "network is unreachable",
+    "network unavailable",
+    "connection refused",
+    "connection reset",
+    "unable to connect",
+    "failed to connect",
+    "dns lookup failed",
+    "temporary failure in name resolution",
+    "getaddrinfo",
+    "enetunreach",
+    "eai_again",
+    "offline",
+)
 
 
 @dataclass(frozen=True)
@@ -74,6 +109,9 @@ class ProviderStatus:
     capabilities: tuple[str, ...]
     message: str
     version: str | None = None
+    installation_state: str = "installed"
+    authentication_state: str = "unknown"
+    network_state: str = "not_checked"
 
     def as_dict(self) -> dict[str, object]:
         result: dict[str, object] = {
@@ -143,6 +181,17 @@ class _CappedCollector:
     @property
     def value(self) -> bytes:
         return b"".join(self._parts)
+
+
+def _is_reparse_point(path: Path) -> bool:
+    try:
+        attributes = getattr(path.lstat(), "st_file_attributes", 0)
+    except OSError:
+        return True
+    return bool(
+        attributes
+        & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    )
 
 
 def run_status_command(
@@ -244,19 +293,25 @@ class ProviderStatusService:
                 installed=False,
                 capabilities=(),
                 message="로컬 모델 Provider는 아직 준비 중입니다.",
+                installation_state="disabled",
+                authentication_state="not_applicable",
+                network_state="not_applicable",
             )
 
-        executable = self._discover_executable(provider)
-        if executable is None:
+        command_prefix = self._discover_command(provider)
+        if command_prefix is None:
             return ProviderStatus(
                 provider=provider,
                 state="not_installed",
                 installed=False,
                 capabilities=(),
                 message=f"{_display_name(provider)} CLI가 설치되어 있지 않습니다.",
+                installation_state="not_installed",
+                authentication_state="unknown",
+                network_state="unknown",
             )
 
-        argv = (executable, *_STATUS_ARGV[provider])
+        argv = (*command_prefix, *_STATUS_ARGV[provider])
         try:
             result = self._runner(
                 argv,
@@ -270,20 +325,23 @@ class ProviderStatusService:
                 "CLI 상태 확인 명령을 실행하지 못했습니다.",
             )
 
+        version = self._probe_version(provider, command_prefix)
         if result.timed_out:
             return self._error_status(
                 provider,
                 "CLI 상태 확인 응답 시간이 초과되었습니다.",
+                version=version,
             )
         if result.output_truncated:
             return self._error_status(
                 provider,
                 "CLI 상태 데이터가 허용 크기를 초과했습니다.",
+                version=version,
             )
 
         if provider == "claude":
-            return self._parse_claude_status(result)
-        return self._parse_codex_status(result)
+            return self._parse_claude_status(result, version)
+        return self._parse_codex_status(result, version)
 
     def launch_login(self, provider: ProviderName) -> LoginLaunchResult:
         provider = _normalize_provider(provider)
@@ -295,8 +353,8 @@ class ProviderStatusService:
                 message="로컬 모델 Provider는 아직 준비 중입니다.",
             )
 
-        executable = self._discover_executable(provider)
-        if executable is None:
+        command_prefix = self._discover_command(provider)
+        if command_prefix is None:
             return LoginLaunchResult(
                 provider=provider,
                 launched=False,
@@ -311,7 +369,7 @@ class ProviderStatusService:
                 message="로그인 창을 열 수 있도록 터미널 실행기가 구성되지 않았습니다.",
             )
 
-        argv = (executable, *_LOGIN_ARGV[provider])
+        argv = (*command_prefix, *_LOGIN_ARGV[provider])
         try:
             launched = self._launcher(argv)
         except (OSError, subprocess.SubprocessError):
@@ -330,7 +388,7 @@ class ProviderStatusService:
             message="공식 CLI 로그인 창을 열었습니다.",
         )
 
-    def _discover_executable(self, provider: str) -> str | None:
+    def _discover_command(self, provider: str) -> tuple[str, ...] | None:
         raw_path = self._explicit_paths.get(provider)
         if raw_path is None:
             raw_path = self._which(provider)
@@ -341,11 +399,87 @@ class ProviderStatusService:
         if candidate.name.casefold() not in _EXECUTABLE_NAMES[provider]:
             return None
         try:
-            if not candidate.is_file():
+            if (
+                not candidate.is_absolute()
+                or not candidate.is_file()
+            ):
                 return None
-            return str(candidate.resolve(strict=True))
+            resolved = candidate.resolve(strict=True)
+            if candidate.suffix.casefold() != ".cmd":
+                if (
+                    resolved.name.casefold()
+                    not in {provider, f"{provider}.exe"}
+                    or resolved.is_symlink()
+                    or _is_reparse_point(resolved)
+                    or not resolved.is_file()
+                ):
+                    return None
+                return (str(resolved),)
+
+            if candidate.is_symlink() or _is_reparse_point(candidate):
+                return None
+            package_entry = candidate.parent.joinpath(
+                *_NPM_ENTRY_RELATIVE[provider]
+            )
+            if (
+                package_entry.is_symlink()
+                or _is_reparse_point(package_entry)
+                or not package_entry.is_file()
+            ):
+                return None
+            package_entry_resolved = package_entry.resolve(strict=True)
+            expected_package_root = candidate.parent.joinpath(
+                *_NPM_ENTRY_RELATIVE[provider][:-2]
+            ).resolve(strict=True)
+            try:
+                package_entry_resolved.relative_to(expected_package_root)
+            except ValueError:
+                return None
+
+            raw_node = self._which("node")
+            if raw_node is None:
+                return None
+            node = Path(raw_node)
+            if (
+                not node.is_absolute()
+                or node.name.casefold() not in _NODE_EXECUTABLE_NAMES
+                or not node.is_file()
+            ):
+                return None
+            node_resolved = node.resolve(strict=True)
+            if (
+                node_resolved.name.casefold() not in _NODE_EXECUTABLE_NAMES
+                or node_resolved.is_symlink()
+                or _is_reparse_point(node_resolved)
+                or not node_resolved.is_file()
+            ):
+                return None
+            return (
+                str(node_resolved),
+                str(package_entry_resolved),
+            )
         except (OSError, RuntimeError):
             return None
+
+    def _probe_version(
+        self, provider: str, command_prefix: tuple[str, ...]
+    ) -> str | None:
+        try:
+            result = self._runner(
+                (*command_prefix, *_VERSION_ARGV[provider]),
+                timeout_seconds=self._timeout_seconds,
+                output_limit_bytes=self._output_limit_bytes,
+                env=self._minimal_environment(),
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        if (
+            result.returncode != 0
+            or result.timed_out
+            or result.output_truncated
+        ):
+            return None
+        return _extract_safe_version(_decode_status_output(result))
 
     def _minimal_environment(self) -> dict[str, str]:
         environment = {
@@ -372,9 +506,14 @@ class ProviderStatusService:
                 "safe PATH directories must be absolute real directories"
             ) from error
 
-    def _parse_codex_status(self, result: CommandResult) -> ProviderStatus:
+    def _parse_codex_status(
+        self, result: CommandResult, version: str | None
+    ) -> ProviderStatus:
         text = _decode_status_output(result)
         lowered = text.casefold()
+        failure = self._classified_failure("codex", result, lowered, version)
+        if failure is not None:
+            return failure
         disconnected_markers = (
             "not logged in",
             "not authenticated",
@@ -387,9 +526,9 @@ class ProviderStatusService:
             "signed in",
         )
         if any(marker in lowered for marker in disconnected_markers):
-            return self._not_connected_status("codex")
+            return self._not_connected_status("codex", version)
         if result.returncode == 0 and any(marker in lowered for marker in ready_markers):
-            return self._ready_status("codex", _extract_safe_version(text))
+            return self._ready_status("codex", version)
         if result.returncode == 0:
             return ProviderStatus(
                 provider="codex",
@@ -397,12 +536,34 @@ class ProviderStatusService:
                 installed=True,
                 capabilities=_DISCONNECTED_CAPABILITIES,
                 message="Codex CLI가 설치되어 있지만 로그인 상태를 확인하지 못했습니다.",
+                version=version,
+                installation_state="installed",
+                authentication_state="unknown",
+                network_state="not_checked",
             )
-        return self._error_status("codex", "Codex CLI 상태를 확인하지 못했습니다.")
+        return self._error_status(
+            "codex",
+            "Codex CLI 상태를 확인하지 못했습니다.",
+            version=version,
+        )
 
-    def _parse_claude_status(self, result: CommandResult) -> ProviderStatus:
+    def _parse_claude_status(
+        self, result: CommandResult, version: str | None
+    ) -> ProviderStatus:
         if result.returncode != 0:
-            return self._error_status("claude", "Claude CLI 상태를 확인하지 못했습니다.")
+            failure = self._classified_failure(
+                "claude",
+                result,
+                _decode_status_output(result).casefold(),
+                version,
+            )
+            if failure is not None:
+                return failure
+            return self._error_status(
+                "claude",
+                "Claude CLI 상태를 확인하지 못했습니다.",
+                version=version,
+            )
         try:
             payload = json.loads(result.stdout.decode("utf-8", errors="strict"))
         except (UnicodeDecodeError, json.JSONDecodeError):
@@ -419,7 +580,8 @@ class ProviderStatusService:
         connected = payload.get("loggedIn")
         if not isinstance(connected, bool):
             connected = payload.get("authenticated")
-        version = _safe_version(payload.get("version"))
+        payload_version = _safe_version(payload.get("version"))
+        version = version or payload_version
         if connected is True:
             return self._ready_status("claude", version)
         if connected is False:
@@ -431,6 +593,9 @@ class ProviderStatusService:
             capabilities=_DISCONNECTED_CAPABILITIES,
             message="Claude CLI가 설치되어 있지만 로그인 상태를 확인하지 못했습니다.",
             version=version,
+            installation_state="installed",
+            authentication_state="unknown",
+            network_state="not_checked",
         )
 
     @staticmethod
@@ -442,6 +607,9 @@ class ProviderStatusService:
             capabilities=_READY_CAPABILITIES,
             message=f"{_display_name(provider)} CLI가 연결되었습니다.",
             version=version,
+            installation_state="installed",
+            authentication_state="ready",
+            network_state="not_checked",
         )
 
     @staticmethod
@@ -455,17 +623,68 @@ class ProviderStatusService:
             capabilities=_DISCONNECTED_CAPABILITIES,
             message=f"{_display_name(provider)} CLI에 로그인되어 있지 않습니다.",
             version=version,
+            installation_state="installed",
+            authentication_state="signed_out",
+            network_state="not_checked",
         )
 
     @staticmethod
-    def _error_status(provider: str, message: str) -> ProviderStatus:
+    def _error_status(
+        provider: str,
+        message: str,
+        *,
+        version: str | None = None,
+    ) -> ProviderStatus:
         return ProviderStatus(
             provider=provider,
             state="error",
             installed=True,
             capabilities=_DISCONNECTED_CAPABILITIES,
             message=message,
+            version=version,
+            installation_state="installed",
+            authentication_state="unknown",
+            network_state="unknown",
         )
+
+    @staticmethod
+    def _classified_failure(
+        provider: str,
+        result: CommandResult,
+        lowered: str,
+        version: str | None,
+    ) -> ProviderStatus | None:
+        if any(marker in lowered for marker in _EXPIRED_MARKERS):
+            return ProviderStatus(
+                provider=provider,
+                state="expired",
+                installed=True,
+                capabilities=_DISCONNECTED_CAPABILITIES,
+                message=(
+                    f"{_display_name(provider)} CLI 로그인이 만료되었습니다. "
+                    "공식 CLI에서 다시 로그인해 주세요."
+                ),
+                version=version,
+                installation_state="installed",
+                authentication_state="expired",
+                network_state="unknown",
+            )
+        if any(marker in lowered for marker in _NETWORK_MARKERS):
+            return ProviderStatus(
+                provider=provider,
+                state="network_unavailable",
+                installed=True,
+                capabilities=_DISCONNECTED_CAPABILITIES,
+                message=(
+                    f"{_display_name(provider)} CLI가 네트워크에 연결하지 "
+                    "못했습니다."
+                ),
+                version=version,
+                installation_state="installed",
+                authentication_state="unknown",
+                network_state="offline",
+            )
+        return None
 
 
 def _normalize_provider(provider: ProviderName) -> str:

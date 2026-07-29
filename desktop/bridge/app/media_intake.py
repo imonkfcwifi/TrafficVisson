@@ -16,7 +16,7 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from typing import Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException
@@ -109,6 +109,7 @@ class CompletedMediaGrant:
     size_bytes: int
     modified_time_ns: int
     sha256_lower: str
+    created_time_ns: Optional[int] = None
 
 
 class _HashCancelled(Exception):
@@ -160,7 +161,7 @@ def validate_explicit_directory_syntax(directory: str) -> str:
             raise ValueError("UNC paths must include a server and share")
     elif re.match(r"^[A-Za-z]:$", drive) is None or not tail.startswith("\\"):
         if os.name != "nt" and os.path.isabs(directory):
-            # Development/test fallback; packaged TrafficVisson runs on Windows.
+            # Development/test fallback; packaged TrafficSuperVision runs on Windows.
             path_parts = Path(directory).parts
             if any(part in {".", ".."} for part in path_parts):
                 raise ValueError("Directory path must not contain dot segments")
@@ -798,7 +799,256 @@ class MediaIntakeService:
                 size_bytes=job.file_record.size_bytes,
                 modified_time_ns=job.file_record.modified_time_ns,
                 sha256_lower=normalized_hash,
+                created_time_ns=job.file_record.created_time_ns,
             )
+
+    def restore_completed_media_grant(
+        self,
+        grant: CompletedMediaGrant,
+        *,
+        cancel: Optional[Callable[[], bool]] = None,
+    ) -> CompletedMediaGrant:
+        """Restore one bridge-private completed grant after a process restart.
+
+        This is deliberately not exposed as an HTTP route. The caller must
+        first authenticate the durable private record that supplied ``grant``.
+        This method then performs the filesystem trust-boundary checks again,
+        including a full SHA-256 read, before rebuilding the in-memory snapshot
+        and hash registries used by the normal analysis path.
+        """
+        if not isinstance(grant, CompletedMediaGrant):
+            raise HTTPException(
+                status_code=422,
+                detail="The private completed media grant is invalid",
+            )
+        if (
+            not isinstance(grant.project_id, UUID)
+            or not isinstance(grant.snapshot_id, UUID)
+            or not isinstance(grant.hash_job_id, UUID)
+            or not is_allowlisted_video_name(grant.file_name)
+            or not isinstance(grant.media_path, Path)
+            or not grant.media_path.is_absolute()
+            or grant.media_path.name != grant.file_name
+            or isinstance(grant.size_bytes, bool)
+            or not isinstance(grant.size_bytes, int)
+            or grant.size_bytes <= 0
+            or isinstance(grant.modified_time_ns, bool)
+            or not isinstance(grant.modified_time_ns, int)
+            or grant.modified_time_ns <= 0
+            or not isinstance(grant.sha256_lower, str)
+            or re.fullmatch(r"[a-f0-9]{64}", grant.sha256_lower) is None
+            or (
+                grant.created_time_ns is not None
+                and (
+                    isinstance(grant.created_time_ns, bool)
+                    or not isinstance(grant.created_time_ns, int)
+                    or grant.created_time_ns <= 0
+                )
+            )
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="The private completed media grant is invalid",
+            )
+
+        try:
+            normalized_directory = validate_explicit_directory_syntax(
+                str(grant.media_path.parent)
+            )
+        except ValueError as error:
+            raise HTTPException(
+                status_code=422,
+                detail="The private completed media grant is invalid",
+            ) from error
+        candidate = Path(normalized_directory) / grant.file_name
+        try:
+            directory_stat = candidate.parent.lstat()
+            before_stat = os.stat(candidate, follow_symlinks=False)
+        except (OSError, ValueError) as error:
+            raise HTTPException(
+                status_code=409,
+                detail="The authorized media source is no longer available",
+            ) from error
+        if (
+            not candidate.parent.is_dir()
+            or candidate.parent.is_symlink()
+            or _is_reparse_point(directory_stat)
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="The authorized media directory is unsafe",
+            )
+
+        file_record = _record_from_stat(candidate.name, before_stat)
+        if (
+            not self._candidate_matches_record(
+                candidate, file_record, before_stat
+            )
+            or file_record.size_bytes != grant.size_bytes
+            or file_record.modified_time_ns != grant.modified_time_ns
+            or (
+                grant.created_time_ns is not None
+                and file_record.created_time_ns != grant.created_time_ns
+            )
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="The authorized media source changed after hashing",
+            )
+
+        descriptor: Optional[int] = None
+        digest = hashlib.sha256()
+        bytes_hashed = 0
+        try:
+            open_flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
+            if hasattr(os, "O_NOFOLLOW"):
+                open_flags |= os.O_NOFOLLOW
+            descriptor = os.open(candidate, open_flags)
+            opened_stat = os.fstat(descriptor)
+            if (
+                not self._candidate_matches_record(
+                    candidate, file_record, opened_stat
+                )
+                or file_record.size_bytes != grant.size_bytes
+            ):
+                raise _HashFileChanged()
+            while True:
+                if cancel is not None and cancel():
+                    raise _HashCancelled()
+                chunk = os.read(descriptor, HASH_CHUNK_SIZE_BYTES)
+                if not chunk:
+                    break
+                bytes_hashed += len(chunk)
+                if bytes_hashed > grant.size_bytes:
+                    raise _HashFileChanged()
+                digest.update(chunk)
+            if (
+                bytes_hashed != grant.size_bytes
+                or not _same_metadata(file_record, os.fstat(descriptor))
+            ):
+                raise _HashFileChanged()
+        except _HashCancelled as error:
+            raise HTTPException(
+                status_code=409,
+                detail="Completed media recovery was cancelled",
+            ) from error
+        except _HashFileChanged as error:
+            raise HTTPException(
+                status_code=409,
+                detail="The authorized media source changed during recovery",
+            ) from error
+        except OSError as error:
+            raise HTTPException(
+                status_code=409,
+                detail="The authorized media source could not be revalidated",
+            ) from error
+        finally:
+            if descriptor is not None:
+                try:
+                    os.close(descriptor)
+                except OSError:
+                    pass
+
+        try:
+            after_stat = os.stat(candidate, follow_symlinks=False)
+        except OSError as error:
+            raise HTTPException(
+                status_code=409,
+                detail="The authorized media source changed during recovery",
+            ) from error
+        if (
+            not self._candidate_matches_record(
+                candidate, file_record, after_stat
+            )
+            or digest.hexdigest() != grant.sha256_lower
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="The authorized media source failed SHA-256 revalidation",
+            )
+
+        now = datetime.now(timezone.utc)
+        with self._lock:
+            existing_snapshot = self._snapshots.get(grant.snapshot_id)
+            if existing_snapshot is not None and (
+                existing_snapshot.project_id != grant.project_id
+                or existing_snapshot.directory_identity
+                != _directory_identity(normalized_directory)
+                or existing_snapshot.files != (file_record,)
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail="The restored media snapshot identity conflicts",
+                )
+            existing_job = self._hash_jobs.get(grant.hash_job_id)
+            if existing_job is not None and (
+                existing_job.project_id != grant.project_id
+                or existing_job.snapshot.snapshot_id != grant.snapshot_id
+                or existing_job.snapshot.directory_identity
+                != existing_snapshot.directory_identity
+                or existing_job.file_record != file_record
+                or existing_job.status != "completed"
+                or existing_job.bytes_hashed != file_record.size_bytes
+                or existing_job.sha256_lower != grant.sha256_lower
+                or existing_job.sha256_upper
+                != grant.sha256_lower.upper()
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail="The restored media hash identity conflicts",
+                )
+
+            if existing_snapshot is None:
+                self._sequence += 1
+                existing_snapshot = SnapshotRecord(
+                    snapshot_id=grant.snapshot_id,
+                    project_id=grant.project_id,
+                    directory=normalized_directory,
+                    directory_identity=_directory_identity(
+                        normalized_directory
+                    ),
+                    captured_at=now,
+                    captured_monotonic_ns=time.monotonic_ns(),
+                    sequence=self._sequence,
+                    digest=_metadata_digest((file_record,)),
+                    files=(file_record,),
+                )
+                self._snapshots[grant.snapshot_id] = existing_snapshot
+                while len(self._snapshots) > MAX_SNAPSHOT_RECORDS:
+                    evicted_id, _ = self._snapshots.popitem(last=False)
+                    self._stable_snapshot_ids.discard(evicted_id)
+            self._stable_snapshot_ids.add(grant.snapshot_id)
+
+            if existing_job is None:
+                self._evict_terminal_hash_jobs_locked()
+                if len(self._hash_jobs) >= MAX_HASH_JOB_RECORDS:
+                    raise HTTPException(
+                        status_code=429,
+                        detail="The content-hash job registry is full",
+                    )
+                existing_job = HashJobRecord(
+                    job_id=grant.hash_job_id,
+                    project_id=grant.project_id,
+                    snapshot=existing_snapshot,
+                    file_record=file_record,
+                    status="completed",
+                    bytes_hashed=file_record.size_bytes,
+                    sha256_lower=grant.sha256_lower,
+                    sha256_upper=grant.sha256_lower.upper(),
+                    error_code=None,
+                    created_at=now,
+                    updated_at=now,
+                    cancel_event=threading.Event(),
+                )
+                self._hash_jobs[grant.hash_job_id] = existing_job
+
+        return self.resolve_completed_media(
+            grant.project_id,
+            grant.snapshot_id,
+            grant.file_name,
+            grant.hash_job_id,
+            grant.sha256_lower,
+        )
 
     def shutdown(self) -> None:
         self._hash_stop_event.set()

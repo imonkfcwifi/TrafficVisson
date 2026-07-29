@@ -1,6 +1,6 @@
 export const PRODUCT_IDENTITY = Object.freeze({
-  appUserModelId: "kr.co.trafficvisson.desktop",
-  productName: "TrafficVisson",
+  appUserModelId: "kr.co.trafficsupervision.desktop",
+  productName: "TrafficSuperVision",
 });
 
 export function applyProductIdentity(

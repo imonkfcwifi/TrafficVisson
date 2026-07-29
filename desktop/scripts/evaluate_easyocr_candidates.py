@@ -1,6 +1,6 @@
 r"""Non-destructive Korean/English EasyOCR smoke over persisted candidates.
 
-This operator tool reads completed TrafficVisson representative JPEG evidence
+This operator tool reads completed TrafficSuperVision representative JPEG evidence
 and writes an independent review package below a new output directory.  It
 never writes analysis JSON, labels, SQLite, experimental sidecars, incidents,
 annotations, reports, or model versions.
@@ -929,7 +929,7 @@ def _readme(
                     )
                 )
     lines = [
-        "# TrafficVisson 한국어 이정표·터널명 OCR 비파괴 스모크",
+        "# TrafficSuperVision 한국어 이정표·터널명 OCR 비파괴 스모크",
         "",
         f"생성 시각(UTC): `{generated_at}`",
         "",
@@ -1407,7 +1407,7 @@ def _default_data_root() -> Path:
     local_app_data = os.environ.get("LOCALAPPDATA")
     if not local_app_data:
         raise EasyOcrEvaluationError("LOCALAPPDATA is unavailable")
-    return Path(local_app_data) / "TrafficVisson" / "bridge-data"
+    return Path(local_app_data) / "TrafficSuperVision" / "bridge-data"
 
 
 def _default_model_directory() -> Path:
@@ -1419,7 +1419,7 @@ def _default_output_directory() -> Path:
         os.environ.get("PROGRAMDATA", r"C:\ProgramData")
     )
     parent = (
-        program_data / "TrafficVisson" / "ModelEvaluations"
+        program_data / "TrafficSuperVision" / "ModelEvaluations"
     )
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     return parent / f"easyocr-korean-smoke-{timestamp}"
@@ -1429,7 +1429,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Run a CPU-only, non-destructive EasyOCR smoke over persisted "
-            "TrafficVisson representative JPEGs."
+            "TrafficSuperVision representative JPEGs."
         )
     )
     parser.add_argument(

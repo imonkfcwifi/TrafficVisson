@@ -210,7 +210,7 @@ test("persisted candidate answers hydrate a project and job scoped review cache"
       answer: "edited",
       selectedType: "POTHOLE",
       finalGeometry: { x: 10, y: 20, width: 30, height: 40 },
-      severity: "심각",
+      severity: "높음",
       action: "포트홀 긴급 보수",
       ocrText: "",
       reviewedAt: "2026-07-28T03:00:00+00:00",

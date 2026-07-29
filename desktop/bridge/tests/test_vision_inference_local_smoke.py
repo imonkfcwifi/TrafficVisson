@@ -2,7 +2,7 @@
 
 Run explicitly with::
 
-    $env:TRAFFICVISSON_RUN_LOCAL_VISION_SMOKE="1"
+    $env:TRAFFICSUPERVISION_RUN_LOCAL_VISION_SMOKE="1"
     python -m pytest -q tests/test_vision_inference_local_smoke.py
 
 The test never downloads a model.  It hard-links the two existing cache files
@@ -27,7 +27,7 @@ from app.vision_inference import (
 
 
 pytestmark = pytest.mark.skipif(
-    os.environ.get("TRAFFICVISSON_RUN_LOCAL_VISION_SMOKE") != "1",
+    os.environ.get("TRAFFICSUPERVISION_RUN_LOCAL_VISION_SMOKE") != "1",
     reason="local OCR smoke is opt-in and never downloads weights",
 )
 
@@ -89,7 +89,7 @@ def test_cached_easyocr_pack_runs_offline_on_real_tunnel_frame(
             "device": "auto",
         },
     }
-    manifest_path = pack_root / "trafficvisson-model-pack.json"
+    manifest_path = pack_root / "trafficsupervision-model-pack.json"
     manifest_path.write_text(
         json.dumps(manifest, ensure_ascii=False),
         encoding="utf-8",

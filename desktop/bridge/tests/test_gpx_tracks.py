@@ -26,7 +26,7 @@ def _gpx(*, naive_time: bool = False, unsafe: bool = False) -> bytes:
     timezone_suffix = "" if naive_time else "Z"
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 {declaration}
-<gpx version="1.1" creator="TrafficVisson test"
+<gpx version="1.1" creator="TrafficSuperVision test"
   xmlns="http://www.topografix.com/GPX/1/1">
   <trk><name>현장 점검</name><trkseg>
     <trkpt lat="37.500000" lon="127.000000">
@@ -257,7 +257,7 @@ def test_export_snapshot_keeps_every_point_beyond_renderer_sample_limit(
     source.write_text(
         (
             '<?xml version="1.0" encoding="UTF-8"?>'
-            '<gpx version="1.1" creator="TrafficVisson test" '
+            '<gpx version="1.1" creator="TrafficSuperVision test" '
             'xmlns="http://www.topografix.com/GPX/1/1"><trk><trkseg>'
             + "".join(points)
             + "</trkseg></trk></gpx>"

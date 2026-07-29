@@ -16,11 +16,15 @@ import threading
 import time
 from collections import Counter
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable, Dict, Mapping, Tuple
 from uuid import UUID
 
 from .contracts import DocumentEditPlan
 from .hwp_com import HwpDocumentFingerprint, fingerprint_document
+from .hwpx_sample_layout import (
+    is_protected_sample_document_sha256,
+)
 
 
 APPROVAL_TOKEN_PATTERN = re.compile(r"^[a-f0-9]{64}$")
@@ -142,6 +146,14 @@ class HwpApprovalRegistry:
             raise HwpApprovalError(
                 "미리보기 직후 문서 양식이 변경되어 승인을 발급하지 않았습니다."
             )
+        if is_protected_sample_document_sha256(
+            current_document.sha256
+        ):
+            raise HwpApprovalError(
+                "3·4분기 표본 양식은 정확한 HWPML 대상 편집기와 "
+                "저장 후 48쪽 전 페이지 렌더 검증이 연결되기 전에는 "
+                "문서 적용 승인을 발급하지 않습니다."
+            )
         plan_sha256 = canonical_plan_sha256(plan)
         target_summary = summarize_plan_targets(plan)
         now = self._clock()
@@ -176,7 +188,7 @@ class HwpApprovalRegistry:
         self,
         token: str,
         project_id: UUID,
-        document_path,
+        document_path: Path,
         plan: DocumentEditPlan,
     ) -> HwpDocumentFingerprint:
         if not isinstance(token, str) or not APPROVAL_TOKEN_PATTERN.fullmatch(token):

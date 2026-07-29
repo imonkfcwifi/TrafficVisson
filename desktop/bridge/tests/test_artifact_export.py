@@ -213,11 +213,11 @@ def test_export_writes_complete_verified_korean_excel_package(tmp_path):
     expected_data_names = [contract[1] for contract in CSV_CONTRACTS] + [
         "report_payload.json",
         "manifest.json",
-        "trafficvisson-export.zip",
+        "trafficsupervision-export.zip",
     ]
     assert [item.name for item in result.artifacts] == expected_data_names
     assert result.output_directory.parent == root
-    assert result.output_directory.name.startswith("trafficvisson-export-")
+    assert result.output_directory.name.startswith("trafficsupervision-export-")
     assert result.archive_path.is_file()
     assert not list(result.output_directory.glob("*.tmp"))
 
@@ -549,7 +549,7 @@ def test_evidence_symlink_and_cancellation_leave_no_package(tmp_path):
     calls_while_zipping = {"count": 0}
 
     def cancelled():
-        if list(root.rglob("trafficvisson-export.zip.tmp")):
+        if list(root.rglob("trafficsupervision-export.zip.tmp")):
             calls_while_zipping["count"] += 1
             return calls_while_zipping["count"] >= 20
         return False

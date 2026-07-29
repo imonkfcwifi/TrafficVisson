@@ -1273,8 +1273,12 @@ class DenseFrameIndexEngine:
                 "4",
                 "-start_number",
                 "0",
-                "-fps_mode",
-                "passthrough",
+                # ffmpeg 4.4 (the supported Windows bridge baseline) predates
+                # the output-scoped ``-fps_mode`` option.  ``-vsync 0`` is the
+                # equivalent non-duplicating image-sequence contract on both
+                # 4.4 and current ffmpeg releases.
+                "-vsync",
+                "0",
                 "-n",
                 str(frame_pattern),
             )

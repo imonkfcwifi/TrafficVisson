@@ -1,4 +1,4 @@
-"""Launch the private TrafficVisson bridge on an OS-assigned loopback port."""
+"""Launch the private TrafficSuperVision bridge on an OS-assigned loopback port."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ def _run_internal_worker() -> bool:
 
 
 def _take_token() -> str:
-    token = os.environ.pop("TRAFFICVISSON_BRIDGE_TOKEN", "")
+    token = os.environ.pop("TRAFFICSUPERVISION_BRIDGE_TOKEN", "")
     if len(token) < 43:
         raise RuntimeError("Bridge token is missing or invalid")
     return token
@@ -90,7 +90,7 @@ async def _run() -> None:
         "protocol": "http",
     }
     print(
-        "TRAFFICVISSON_BRIDGE_READY " + json.dumps(ready, separators=(",", ":")),
+        "TRAFFICSUPERVISION_BRIDGE_READY " + json.dumps(ready, separators=(",", ":")),
         flush=True,
     )
     await task

@@ -15,7 +15,7 @@ const bridgeRoot = path.resolve(testDirectory, "..", "..", "bridge");
 
 test("readiness records only accept an exact loopback payload", () => {
   const parsed = parseReadyLine(
-    'TRAFFICVISSON_BRIDGE_READY {"host":"127.0.0.1","port":43123,"protocol":"http"}',
+    'TRAFFICSUPERVISION_BRIDGE_READY {"host":"127.0.0.1","port":43123,"protocol":"http"}',
   );
   assert.deepEqual(parsed, {
     host: "127.0.0.1",
@@ -25,7 +25,7 @@ test("readiness records only accept an exact loopback payload", () => {
   assert.throws(
     () =>
       parseReadyLine(
-        'TRAFFICVISSON_BRIDGE_READY {"host":"0.0.0.0","port":43123,"protocol":"http"}',
+        'TRAFFICSUPERVISION_BRIDGE_READY {"host":"0.0.0.0","port":43123,"protocol":"http"}',
       ),
     /validation/,
   );
@@ -38,26 +38,26 @@ test("bridge child receives a minimal environment without parent credentials", (
       TEMP: "fixture-temp",
       OPENAI_API_KEY: "must-not-cross",
       ANTHROPIC_API_KEY: "must-not-cross",
-      TRAFFICVISSON_RENDERER_URL: "must-not-cross",
-      TRAFFICVISSON_COMMAND_PROPOSAL_RUNNER_ROOT: "must-not-cross",
-      TRAFFICVISSON_VISION_MODEL_PACK:
-        "C:\\model-pack\\trafficvisson-model-pack.json",
+      TRAFFICSUPERVISION_RENDERER_URL: "must-not-cross",
+      TRAFFICSUPERVISION_COMMAND_PROPOSAL_RUNNER_ROOT: "must-not-cross",
+      TRAFFICSUPERVISION_VISION_MODEL_PACK:
+        "C:\\model-pack\\trafficsupervision-model-pack.json",
     },
     "fixture-token",
   );
   assert.equal(environment.PATH, "fixture-path");
   assert.equal(environment.TEMP, "fixture-temp");
-  assert.equal(environment.TRAFFICVISSON_BRIDGE_TOKEN, "fixture-token");
+  assert.equal(environment.TRAFFICSUPERVISION_BRIDGE_TOKEN, "fixture-token");
   assert.equal(environment.PYTHONDONTWRITEBYTECODE, "1");
   assert.equal(
-    environment.TRAFFICVISSON_VISION_MODEL_PACK,
-    "C:\\model-pack\\trafficvisson-model-pack.json",
+    environment.TRAFFICSUPERVISION_VISION_MODEL_PACK,
+    "C:\\model-pack\\trafficsupervision-model-pack.json",
   );
   assert.equal(environment.OPENAI_API_KEY, undefined);
   assert.equal(environment.ANTHROPIC_API_KEY, undefined);
-  assert.equal(environment.TRAFFICVISSON_RENDERER_URL, undefined);
+  assert.equal(environment.TRAFFICSUPERVISION_RENDERER_URL, undefined);
   assert.equal(
-    environment.TRAFFICVISSON_COMMAND_PROPOSAL_RUNNER_ROOT,
+    environment.TRAFFICSUPERVISION_COMMAND_PROPOSAL_RUNNER_ROOT,
     undefined,
   );
 });
@@ -76,7 +76,7 @@ test(
     const supervisor = new BridgeSupervisor({
       bridgeRoot,
       commandProposalRunnerRoot: bridgeRoot,
-      pythonExecutable: process.env.TRAFFICVISSON_PYTHON || "python",
+      pythonExecutable: process.env.TRAFFICSUPERVISION_PYTHON || "python",
       startupTimeoutMs: 20_000,
     });
     try {

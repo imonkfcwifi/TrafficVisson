@@ -1,17 +1,17 @@
-# TrafficVisson 통합 로컬 AI 도로점검 플랫폼 마스터 계획서
+# TrafficSuperVision 통합 로컬 AI 도로점검 플랫폼 마스터 계획서
 
 > 문서 상태: 역사적 v2.0 보관본 — 현재 구현 기준으로 사용하지 않음  
 > 문서 버전: 2.0  
-> 현재 단일 기준본: 루트 [`TRAFFIC_VISSON_MASTER_PLAN.md`](../../TRAFFIC_VISSON_MASTER_PLAN.md) v2.7  
+> 현재 단일 기준본: 루트 [`TRAFFIC_SUPER_VISION_MASTER_PLAN.md`](../../TRAFFIC_SUPER_VISION_MASTER_PLAN.md) v2.7  
 > 보관 안내: 아래 본문은 v2.0 수립 당시 기록을 보존한 것이며, 본문의 `단일 마스터 계획서`·현재형 표현은 현재 상태를 뜻하지 않는다.  
 > 대상 플랫폼: Windows 설치형 Electron 애플리케이션  
 > 핵심 원칙: 로컬 영상 처리, 사용자 확인형 라벨링, 프로젝트별 모델, 증거 중심 GPS 재생, 한/글 COM 보고서 작성
 
 ## 1. 문서 목적
 
-이 문서는 차량에 고정한 휴대폰으로 촬영한 주행 영상과 GPS 기록을 이용해 도로 파손, 시설물 이상, 낙하물, 식생 가림, 차선 도색 상태 등을 검지하고, 사용자의 간단한 질문 응답을 학습용 라벨로 전환하며, 결과를 지도·영상·CSV·HWP/HWPX 보고서로 연결하는 TrafficVisson 제품의 단일 마스터 계획서다.
+이 문서는 차량에 고정한 휴대폰으로 촬영한 주행 영상과 GPS 기록을 이용해 도로 파손, 시설물 이상, 낙하물, 식생 가림, 차선 도색 상태 등을 검지하고, 사용자의 간단한 질문 응답을 학습용 라벨로 전환하며, 결과를 지도·영상·CSV·HWP/HWPX 보고서로 연결하는 TrafficSuperVision 제품의 단일 마스터 계획서다.
 
-TrafficVisson은 브라우저에서만 동작하는 웹 SaaS가 아니다. Electron으로 배포되는 Windows 설치형 서비스이며, 다음 기능을 한 제품 안에서 연결한다.
+TrafficSuperVision은 브라우저에서만 동작하는 웹 SaaS가 아니다. Electron으로 배포되는 Windows 설치형 서비스이며, 다음 기능을 한 제품 안에서 연결한다.
 
 1. 로컬 파일과 영상 링크 수집
 2. AI 후보 추출과 사용자 질문형 라벨링
@@ -363,7 +363,7 @@ Ultralytics 계열은 개인 연구 단계의 초기 선택이다. 비공개 납
 | 주체 | 역할 |
 |---|---|
 | 후보 추출 엔진 | 대표 프레임·클립 추출, AI 박스·마스크·OCR 선행 제안 |
-| TrafficVisson 질문 UI | 어려운 기술 용어를 쉬운 질문과 선택지로 변환 |
+| TrafficSuperVision 질문 UI | 어려운 기술 용어를 쉬운 질문과 선택지로 변환 |
 | 사용자 | 예·아니오·판단 어려움, 유형·심각도·조치, 영역 수정 승인 |
 | 데이터 운영 보조 | 링크 영상 목록화, 대량 후보 검수, 오탐·미탐 표본 감사 |
 | 모델 평가 엔진 | 라벨 품질, 분포, 검증 세트, 성능 회귀 확인 |
@@ -778,7 +778,7 @@ project/
 
 ### 14.1 지원 방식
 
-- TrafficVisson 기본 점검보고서 제공
+- TrafficSuperVision 기본 점검보고서 제공
 - 사용자가 보유한 HWP/HWPX 양식 지원
 - 설치된 한/글에서 양식을 열거나 현재 열린 문서를 감지
 - HWPML 구조, 표, 문단, 사진 영역, 기존 서식 분석
@@ -817,7 +817,7 @@ project/
 ### 14.4 COM 안전 원칙
 
 - HWP COM은 별도 STA worker에서 실행한다.
-- TrafficVisson이 연 문서·프로세스만 자동 제어한다.
+- TrafficSuperVision이 연 문서·프로세스만 자동 제어한다.
 - 작업 전 임시 복사본과 복구 저널을 만든다.
 - 한 작업에서 서로 다른 편집 엔진을 섞지 않는다.
 - 기대한 문서 스냅샷과 다르면 쓰기를 거부한다.
@@ -850,7 +850,7 @@ project/
 
 - Codex는 공식 Codex CLI의 ChatGPT 로그인 흐름을 사용한다.
 - Claude는 Claude Code의 공식 Console 또는 Pro/Max 로그인 흐름을 사용한다.
-- TrafficVisson은 인증 파일, refresh token, 세션 쿠키를 직접 읽지 않는다.
+- TrafficSuperVision은 인증 파일, refresh token, 세션 쿠키를 직접 읽지 않는다.
 - 로그인·로그아웃과 자격증명 저장은 각 공식 CLI가 소유한다.
 - 앱은 CLI 설치·버전·연결 상태와 출력 전용 실행 결과만 확인한다.
 
@@ -1018,7 +1018,7 @@ project/
 ## 18. 권장 저장소 구조
 
 ```text
-TrafficVisson/
+TrafficSuperVision/
   apps/
     desktop/
       src/main/
@@ -1056,7 +1056,7 @@ TrafficVisson/
     model/
     hwp/
   docs/
-  TRAFFIC_VISSON_MASTER_PLAN.md
+  TRAFFIC_SUPER_VISION_MASTER_PLAN.md
 ```
 
 `superkorea` 저장소를 런타임 의존성이나 import 경로로 사용하지 않는다.

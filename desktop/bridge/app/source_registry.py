@@ -375,7 +375,7 @@ def build_source_candidate_catalog(
                     "격리했습니다. 모델 카드 Apache-2.0과 원 데이터셋 "
                     "OpenRAIL 조건에 대한 별도 권리 검토가 필요합니다."
                     if pothole["state"] == "unverified_local"
-                    else "TrafficVisson 배포 후보에서 거부된 모델이며 현재 PC의 "
+                    else "TrafficSuperVision 배포 후보에서 거부된 모델이며 현재 PC의 "
                     "검증된 로컬 캐시는 없습니다. 모델 카드 Apache-2.0과 "
                     "원 데이터셋 OpenRAIL 조건의 별도 권리 검토가 필요합니다."
                 )
@@ -981,7 +981,7 @@ def _normalise_model_pack(
     if (
         len(manifest_artifacts) != 1
         or manifest_artifacts[0]["path"]
-        != "trafficvisson-model-pack.json"
+        != "trafficsupervision-model-pack.json"
         or manifest_artifacts[0]["sha256"] != manifest_sha256
         or not weight_artifacts
     ):

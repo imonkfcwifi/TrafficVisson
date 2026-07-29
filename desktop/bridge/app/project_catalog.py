@@ -920,14 +920,33 @@ class ProjectCatalog:
         self,
         project_id: UUID | str,
         records: Sequence[Mapping[str, Any]],
+        *,
+        materialize_analysis_job_ids: Optional[
+            Sequence[UUID | str]
+        ] = None,
     ) -> List[Dict[str, Any]]:
-        """Atomically project JSONL records in their original append order."""
+        """Atomically reconcile verified JSONL records in append order.
+
+        Every record is mirrored into the answer ledger so the project-wide
+        hash chain remains continuous.  Callers that already verified the
+        pipeline review boundary may restrict which analysis jobs are promoted
+        to confirmed Annotation/Incident rows.  ``None`` preserves the legacy
+        behavior and materializes every record.
+        """
 
         project_text = _canonical_uuid_text(project_id, "project_id")
         if isinstance(records, (str, bytes)) or not isinstance(
             records, Sequence
         ):
             raise LabelProjectionError("records must be a sequence")
+        materialized_job_ids = (
+            None
+            if materialize_analysis_job_ids is None
+            else {
+                _canonical_uuid_text(item, "analysis_job_id")
+                for item in materialize_analysis_job_ids
+            }
+        )
         projections = [normalize_label_record(record) for record in records]
         if any(item.project_id != project_text for item in projections):
             raise LabelProjectionError(
@@ -949,7 +968,14 @@ class ProjectCatalog:
                     raise LabelProjectionError("project is unavailable")
                 results = [
                     self._project_label_projection(
-                        connection, project_text, projection
+                        connection,
+                        project_text,
+                        projection,
+                        materialize=(
+                            materialized_job_ids is None
+                            or projection.analysis_job_id
+                            in materialized_job_ids
+                        ),
                     )
                     for projection in projections
                 ]
@@ -964,6 +990,8 @@ class ProjectCatalog:
         connection: sqlite3.Connection,
         project_id: str,
         projection: LabelProjection,
+        *,
+        materialize: bool = True,
     ) -> Dict[str, Any]:
         job = connection.execute(
             """
@@ -998,9 +1026,10 @@ class ProjectCatalog:
                 raise LabelProjectionError(
                     "record_id is already bound to different audit data"
                 )
-            ProjectCatalog._sync_incident_projection(
-                connection, project_id, projection
-            )
+            if materialize:
+                ProjectCatalog._materialize_label_projection(
+                    connection, project_id, projection
+                )
             return _projection_result(projection, created=False)
 
         existing_revision = connection.execute(
@@ -1022,9 +1051,10 @@ class ProjectCatalog:
                 raise LabelProjectionError(
                     "answer revision is already bound to another record"
                 )
-            ProjectCatalog._sync_incident_projection(
-                connection, project_id, projection
-            )
+            if materialize:
+                ProjectCatalog._materialize_label_projection(
+                    connection, project_id, projection
+                )
             return _projection_result(projection, created=False)
 
         question = connection.execute(
@@ -1147,54 +1177,81 @@ class ProjectCatalog:
                 projection.record_json,
             ),
         )
-        connection.execute(
+        if materialize:
+            ProjectCatalog._materialize_label_projection(
+                connection, project_id, projection
+            )
+        return _projection_result(projection, created=True)
+
+    @staticmethod
+    def _materialize_label_projection(
+        connection: sqlite3.Connection,
+        project_id: str,
+        projection: LabelProjection,
+    ) -> None:
+        existing = connection.execute(
             """
-            INSERT INTO annotations(
-                id,
-                project_id,
-                question_id,
-                answer_record_id,
-                answer_revision,
-                analysis_job_id,
-                candidate_id,
-                partition,
-                include_in_training,
-                selected_issue_type,
-                severity,
-                maintenance_action,
-                ocr_text,
-                normalized_box_json,
-                source_record_hash,
-                annotation_hash,
-                annotation_json,
-                created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            SELECT project_id, annotation_json
+            FROM annotations
+            WHERE id = ?
             """,
-            (
-                projection.annotation_id,
-                project_id,
-                projection.question_id,
-                projection.record_id,
-                projection.answer_revision,
-                projection.analysis_job_id,
-                projection.candidate_id,
-                projection.partition,
-                1 if projection.include_in_training else 0,
-                projection.selected_issue_type,
-                projection.severity,
-                projection.maintenance_action,
-                projection.ocr_text,
-                projection.normalized_box_json,
-                projection.record_hash,
-                projection.annotation_hash,
-                projection.annotation_json,
-                projection.recorded_at,
-            ),
-        )
+            (projection.annotation_id,),
+        ).fetchone()
+        if existing is None:
+            connection.execute(
+                """
+                INSERT INTO annotations(
+                    id,
+                    project_id,
+                    question_id,
+                    answer_record_id,
+                    answer_revision,
+                    analysis_job_id,
+                    candidate_id,
+                    partition,
+                    include_in_training,
+                    selected_issue_type,
+                    severity,
+                    maintenance_action,
+                    ocr_text,
+                    normalized_box_json,
+                    source_record_hash,
+                    annotation_hash,
+                    annotation_json,
+                    created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    projection.annotation_id,
+                    project_id,
+                    projection.question_id,
+                    projection.record_id,
+                    projection.answer_revision,
+                    projection.analysis_job_id,
+                    projection.candidate_id,
+                    projection.partition,
+                    1 if projection.include_in_training else 0,
+                    projection.selected_issue_type,
+                    projection.severity,
+                    projection.maintenance_action,
+                    projection.ocr_text,
+                    projection.normalized_box_json,
+                    projection.record_hash,
+                    projection.annotation_hash,
+                    projection.annotation_json,
+                    projection.recorded_at,
+                ),
+            )
+        elif (
+            existing["project_id"] != project_id
+            or existing["annotation_json"] != projection.annotation_json
+        ):
+            raise LabelProjectionError(
+                "annotation identity is already bound to different audit data"
+            )
         ProjectCatalog._sync_incident_projection(
             connection, project_id, projection
         )
-        return _projection_result(projection, created=True)
 
     @staticmethod
     def _sync_incident_projection(

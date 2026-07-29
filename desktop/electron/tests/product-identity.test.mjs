@@ -27,36 +27,36 @@ function createFakeApp() {
   };
 }
 
-test("Windows runtime identity is owned by TrafficVisson", () => {
+test("Windows runtime identity is owned by TrafficSuperVision", () => {
   const fakeApp = createFakeApp();
 
   applyProductIdentity(fakeApp, "win32");
 
   assert.deepEqual(fakeApp.calls, [
-    ["setName", "TrafficVisson"],
-    ["setAppUserModelId", "kr.co.trafficvisson.desktop"],
+    ["setName", "TrafficSuperVision"],
+    ["setAppUserModelId", "kr.co.trafficsupervision.desktop"],
   ]);
 });
 
-test("non-Windows runtime keeps the TrafficVisson product name", () => {
+test("non-Windows runtime keeps the TrafficSuperVision product name", () => {
   const fakeApp = createFakeApp();
 
   applyProductIdentity(fakeApp, "darwin");
 
-  assert.deepEqual(fakeApp.calls, [["setName", "TrafficVisson"]]);
+  assert.deepEqual(fakeApp.calls, [["setName", "TrafficSuperVision"]]);
 });
 
 test("packaged executable, installer, shortcuts, and uninstall entry share one identity", () => {
   assert.deepEqual(PRODUCT_IDENTITY, {
-    appUserModelId: "kr.co.trafficvisson.desktop",
-    productName: "TrafficVisson",
+    appUserModelId: "kr.co.trafficsupervision.desktop",
+    productName: "TrafficSuperVision",
   });
   assert.equal(packageJson.build.appId, PRODUCT_IDENTITY.appUserModelId);
   assert.equal(packageJson.build.productName, PRODUCT_IDENTITY.productName);
   assert.equal(packageJson.build.executableName, PRODUCT_IDENTITY.productName);
   assert.equal(
     packageJson.build.artifactName,
-    "TrafficVisson-Setup-${version}-${arch}.${ext}",
+    "TrafficSuperVision-Setup-${version}-${arch}.${ext}",
   );
   assert.equal(
     packageJson.build.nsis.shortcutName,

@@ -1,13 +1,13 @@
-# TrafficVisson local vision model packs
+# TrafficSuperVision local vision model packs
 
 Model weights are not stored in this repository and are never downloaded by the
 bridge. An installer must create a private, non-linked directory containing:
 
-1. `trafficvisson-model-pack.json`
+1. `trafficsupervision-model-pack.json`
 2. every file listed in `artifacts`
 3. no executable, script, plug-in, or remote-code model
 
-Set `TRAFFICVISSON_VISION_MODEL_PACK` to the absolute manifest path before the
+Set `TRAFFICSUPERVISION_VISION_MODEL_PACK` to the absolute manifest path before the
 Electron main process starts the bridge.
 
 ## Required model coverage
@@ -36,7 +36,7 @@ training/export tooling outside the installed app. ONNX Runtime is MIT licensed,
 but that does not change the model-weight licence.
 
 Ultralytics tooling and many Ultralytics weights are AGPL-3.0 unless covered by
-another licence. A commercial/non-public TrafficVisson distribution must either
+another licence. A commercial/non-public TrafficSuperVision distribution must either
 meet those terms, obtain the required enterprise licence, or use permissively
 licensed training/export tooling and weights. The manifest intentionally
 requires `runtime_spdx`, `weights_spdx`,
@@ -120,3 +120,32 @@ bridge build must explicitly collect and smoke-test the chosen fixed runtime:
 The application must not tell a user that a pack is active until the packaged
 worker passes the same offline inference contract tests on the target Windows
 machine.
+
+## Large-weight provenance contract
+
+Every newly packaged large weight must use a versioned manifest that records,
+and verifies before activation:
+
+- model name and immutable model/version identity;
+- HTTPS source repository plus immutable revision;
+- weight and runtime SPDX identifiers, commercial-use confirmation,
+  redistribution decision, licence URL and an inventoried notice file;
+- every artifact's relative path, byte size and lowercase SHA-256;
+- whether a GPU is required, whether CPU fallback is supported, recommended
+  minimum VRAM and the minimum CUDA version when GPU is mandatory.
+
+The bundled Grounding DINO command-proposal pack uses
+`trafficvisson.command-proposal-model-pack.v2`. It is review-only and may create
+box proposals, but never labels, incidents, training runs or model promotion.
+SAM 2, Korean OCR and embedding-search weights must satisfy the same provenance
+and GPU requirements before their runtime-readiness state can become `ready`.
+
+`GET /runtime/readiness` and the matching read-only Electron IPC return the
+scrubbed component inventory. `unavailable` (not configured), `failed`
+(configured but invalid), and PipelineJob `zero_detections` (successful
+inference with no predictions) are intentionally different states.
+
+Codex CLI and Claude Code are structured-judgment/report providers only. They
+do not receive bulk video frames and are never advertised as detector, OCR,
+segmentation or tracking runtimes. Their official CLIs own authentication;
+TrafficSuperVision neither reads nor exports their credential files.

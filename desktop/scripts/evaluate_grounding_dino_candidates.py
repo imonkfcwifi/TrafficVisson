@@ -1,4 +1,4 @@
-"""Evaluate persisted TrafficVisson JPEG candidates with Grounding DINO Tiny.
+"""Evaluate persisted TrafficSuperVision JPEG candidates with Grounding DINO Tiny.
 
 This command is a bounded research evaluator.  It stages deterministic copies
 of existing candidate JPEGs, launches an offline Transformers worker, and
@@ -716,7 +716,7 @@ def _prepare_output(
         raise GroundingDinoEvaluationError("The evaluation run name is invalid")
     if not program_data.is_absolute():
         raise GroundingDinoEvaluationError("PROGRAMDATA must be absolute")
-    parent = program_data / "TrafficVisson" / "ModelEvaluations"
+    parent = program_data / "TrafficSuperVision" / "ModelEvaluations"
     parent.mkdir(parents=True, exist_ok=True)
     parent = _safe_directory(parent, "ModelEvaluations directory")
     output = parent / run_name
@@ -1547,7 +1547,7 @@ def _markdown(envelope: Mapping[str, Any]) -> str:
 - 고정 Grounding DINO prompts:
 {prompts}
 """
-    return f"""# TrafficVisson Grounding DINO candidate smoke
+    return f"""# TrafficSuperVision Grounding DINO candidate smoke
 
 ## 결론
 
@@ -1717,7 +1717,7 @@ def run_evaluation(
             command,
             project_id=selected_project_id,
         )
-    root = _safe_directory(Path(data_root), "TrafficVisson data root")
+    root = _safe_directory(Path(data_root), "TrafficSuperVision data root")
     pack = _load_pack(pack_manifest)
     pack_before = {
         row["absolute_path"]: _fingerprint(row["absolute_path"])
@@ -2022,14 +2022,14 @@ def _default_data_root() -> Path:
     local_app_data = os.environ.get("LOCALAPPDATA")
     if not local_app_data:
         raise GroundingDinoEvaluationError("LOCALAPPDATA is unavailable")
-    return Path(local_app_data) / "TrafficVisson" / "bridge-data"
+    return Path(local_app_data) / "TrafficSuperVision" / "bridge-data"
 
 
 def _default_pack_manifest() -> Path:
     program_data = Path(os.environ.get("PROGRAMDATA", r"C:\ProgramData"))
     return (
         program_data
-        / "TrafficVisson"
+        / "TrafficSuperVision"
         / "ModelPacks"
         / f"{PACK_ID}-{PACK_VERSION}"
         / "trafficvisson-grounding-dino-pack.json"
@@ -2039,7 +2039,7 @@ def _default_pack_manifest() -> Path:
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Evaluate deterministic persisted TrafficVisson candidate JPEGs "
+            "Evaluate deterministic persisted TrafficSuperVision candidate JPEGs "
             "with the pinned review-only Grounding DINO Tiny pack."
         )
     )
@@ -2144,7 +2144,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "output_directory": str(
             (
                 Path(os.environ.get("PROGRAMDATA", r"C:\ProgramData"))
-                / "TrafficVisson"
+                / "TrafficSuperVision"
                 / "ModelEvaluations"
                 / arguments.run_name
             ).resolve()

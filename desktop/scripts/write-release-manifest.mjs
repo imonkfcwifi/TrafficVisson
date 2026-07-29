@@ -14,7 +14,7 @@ const runnerResourceRoot = path.join(
 );
 const runnerExecutableRelativePath = path.join(
   runnerResourceRoot,
-  "trafficvisson-command-proposal-runner.exe",
+  "trafficsupervision-command-proposal-runner.exe",
 );
 const runnerManifestRelativePath = path.join(
   runnerResourceRoot,
@@ -34,15 +34,15 @@ const selectedModelRelativePath = path.join(
 
 export function releaseArtifactPaths(version) {
   return [
-    `TrafficVisson-Setup-${version}-x64.exe`,
-    `TrafficVisson-Setup-${version}-x64.exe.blockmap`,
-    path.join("win-unpacked", "TrafficVisson.exe"),
+    `TrafficSuperVision-Setup-${version}-x64.exe`,
+    `TrafficSuperVision-Setup-${version}-x64.exe.blockmap`,
+    path.join("win-unpacked", "TrafficSuperVision.exe"),
     path.join("win-unpacked", "resources", "app.asar"),
     path.join(
       "win-unpacked",
       "resources",
       "bridge",
-      "TrafficVissonBridge.exe",
+      "TrafficSuperVisionBridge.exe",
     ),
     path.join("win-unpacked", "resources", "bridge", "ffmpeg.exe"),
     path.join("win-unpacked", "resources", "bridge", "ffprobe.exe"),
@@ -84,10 +84,104 @@ function requireSha256(value, label) {
   return value;
 }
 
+function requireHttpsUrl(value, label) {
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error(`${label} is invalid`);
+  }
+  if (
+    parsed.protocol !== "https:" ||
+    parsed.username ||
+    parsed.password ||
+    parsed.search ||
+    parsed.hash
+  ) {
+    throw new Error(`${label} is invalid`);
+  }
+  return value;
+}
+
+function requireModelPackMetadata(modelManifest) {
+  if (
+    modelManifest.schema_version !==
+    "trafficvisson.command-proposal-model-pack.v2"
+  ) {
+    throw new Error("model-pack manifest schema is unsupported");
+  }
+  const model = modelManifest.model;
+  if (
+    !model ||
+    typeof model !== "object" ||
+    typeof model.name !== "string" ||
+    model.name.length < 1 ||
+    model.name.length > 128 ||
+    typeof model.version !== "string" ||
+    !/^[0-9A-Za-z][0-9A-Za-z._+-]{0,127}$/.test(model.version) ||
+    model.task !== "zero_shot_object_detection" ||
+    model.format !== "onnx" ||
+    model.selected_artifact !== "onnx/model_q4.onnx"
+  ) {
+    throw new Error("model-pack model identity is incomplete");
+  }
+
+  const source = modelManifest.source;
+  if (
+    !source ||
+    typeof source !== "object" ||
+    typeof source.repo_id !== "string" ||
+    typeof source.resolved_revision !== "string" ||
+    !/^[a-f0-9]{40,64}$/.test(source.resolved_revision) ||
+    source.selected_model !== model.selected_artifact
+  ) {
+    throw new Error("model-pack source provenance is incomplete");
+  }
+  requireHttpsUrl(source.repository_url, "model-pack source URL");
+
+  const license = modelManifest.license;
+  if (
+    !license ||
+    typeof license !== "object" ||
+    !/^[A-Za-z0-9][A-Za-z0-9.+-]{0,63}$/.test(
+      license.weights_spdx ?? "",
+    ) ||
+    !/^[A-Za-z0-9][A-Za-z0-9.+-]{0,63}$/.test(
+      license.runtime_spdx ?? "",
+    ) ||
+    license.commercial_use_confirmed !== true ||
+    typeof license.redistribution_allowed !== "boolean" ||
+    license.notice_artifact !== "THIRD-PARTY-NOTICES.md"
+  ) {
+    throw new Error("model-pack license metadata is incomplete");
+  }
+  requireHttpsUrl(license.license_url, "model-pack license URL");
+
+  const gpu = modelManifest.gpu_requirements;
+  if (
+    !gpu ||
+    typeof gpu !== "object" ||
+    typeof gpu.required !== "boolean" ||
+    typeof gpu.cpu_fallback !== "boolean" ||
+    !Number.isSafeInteger(gpu.recommended_min_vram_mb) ||
+    gpu.recommended_min_vram_mb < 0 ||
+    gpu.recommended_min_vram_mb > 131072 ||
+    !(
+      gpu.cuda_min_version === null ||
+      (typeof gpu.cuda_min_version === "string" &&
+        /^[0-9]{1,2}\.[0-9]{1,2}$/.test(gpu.cuda_min_version))
+    ) ||
+    (gpu.required && gpu.cuda_min_version === null)
+  ) {
+    throw new Error("model-pack GPU requirements are incomplete");
+  }
+  return { model, source, license, gpu };
+}
+
 export async function verifyBundledRunnerIntegrity(packagedRunnerRoot) {
   const runnerExecutablePath = path.join(
     packagedRunnerRoot,
-    "trafficvisson-command-proposal-runner.exe",
+    "trafficsupervision-command-proposal-runner.exe",
   );
   const runnerManifestPath = path.join(packagedRunnerRoot, "runner-manifest.json");
   const modelPackRoot = path.join(packagedRunnerRoot, "model-pack");
@@ -103,12 +197,7 @@ export async function verifyBundledRunnerIntegrity(packagedRunnerRoot) {
   ) {
     throw new Error("runner manifest schema is unsupported");
   }
-  if (
-    modelManifest.schema_version !==
-    "trafficvisson.command-proposal-model-pack.v1"
-  ) {
-    throw new Error("model-pack manifest schema is unsupported");
-  }
+  const modelPackMetadata = requireModelPackMetadata(modelManifest);
 
   const actualRunnerSha256 = await sha256(runnerExecutablePath);
   const expectedRunnerSha256 = requireSha256(
@@ -151,6 +240,17 @@ export async function verifyBundledRunnerIntegrity(packagedRunnerRoot) {
   if (!Array.isArray(modelManifest.artifacts)) {
     throw new Error("model-pack artifact inventory is missing");
   }
+  const noticeArtifact = modelManifest.artifacts.find(
+    (artifact) =>
+      artifact?.path === modelPackMetadata.license.notice_artifact,
+  );
+  if (
+    !noticeArtifact ||
+    !Number.isSafeInteger(noticeArtifact.size_bytes) ||
+    noticeArtifact.size_bytes <= 0
+  ) {
+    throw new Error("model-pack license notice is not inventoried");
+  }
   const selectedArtifact = modelManifest.artifacts.find(
     (artifact) => artifact?.path === "onnx/model_q4.onnx",
   );
@@ -190,6 +290,21 @@ export async function verifyBundledRunnerIntegrity(packagedRunnerRoot) {
       selected_artifact: "onnx/model_q4.onnx",
       selected_artifact_size_bytes: selectedModelStat.size,
       selected_artifact_sha256: actualModelSha256,
+      model_name: modelPackMetadata.model.name,
+      model_version: modelPackMetadata.model.version,
+      source_url: modelPackMetadata.source.repository_url,
+      source_revision: modelPackMetadata.source.resolved_revision,
+      weights_spdx: modelPackMetadata.license.weights_spdx,
+      runtime_spdx: modelPackMetadata.license.runtime_spdx,
+      redistribution_allowed:
+        modelPackMetadata.license.redistribution_allowed,
+      gpu_requirements: {
+        required: modelPackMetadata.gpu.required,
+        cpu_fallback: modelPackMetadata.gpu.cpu_fallback,
+        recommended_min_vram_mb:
+          modelPackMetadata.gpu.recommended_min_vram_mb,
+        cuda_min_version: modelPackMetadata.gpu.cuda_min_version,
+      },
       review_only: true,
       automatic_labeling_allowed: false,
     },
@@ -291,7 +406,7 @@ export async function writeReleaseManifest() {
   const manifest = {
     schema_version: "trafficvisson-windows-release-v2",
     generated_at: new Date().toISOString(),
-    product: "TrafficVisson",
+    product: "TrafficSuperVision",
     version,
     channel: "alpha",
     architecture: "x64",

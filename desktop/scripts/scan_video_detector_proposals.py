@@ -1,4 +1,4 @@
-r"""Bounded, resumable dense-video detector evaluation for TrafficVisson.
+r"""Bounded, resumable dense-video detector evaluation for TrafficSuperVision.
 
 This operator tool samples a source video with ffmpeg and evaluates the sampled
 frames with an explicitly installed local ONNX model pack.  It is deliberately
@@ -10,7 +10,7 @@ Safety contract
 
 * The source video and model pack are opened read-only and SHA-256 verified.
 * The only writable location is a new run directory under
-  ``%PROGRAMDATA%\TrafficVisson\ModelEvaluations``.
+  ``%PROGRAMDATA%\TrafficSuperVision\ModelEvaluations``.
 * No analysis JSON, label, SQLite, incident, report, promotion, or experimental
   sidecar is read or written.
 * Frame count, media time, wall time, temporary bytes, final bytes, subprocess
@@ -74,7 +74,7 @@ DEFAULT_MAX_WALL_SECONDS = 900.0
 
 DISCLAIMER_KO = (
     "이 결과는 사용자 검토를 위한 비파괴 실험 후보입니다. model_score는 "
-    "현재 TrafficVisson 한국 도로 고정 검증 세트에서 보정되지 않은 모델 "
+    "현재 TrafficSuperVision 한국 도로 고정 검증 세트에서 보정되지 않은 모델 "
     "출력값이며 실제 결함 확률, 정확도, 확정 라벨 또는 유지보수 판정이 "
     "아닙니다. 자동 라벨, 사건 생성, 보고서 확정 입력, 모델 승격에 "
     "사용되지 않았습니다."
@@ -1145,7 +1145,7 @@ def _markdown_report(envelope: Mapping[str, Any]) -> str:
     model = envelope["model"]
     summary = envelope["summary"]
     sampling = envelope["sampling"]
-    return f"""# TrafficVisson dense detector smoke
+    return f"""# TrafficSuperVision dense detector smoke
 
 ## 결론
 
@@ -1189,7 +1189,7 @@ def _markdown_report(envelope: Mapping[str, Any]) -> str:
 - `checkpoint.json`: 동일 설정으로 재개하기 위한 체크포인트
 - `manifest.json`: 출력 파일 SHA-256 목록
 
-이 실행은 TrafficVisson 분석 JSON, 라벨, SQLite, 사건, 보고서 입력,
+이 실행은 TrafficSuperVision 분석 JSON, 라벨, SQLite, 사건, 보고서 입력,
 모델 승격, 실험 사이드카를 읽거나 수정하는 경로를 사용하지 않습니다.
 """
 
@@ -1245,7 +1245,7 @@ def _prepare_run_directory(
     if not program_data.is_absolute():
         raise DenseScanError("PROGRAMDATA must be an absolute path")
     program_data.mkdir(parents=True, exist_ok=True)
-    base = program_data / "TrafficVisson" / "ModelEvaluations"
+    base = program_data / "TrafficSuperVision" / "ModelEvaluations"
     base.mkdir(parents=True, exist_ok=True)
     base = _safe_directory(base, "ModelEvaluations directory")
     run_root = base / run_name
@@ -1863,10 +1863,10 @@ def _default_model_manifest() -> Path:
     program_data = Path(os.environ.get("PROGRAMDATA", r"C:\ProgramData"))
     return (
         program_data
-        / "TrafficVisson"
+        / "TrafficSuperVision"
         / "ModelPacks"
         / "trafficvisson-peterhdd-yolov8s-pothole-research-0.1.1"
-        / "trafficvisson-model-pack.json"
+        / "trafficsupervision-model-pack.json"
     )
 
 
@@ -1874,7 +1874,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Sample a video with ffmpeg and export review-only ONNX detector "
-            "proposals under ProgramData/TrafficVisson/ModelEvaluations."
+            "proposals under ProgramData/TrafficSuperVision/ModelEvaluations."
         )
     )
     parser.add_argument("--source-video", required=True)
@@ -1972,7 +1972,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 "output_directory": str(
                     (
                         Path(os.environ.get("PROGRAMDATA", r"C:\ProgramData"))
-                        / "TrafficVisson"
+                        / "TrafficSuperVision"
                         / "ModelEvaluations"
                         / arguments.run_name
                     ).resolve()

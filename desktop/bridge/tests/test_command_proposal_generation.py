@@ -40,20 +40,68 @@ def _write_json(path: Path, value: object) -> bytes:
 def _runner_fixture(tmp_path: Path):
     root = (
         tmp_path
-        / "TrafficVisson"
+        / "TrafficSuperVision"
         / "CommandProposalRunner"
         / "grounding-dino-v1"
     )
     model_root = root / "model-pack"
     model_root.mkdir(parents=True)
-    executable = root / "trafficvisson-command-proposal-runner.exe"
+    executable = root / "trafficsupervision-command-proposal-runner.exe"
     executable.write_bytes(b"trusted-test-runner")
     model_artifact = model_root / "model.onnx"
     model_artifact.write_bytes(b"trusted-test-model")
+    notice_artifact = model_root / "THIRD-PARTY-NOTICES.md"
+    notice_artifact.write_text("trusted test notice", encoding="utf-8")
     model_manifest_raw = _write_json(
         model_root / "manifest.json",
         {
-            "schema_version": "trafficvisson.test-model-pack.v1",
+            "schema_version": (
+                "trafficvisson.command-proposal-model-pack.v2"
+            ),
+            "pack_id": "trafficvisson-grounding-dino-test",
+            "pack_version": "0.1.0",
+            "model": {
+                "name": "Grounding DINO test model",
+                "version": "0123456789abcdef0123456789abcdef01234567",
+                "task": "zero_shot_object_detection",
+                "format": "onnx",
+                "selected_artifact": "model.onnx",
+            },
+            "source": {
+                "repository_url": (
+                    "https://models.example.test/grounding-dino"
+                ),
+                "repo_id": "example/grounding-dino",
+                "resolved_revision": (
+                    "0123456789abcdef0123456789abcdef01234567"
+                ),
+                "selected_model": "model.onnx",
+            },
+            "license": {
+                "weights_spdx": "Apache-2.0",
+                "runtime_spdx": "MIT",
+                "license_url": (
+                    "https://www.apache.org/licenses/LICENSE-2.0"
+                ),
+                "commercial_use_confirmed": True,
+                "redistribution_allowed": False,
+                "notice_artifact": "THIRD-PARTY-NOTICES.md",
+            },
+            "gpu_requirements": {
+                "required": False,
+                "cpu_fallback": True,
+                "recommended_min_vram_mb": 4096,
+                "cuda_min_version": None,
+            },
+            "inference": {
+                "task": "zero_shot_object_detection",
+            },
+            "review_policy": {
+                "review_only": True,
+                "automatic_labeling_allowed": False,
+                "incident_creation_allowed": False,
+                "model_promotion_allowed": False,
+            },
             "artifacts": [
                 {
                     "path": "model.onnx",
@@ -61,7 +109,14 @@ def _runner_fixture(tmp_path: Path):
                     "sha256": hashlib.sha256(
                         model_artifact.read_bytes()
                     ).hexdigest(),
-                }
+                },
+                {
+                    "path": "THIRD-PARTY-NOTICES.md",
+                    "size_bytes": notice_artifact.stat().st_size,
+                    "sha256": hashlib.sha256(
+                        notice_artifact.read_bytes()
+                    ).hexdigest(),
+                },
             ],
         },
     )
@@ -207,7 +262,7 @@ def test_fixed_runner_uses_pinned_manifest_and_never_receives_raw_command(
     assert captured["argv"] == [
         str(
             fixture["root"]
-            / "trafficvisson-command-proposal-runner.exe"
+            / "trafficsupervision-command-proposal-runner.exe"
         )
     ]
     assert captured["request"]["project_id"] == str(PROJECT_ID)

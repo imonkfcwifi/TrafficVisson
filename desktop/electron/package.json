@@ -1,5 +1,5 @@
 {
-  "name": "@trafficvisson/electron-shell",
+  "name": "@trafficsupervision/electron-shell",
   "private": true,
   "type": "module",
   "scripts": {

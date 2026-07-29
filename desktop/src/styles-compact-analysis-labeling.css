@@ -187,6 +187,37 @@
     -webkit-line-clamp: 2;
   }
 
+  .screen--analysis .dense-index-control {
+    gap: 4px;
+    margin-top: 6px;
+    padding: 6px 8px;
+    border-radius: 11px;
+  }
+
+  .screen--analysis .dense-index-control__head .eyebrow {
+    display: none;
+  }
+
+  .screen--analysis .dense-index-control__head strong {
+    font-size: 12px;
+  }
+
+  .screen--analysis .dense-index-control__actions select {
+    height: 28px;
+  }
+
+  .screen--analysis .dense-index-control__actions .button {
+    min-height: 30px;
+    padding-inline: 9px;
+    font-size: 11px;
+  }
+
+  .screen--analysis .dense-index-control__note,
+  .screen--analysis .dense-index-control__error {
+    font-size: 9.5px;
+    line-height: 1.3;
+  }
+
   .screen--analysis .details-toggle {
     min-height: 32px;
     margin-top: 7px;
@@ -770,6 +801,75 @@
 
   .screen--labeling .question-metadata .badge {
     padding: 2px 5px;
+    font-size: 8px;
+  }
+
+  .screen--labeling .weak-case-reference {
+    min-height: 0;
+    max-height: 86px;
+    flex: 0 0 auto;
+    margin-top: 3px;
+    gap: 3px;
+    padding: 4px;
+    border-radius: 9px;
+  }
+
+  .screen--labeling .weak-case-reference__header {
+    min-height: 16px;
+  }
+
+  .screen--labeling .weak-case-reference__header > span {
+    gap: 4px;
+  }
+
+  .screen--labeling .weak-case-reference__header strong,
+  .screen--labeling .weak-case-reference__header small,
+  .screen--labeling .weak-case-reference__header .badge {
+    font-size: 8px;
+    line-height: 1.1;
+  }
+
+  .screen--labeling .weak-case-reference__header svg {
+    width: 12px;
+    height: 12px;
+  }
+
+  .screen--labeling .weak-case-strip {
+    height: 43px;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 3px;
+  }
+
+  .screen--labeling .weak-case-strip > button {
+    height: 43px;
+    border-radius: 7px;
+  }
+
+  .screen--labeling .weak-case-strip__identity {
+    left: 2px;
+    bottom: 2px;
+    max-width: calc(100% - 4px);
+    padding: 1px 3px;
+    font-size: 7px;
+  }
+
+  .screen--labeling .weak-case-reference__detail {
+    min-height: 15px;
+    gap: 4px;
+  }
+
+  .screen--labeling .weak-case-reference__detail strong,
+  .screen--labeling .weak-case-reference__detail p {
+    font-size: 8px;
+  }
+
+  .screen--labeling .weak-case-reference__detail small,
+  .screen--labeling .weak-case-reference__detail .badge {
+    display: none;
+  }
+
+  .screen--labeling .weak-case-reference__status {
+    min-height: 43px;
     font-size: 8px;
   }
 
@@ -1527,6 +1627,35 @@
     font-size: 11px;
   }
 
+  .screen--labeling .weak-case-reference {
+    min-height: 0;
+    max-height: 110px;
+    flex: 0 0 auto;
+    margin-top: 5px;
+    gap: 5px;
+    padding: 6px;
+    border-radius: 11px;
+  }
+
+  .screen--labeling .weak-case-strip {
+    height: 53px;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 4px;
+  }
+
+  .screen--labeling .weak-case-strip > button {
+    height: 53px;
+    border-radius: 8px;
+  }
+
+  .screen--labeling .weak-case-reference__detail {
+    min-height: 18px;
+  }
+
+  .screen--labeling .weak-case-reference__status {
+    min-height: 53px;
+  }
+
   .screen--labeling .experimental-proposal,
   .screen--labeling .proposal-load-warning {
     min-height: 0;
@@ -1693,5 +1822,82 @@
 
   .screen--labeling .label-progress > .progress {
     width: 100%;
+  }
+
+  .screen--labeling .review-mode-toggle button {
+    min-width: 104px;
+    min-height: 34px;
+    padding-inline: 10px;
+  }
+
+  .screen--labeling .review-mode-toggle button strong {
+    font-size: 11.5px;
+  }
+
+  .screen--labeling .review-mode-toggle button small {
+    font-size: 10.5px;
+  }
+
+  .screen--labeling .answer kbd {
+    min-width: 18px;
+    min-height: 18px;
+    padding-inline: 4px;
+    font-size: 10.5px;
+  }
+
+  .screen--labeling .severity-followup {
+    min-height: 88px;
+    flex: 0 0 auto;
+    grid-template-columns: minmax(170px, 0.72fr) minmax(0, 1.28fr);
+    align-items: center;
+    gap: 7px;
+    margin-top: 7px;
+    padding: 7px 8px;
+  }
+
+  .screen--labeling .severity-followup__intro {
+    gap: 2px;
+  }
+
+  .screen--labeling .severity-followup__intro > span,
+  .screen--labeling .severity-followup__intro > small,
+  .screen--labeling .severity-followup__action {
+    font-size: 11px;
+    line-height: 1.25;
+  }
+
+  .screen--labeling .severity-followup__intro > strong {
+    font-size: 11.5px;
+    line-height: 1.25;
+  }
+
+  .screen--labeling .severity-choice-grid {
+    gap: 5px;
+  }
+
+  .screen--labeling .severity-choice {
+    min-height: 50px;
+    gap: 5px;
+    padding: 6px;
+    border-radius: 10px;
+  }
+
+  .screen--labeling .severity-choice kbd {
+    min-width: 18px;
+    min-height: 18px;
+    padding-inline: 4px;
+    font-size: 10.5px;
+  }
+
+  .screen--labeling .severity-choice strong {
+    font-size: 12px;
+  }
+
+  .screen--labeling .severity-choice small {
+    font-size: 10.5px;
+  }
+
+  .screen--labeling .severity-followup__action {
+    display: none;
   }
 }

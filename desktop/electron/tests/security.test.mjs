@@ -6,17 +6,23 @@ import {
   CONTENT_SECURITY_POLICY,
   VITE_DEVELOPMENT_CONTENT_SECURITY_POLICY,
   buildEvidenceUrl,
+  buildWeakCaseImageUrl,
   evidenceBridgePath,
   isAllowedRendererNavigation,
   parseEvidenceUrl,
+  parseWeakCaseImageUrl,
   parseDevServerUrl,
   resolveDevServerUrl,
   resolveRendererAsset,
+  weakCaseImageBridgePath,
 } from "../security.mjs";
 
 const PROJECT_ID = "11111111-1111-4111-8111-11111111111a";
 const JOB_ID = "22222222-2222-4222-8222-222222222222";
 const CANDIDATE_ID = "0123456789abcdefabcd";
+const WEAK_SOURCE_ID = "sample-hwpx-3q-24ffb4bc62cd86a6";
+const WEAK_CASE_ID =
+  "hwpx-weak-case-0123456789abcdef0123456789abcdef";
 
 test("development renderer is restricted to loopback HTTP", () => {
   assert.equal(parseDevServerUrl("http://127.0.0.1:5173").hostname, "127.0.0.1");
@@ -154,5 +160,64 @@ test("candidate evidence URL parser rejects ambiguous or attacker-controlled for
       kind: "image",
     }),
     /projectId/,
+  );
+});
+
+test("weak-case image URLs contain only project and server-issued opaque ids", () => {
+  const url = buildWeakCaseImageUrl({
+    projectId: PROJECT_ID,
+    sourceId: WEAK_SOURCE_ID,
+    caseId: WEAK_CASE_ID,
+  });
+  assert.equal(
+    url,
+    (
+      "trafficvisson-evidence://artifact/projects/" +
+      `${PROJECT_ID}/reference-sources/${WEAK_SOURCE_ID}/` +
+      `cases/${WEAK_CASE_ID}/image`
+    ),
+  );
+  assert.deepEqual(parseWeakCaseImageUrl(url), {
+    projectId: PROJECT_ID,
+    sourceId: WEAK_SOURCE_ID,
+    caseId: WEAK_CASE_ID,
+  });
+  assert.equal(
+    weakCaseImageBridgePath(url),
+    (
+      `/projects/${PROJECT_ID}/reference-cases/sources/` +
+      `${WEAK_SOURCE_ID}/cases/${WEAK_CASE_ID}/image`
+    ),
+  );
+  assert.doesNotMatch(url, /(?:[A-Za-z]:\\|\/sample\/|BinData)/);
+});
+
+test("weak-case image URL rejects paths, unknown sources and ambiguous components", () => {
+  const valid = buildWeakCaseImageUrl({
+    projectId: PROJECT_ID,
+    sourceId: WEAK_SOURCE_ID,
+    caseId: WEAK_CASE_ID,
+  });
+  assert.throws(
+    () => parseWeakCaseImageUrl(`${valid}?path=C:%5Csecret.hwpx`),
+    /components/,
+  );
+  assert.throws(
+    () =>
+      buildWeakCaseImageUrl({
+        projectId: PROJECT_ID,
+        sourceId: "arbitrary-source",
+        caseId: WEAK_CASE_ID,
+      }),
+    /sourceId/,
+  );
+  assert.throws(
+    () =>
+      buildWeakCaseImageUrl({
+        projectId: PROJECT_ID,
+        sourceId: WEAK_SOURCE_ID,
+        caseId: "../../BinData/image1.bmp",
+      }),
+    /caseId/,
   );
 });

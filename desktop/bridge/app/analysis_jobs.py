@@ -274,6 +274,53 @@ class AnalysisJobService:
                 job.stage = "cancelling"
             return self._serialize(job)
 
+    def resolve_completed_source(
+        self,
+        project_id: UUID,
+        job_id: UUID,
+    ) -> CompletedMediaGrant:
+        """Re-resolve the unchanged source for one live completed analysis.
+
+        Persisted analysis results deliberately retain no source path.  If the
+        current bridge runtime no longer owns the matching stable snapshot and
+        completed hash job, this method fails honestly and the renderer must
+        ask the user to reselect and re-verify the source.
+        """
+
+        with self._lock:
+            job = self._job(project_id, job_id)
+            if job.status != "completed" or job.result is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "Dense-frame indexing requires a completed analysis "
+                        "job from the current bridge runtime"
+                    ),
+                )
+            original_grant = job.grant
+
+        grant = self._media_intake.resolve_completed_media(
+            project_id,
+            original_grant.snapshot_id,
+            original_grant.file_name,
+            original_grant.hash_job_id,
+            original_grant.sha256_lower,
+        )
+        if (
+            grant.project_id != original_grant.project_id
+            or grant.snapshot_id != original_grant.snapshot_id
+            or grant.hash_job_id != original_grant.hash_job_id
+            or grant.file_name != original_grant.file_name
+            or grant.sha256_lower != original_grant.sha256_lower
+            or grant.size_bytes != original_grant.size_bytes
+            or grant.modified_time_ns != original_grant.modified_time_ns
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="The completed analysis source identity has changed",
+            )
+        return grant
+
     def pause(self, project_id: UUID, job_id: UUID) -> None:
         with self._lock:
             self._job(project_id, job_id)

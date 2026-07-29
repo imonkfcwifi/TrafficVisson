@@ -145,7 +145,7 @@ def test_type_gap_track_and_spatial_gates_keep_unrelated_detections_separate():
     assert all(item["merge_reasons"] == ["single_detection"] for item in proposals)
 
 
-def test_iou_center_distance_and_temporal_only_paths_are_provenanced():
+def test_iou_and_center_distance_paths_are_provenanced_without_time_only_merge():
     detections = [
         _detection("iou-a", 0.0, box=_box(0.10, 0.10)),
         _detection("iou-b", 0.5, box=_box(0.12, 0.10)),
@@ -155,8 +155,8 @@ def test_iou_center_distance_and_temporal_only_paths_are_provenanced():
             1.0,
             box=_box(0.315, 0.10, width=0.01, height=0.2),
         ),
-        # Spatial evidence is unavailable, so the explicit temporal-only policy
-        # is recorded instead of pretending there was a spatial match.
+        # Spatial evidence is unavailable.  The safe default must not merge it
+        # solely because it is close in time.
         _detection("temporal-d", 1.5),
     ]
 
@@ -166,35 +166,65 @@ def test_iou_center_distance_and_temporal_only_paths_are_provenanced():
         policy=TemporalGroupingPolicy(max_center_distance=0.16),
     )[0]
 
-    assert proposal["evidence_detection_ids"] == [
-        "iou-a",
-        "iou-b",
-        "center-c",
-        "temporal-d",
-    ]
+    assert proposal["evidence_detection_ids"] == ["iou-a", "iou-b", "center-c"]
     assert proposal["merge_reasons"] == [
         "spatial_iou",
         "spatial_center_distance",
-        "bounded_gap_without_comparable_spatial_hint",
     ]
     assert [link["reason"] for link in proposal["merge_links"]] == [
         "spatial_iou",
         "spatial_center_distance",
-        "bounded_gap_without_comparable_spatial_hint",
     ]
     assert proposal["merge_links"][0]["iou"] > 0.1
     assert proposal["merge_links"][1]["center_distance"] <= 0.16
-    assert proposal["merge_links"][2]["iou"] is None
+    assert proposal["provenance"]["grouping_policy"][
+        "allow_temporal_only_without_spatial_hints"
+    ] is False
+    assert group_temporal_incident_proposals(
+        detections,
+        provenance=PROVENANCE,
+        policy=TemporalGroupingPolicy(max_center_distance=0.16),
+    )[1]["evidence_detection_ids"] == ["temporal-d"]
 
-    disabled = group_temporal_incident_proposals(
-        detections[-2:],
+
+def test_temporal_only_mode_is_explicit_review_only_and_cannot_chain():
+    proposals = group_temporal_incident_proposals(
+        [
+            _detection("temporal-a", 0.0),
+            _detection("temporal-b", 0.5),
+            _detection("temporal-c", 1.0),
+        ],
         provenance=PROVENANCE,
         policy=TemporalGroupingPolicy(
-            max_center_distance=0.16,
-            allow_temporal_only_without_spatial_hints=False,
+            allow_temporal_only_without_spatial_hints=True,
         ),
     )
-    assert len(disabled) == 2
+
+    assert [item["evidence_detection_ids"] for item in proposals] == [
+        ["temporal-a", "temporal-b"],
+        ["temporal-c"],
+    ]
+    assert proposals[0]["merge_reasons"] == [
+        "bounded_gap_without_comparable_spatial_hint"
+    ]
+    assert proposals[0]["review_only"] is True
+    assert proposals[0]["automatic_incident_creation_allowed"] is False
+
+
+def test_untracked_spatial_matches_cannot_chain_across_the_frame():
+    proposals = group_temporal_incident_proposals(
+        [
+            _detection("drift-a", 0.0, box=_box(0.00, 0.20, 0.02, 0.02)),
+            _detection("drift-b", 0.5, box=_box(0.14, 0.20, 0.02, 0.02)),
+            _detection("drift-c", 1.0, box=_box(0.28, 0.20, 0.02, 0.02)),
+        ],
+        provenance=PROVENANCE,
+    )
+
+    assert [item["evidence_detection_ids"] for item in proposals] == [
+        ["drift-a", "drift-b"],
+        ["drift-c"],
+    ]
 
 
 def test_exact_gap_boundary_merges_but_epsilon_over_boundary_does_not():

@@ -16,7 +16,7 @@ import type {
   ReportDraft,
   ReviewAction,
   RouteSegment,
-  TrafficVissonManifest,
+  TrafficSuperVisionManifest,
   Trip,
 } from "./types";
 import type { TrainingGateInput } from "./policies";
@@ -42,7 +42,7 @@ export const demoProject: Project = {
   projectId: DEMO_PROJECT_ID,
   schemaVersion: 1,
   name: "서울외곽순환로 2026년 7월 정기점검",
-  rootPath: "D:\\TrafficVisson\\projects\\seoul-ring-road-2026",
+  rootPath: "D:\\TrafficSuperVision\\projects\\seoul-ring-road-2026",
   status: "ACTIVE",
   questionPolicyMode: "ASSISTED_LEARNING",
   activeModelVersionId: "model-road-v3.4.0",
@@ -905,7 +905,7 @@ export const demoExportArtifacts: ExportArtifact[] = [
   ),
 ];
 
-export const demoManifest: TrafficVissonManifest = {
+export const demoManifest: TrafficSuperVisionManifest = {
   projectId: DEMO_PROJECT_ID,
   schemaVersion: 1,
   generatedAt: "2026-07-18T03:45:00.000Z",
@@ -933,7 +933,7 @@ export const demoManifest: TrafficVissonManifest = {
   ),
   provenance: {
     analysisRunIds: ["analysis-run-2026-07-18-001"],
-    generatedBy: "TrafficVisson Desktop 0.1.0",
+    generatedBy: "TrafficSuperVision Desktop 0.1.0",
   },
 };
 

@@ -87,7 +87,7 @@ test("project responses are strict and converted to renderer names", () => {
 
 test("refresh restores a valid choice and switching is project bounded", async () => {
   memoryStorage.setItem("trafficvisson:active-project:v1", PROJECT_B);
-  globalThis.window.trafficVisson = {
+  globalThis.window.trafficSuperVision = {
     projects: {
       list: async () => ({
         projects: [
@@ -112,7 +112,7 @@ test("refresh restores a valid choice and switching is project bounded", async (
 });
 
 test("creating a project selects the validated bridge response", async () => {
-  globalThis.window.trafficVisson = {
+  globalThis.window.trafficSuperVision = {
     projects: {
       create: async (request) => {
         assert.deepEqual(request, {

@@ -86,6 +86,12 @@ export type TemporalIncidentReviewProposal = {
   peakEvidence: TemporalPeakEvidence;
   mergeReasons: Array<TemporalMergeReason | "single_detection">;
   mergeLinks: TemporalMergeLink[];
+  source: {
+    projectId: string;
+    analysisJobId: string;
+    sourceFileSha256: string;
+    source: "classified_review_proposals";
+  };
   sourceFingerprintSha256: string;
   evidenceFingerprintSha256: string;
   groupingPolicy: TemporalGroupingPolicyRequest;
@@ -488,7 +494,7 @@ export function buildTemporalIncidentReviewRequest(input: {
     minIou: 0.1,
     maxCenterDistance: 0.15,
     strictTrackSeparation: true,
-    allowTemporalOnlyWithoutSpatialHints: true,
+    allowTemporalOnlyWithoutSpatialHints: false,
     ...input.policy,
   };
   if (
@@ -720,6 +726,15 @@ function parseTemporalProposal(
   ) {
     throw new Error(`${label}의 병합 근거가 올바르지 않습니다.`);
   }
+  if (
+    (detectionCount === 1 &&
+      (value.merge_reasons.length !== 1 ||
+        value.merge_reasons[0] !== "single_detection")) ||
+    (detectionCount > 1 &&
+      value.merge_reasons.includes("single_detection"))
+  ) {
+    throw new Error(`${label}의 단일·다중 프레임 병합 사유가 모순됩니다.`);
+  }
   const mergeLinks = value.merge_links.map((raw, linkIndex) => {
     if (
       !isRecord(raw) ||
@@ -781,7 +796,14 @@ function parseTemporalProposal(
       "grouping_policy",
     ]) ||
     provenance.algorithm !== "temporal-spatial-review-grouping.v1" ||
-    !isRecord(provenance.source)
+    !isRecord(provenance.source) ||
+    !hasExactKeys(provenance.source, [
+      "project_id",
+      "analysis_job_id",
+      "source_file_sha256",
+      "source",
+    ]) ||
+    provenance.source.source !== "classified_review_proposals"
   ) {
     throw new Error(`${label}의 provenance 형식이 올바르지 않습니다.`);
   }
@@ -818,6 +840,21 @@ function parseTemporalProposal(
       TemporalMergeReason | "single_detection"
     >,
     mergeLinks,
+    source: {
+      projectId: requireUuid(
+        provenance.source.project_id,
+        `${label} 원본 프로젝트`,
+      ),
+      analysisJobId: requireUuid(
+        provenance.source.analysis_job_id,
+        `${label} 원본 분석 작업`,
+      ),
+      sourceFileSha256: requireSha256(
+        provenance.source.source_file_sha256,
+        `${label} 입력 영상`,
+      ),
+      source: "classified_review_proposals",
+    },
     sourceFingerprintSha256: requireSha256(
       provenance.source_fingerprint_sha256,
       `${label} 원본`,
@@ -835,7 +872,12 @@ function parseTemporalProposal(
 
 export function parseTemporalIncidentReviewResponse(
   value: unknown,
-  expected?: { projectId?: string; detectionIds?: readonly string[] },
+  expected?: {
+    projectId?: string;
+    analysisJobId?: string;
+    sourceFileSha256?: string;
+    detectionIds?: readonly string[];
+  },
 ): TemporalIncidentReviewResult {
   if (
     !isRecord(value) ||
@@ -878,6 +920,20 @@ export function parseTemporalIncidentReviewResponse(
     throw new Error("시간축 제안 집계와 목록이 일치하지 않습니다.");
   }
   const proposals = value.proposals.map(parseTemporalProposal);
+  if (
+    proposals.some(
+      ({ source }) =>
+        source.projectId !== projectId ||
+        (expected?.analysisJobId !== undefined &&
+          source.analysisJobId !==
+            requireUuid(expected.analysisJobId, "요청 분석 작업")) ||
+        (expected?.sourceFileSha256 !== undefined &&
+          source.sourceFileSha256 !==
+            requireSha256(expected.sourceFileSha256, "요청 입력 영상")),
+    )
+  ) {
+    throw new Error("시간축 제안 provenance가 요청 원본과 일치하지 않습니다.");
+  }
   const proposalIds = proposals.map(({ proposalId }) => proposalId);
   if (new Set(proposalIds).size !== proposalIds.length) {
     throw new Error("시간축 제안 식별자가 중복되었습니다.");
@@ -1511,4 +1567,197 @@ export function parseModelPromotionReviewResponse(
     raw.candidate_model_version,
     "후보 모델",
   );
-  const requiredIssueTypes = raw.required_issue_types.map
+  const requiredIssueTypes = raw.required_issue_types.map((item, index) =>
+    requireCanonicalIssueType(item, `필수 검증 유형 ${index + 1}`),
+  );
+  const canonicalRequiredOrder = CANONICAL_ORDER.filter((item) =>
+    requiredIssueTypes.includes(item),
+  );
+  if (
+    new Set(requiredIssueTypes).size !== requiredIssueTypes.length ||
+    requiredIssueTypes.some(
+      (item, index) => item !== canonicalRequiredOrder[index],
+    )
+  ) {
+    throw new Error("필수 검증 유형이 표준 순서와 일치하지 않습니다.");
+  }
+  const activeReport = parseValidationReport(
+    raw.active_report,
+    "활성 모델 검증",
+  );
+  const candidateReport = parseValidationReport(
+    raw.candidate_report,
+    "후보 모델 검증",
+  );
+  const validationSetSha256 = requireSha256(
+    raw.validation_set_sha256,
+    "승격 검증 세트",
+  );
+  const minimumSamplesPerType = requirePositiveCount(
+    raw.minimum_samples_per_type,
+    "유형별 최소 표본",
+    Number.MAX_SAFE_INTEGER,
+  );
+  const maximumRecallDrop = requireBoundedNumber(
+    raw.maximum_recall_drop,
+    "최대 재현율 하락",
+    Number.MIN_VALUE,
+    1,
+  );
+  const reasons = raw.reasons.map(parsePromotionReason);
+  if (
+    activeModelVersion === candidateModelVersion ||
+    activeReport.modelVersion !== activeModelVersion ||
+    candidateReport.modelVersion !== candidateModelVersion ||
+    activeReport.validationSetSha256 !== validationSetSha256 ||
+    candidateReport.validationSetSha256 !== validationSetSha256 ||
+    (raw.decision === "eligible" && reasons.length !== 0) ||
+    (raw.decision === "rejected" && reasons.length === 0)
+  ) {
+    throw new Error("모델 승격 검토 결정의 보고서와 사유가 일치하지 않습니다.");
+  }
+  const activeByType = new Map(
+    activeReport.perType.map((metric) => [metric.issueType, metric]),
+  );
+  const candidateByType = new Map(
+    candidateReport.perType.map((metric) => [metric.issueType, metric]),
+  );
+  const ratioIncreased = (
+    candidateNumerator: number,
+    candidateDenominator: number,
+    activeNumerator: number,
+    activeDenominator: number,
+  ) => {
+    if (candidateDenominator === 0) return false;
+    if (activeDenominator === 0) return candidateNumerator > 0;
+    return (
+      candidateNumerator * activeDenominator >
+      activeNumerator * candidateDenominator
+    );
+  };
+  const absoluteOrSampleRateIncreased = (
+    candidateCount: number,
+    candidateSampleCount: number,
+    activeCount: number,
+    activeSampleCount: number,
+  ) =>
+    candidateCount > activeCount ||
+    ratioIncreased(
+      candidateCount,
+      candidateSampleCount,
+      activeCount,
+      activeSampleCount,
+    );
+  const expectedReasonKeys: string[] = [];
+  for (const issueType of requiredIssueTypes) {
+    const active = activeByType.get(issueType);
+    const candidate = candidateByType.get(issueType);
+    if (!active || !candidate) {
+      throw new Error("승격 검토 보고서에 필수 유형이 없습니다.");
+    }
+    if (active.validationSampleCount < minimumSamplesPerType) {
+      expectedReasonKeys.push(
+        `insufficient_validation_samples:${issueType}`,
+      );
+    }
+    if (active.truthEventCount === 0) {
+      expectedReasonKeys.push(`missing_positive_truth:${issueType}`);
+    }
+    if (
+      active.truthEventCount > 0 &&
+      active.recall - candidate.recall >= maximumRecallDrop - 1e-15
+    ) {
+      expectedReasonKeys.push(
+        `recall_drop_at_or_above_limit:${issueType}`,
+      );
+    }
+    if (
+      absoluteOrSampleRateIncreased(
+        candidate.falsePositiveCount,
+        candidate.validationSampleCount,
+        active.falsePositiveCount,
+        active.validationSampleCount,
+      ) ||
+      ratioIncreased(
+        candidate.falsePositiveCount,
+        candidate.predictionEventCount,
+        active.falsePositiveCount,
+        active.predictionEventCount,
+      )
+    ) {
+      expectedReasonKeys.push(`false_positive_rate_increased:${issueType}`);
+    }
+    if (
+      absoluteOrSampleRateIncreased(
+        candidate.duplicatePredictionCount,
+        candidate.validationSampleCount,
+        active.duplicatePredictionCount,
+        active.validationSampleCount,
+      ) ||
+      ratioIncreased(
+        candidate.duplicatePredictionCount,
+        candidate.predictionEventCount,
+        active.duplicatePredictionCount,
+        active.predictionEventCount,
+      )
+    ) {
+      expectedReasonKeys.push(`duplicate_burden_increased:${issueType}`);
+    }
+  }
+  const receivedReasonKeys = reasons.map(
+    ({ code, issueType }) => `${code}:${issueType}`,
+  );
+  const expectedDecision =
+    expectedReasonKeys.length === 0 ? "eligible" : "rejected";
+  if (
+    raw.decision !== expectedDecision ||
+    receivedReasonKeys.length !== expectedReasonKeys.length ||
+    receivedReasonKeys.some(
+      (reasonKey, index) => reasonKey !== expectedReasonKeys[index],
+    )
+  ) {
+    throw new Error("모델 승격 검토 사유가 고정 안전 정책과 일치하지 않습니다.");
+  }
+  if (
+    expected?.projectId &&
+    projectId !== requireUuid(expected.projectId, "요청 프로젝트")
+  ) {
+    throw new Error("모델 승격 검토 응답이 다른 프로젝트에 속합니다.");
+  }
+  if (
+    expected?.activeModelVersion &&
+    activeModelVersion !==
+      requireIdentifier(expected.activeModelVersion, "요청 활성 모델")
+  ) {
+    throw new Error("모델 승격 응답의 활성 모델 버전이 요청과 다릅니다.");
+  }
+  if (
+    expected?.candidateModelVersion &&
+    candidateModelVersion !==
+      requireIdentifier(expected.candidateModelVersion, "요청 후보 모델")
+  ) {
+    throw new Error("모델 승격 응답의 후보 모델 버전이 요청과 다릅니다.");
+  }
+  return {
+    projectId,
+    decision: {
+      decision: raw.decision,
+      activeModelVersion,
+      candidateModelVersion,
+      validationSetSha256,
+      requiredIssueTypes,
+      minimumSamplesPerType,
+      maximumRecallDrop,
+      activeReport,
+      candidateReport,
+      reasons,
+      autoPromotionAllowed: false,
+      requiresUserReview: true,
+    },
+    stateChangesPerformed: false,
+    annotationsCreated: 0,
+    trainingMembersCreated: 0,
+    modelVersionsChanged: 0,
+    automaticPromotionPerformed: false,
+  };
+}

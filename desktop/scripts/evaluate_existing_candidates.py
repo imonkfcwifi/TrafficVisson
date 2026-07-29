@@ -1,7 +1,7 @@
 """Evaluate persisted candidate JPEGs with an opt-in local vision model pack.
 
 This is a developer/operator tool, not a labeling or model-promotion path.
-It reads completed TrafficVisson analysis records and their representative
+It reads completed TrafficSuperVision analysis records and their representative
 JPEGs, stages independent copies in a new evaluation directory, and invokes
 the same isolated ``LocalVisionInferenceService`` used by the bridge.
 
@@ -77,7 +77,7 @@ CLIP_DISCLAIMER_KO = (
 
 ONNX_DISCLAIMER_KO = (
     "이 결과는 사용자 검토를 위한 실험적 후보입니다. ONNX detector의 "
-    "model_score 값은 현재 TrafficVisson 한국 도로 고정 검증 세트에서 "
+    "model_score 값은 현재 TrafficSuperVision 한국 도로 고정 검증 세트에서 "
     "보정되지 않은 모델 출력 점수이며, 실제 결함 확률·정확도·확정 "
     "판정이 아닙니다. 표시 박스도 사용자가 확인하기 전에는 정답 영역이 "
     "아닙니다. 자동 라벨, 유지보수 사건 확정, 보고서 확정 입력, 모델 "
@@ -1106,7 +1106,7 @@ def _markdown_report(
         if isinstance(row.get("duration_ms"), int)
     )
     lines = [
-        "# TrafficVisson 기존 후보 로컬 모델 비파괴 평가",
+        "# TrafficSuperVision 기존 후보 로컬 모델 비파괴 평가",
         "",
         f"생성 시각(UTC): `{generated_at}`",
         "",
@@ -1524,17 +1524,17 @@ def _default_data_root() -> Path:
     local_app_data = os.environ.get("LOCALAPPDATA")
     if not local_app_data:
         raise EvaluationError("LOCALAPPDATA is unavailable")
-    return Path(local_app_data) / "TrafficVisson" / "bridge-data"
+    return Path(local_app_data) / "TrafficSuperVision" / "bridge-data"
 
 
 def _default_model_manifest() -> Path:
     program_data = os.environ.get("PROGRAMDATA", r"C:\ProgramData")
     return (
         Path(program_data)
-        / "TrafficVisson"
+        / "TrafficSuperVision"
         / "ModelPacks"
         / "trafficvisson-laion-clip-b32-road-baseline-0.1.0"
-        / "trafficvisson-model-pack.json"
+        / "trafficsupervision-model-pack.json"
     )
 
 

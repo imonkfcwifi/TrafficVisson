@@ -1,12 +1,12 @@
 """Install a pinned, evaluation-only pothole ONNX model pack.
 
 This helper deliberately does not activate the pack and does not edit an
-existing TrafficVisson analysis record.  It downloads one safelisted ONNX file
+existing TrafficSuperVision analysis record.  It downloads one safelisted ONNX file
 from an immutable Hugging Face revision, verifies the published digest, and
 creates a hash-inventoried model-pack directory for local review experiments.
 
 The upstream repository declares Apache-2.0 metadata but does not currently
-ship a standalone licence file.  TrafficVisson therefore marks redistribution
+ship a standalone licence file.  TrafficSuperVision therefore marks redistribution
 as disabled and keeps this pack out of release builds pending a separate legal
 and in-domain validation review.
 """
@@ -62,7 +62,7 @@ def _default_destination_root() -> Path:
     program_data = os.environ.get("PROGRAMDATA")
     if not program_data:
         raise RuntimeError("PROGRAMDATA is unavailable")
-    return Path(program_data) / "TrafficVisson" / "ModelPacks"
+    return Path(program_data) / "TrafficSuperVision" / "ModelPacks"
 
 
 def _source_notice() -> str:
@@ -75,7 +75,7 @@ def _source_notice() -> str:
 - Local compatibility transform: ONNX opset 22 to opset 21 with `onnx==1.19.1`
 - Derived model SHA-256: `{EXPECTED_OPSET21_SHA256}`
 - Repository metadata licence: `Apache-2.0`
-- Runtime used by TrafficVisson: ONNX Runtime (`MIT`)
+- Runtime used by TrafficSuperVision: ONNX Runtime (`MIT`)
 
 The upstream model card describes a one-class YOLOv8s pothole detector.  The
 repository metadata declares Apache-2.0, but the repository snapshot inspected
@@ -133,7 +133,7 @@ def _manifest(model_path: Path, notice_path: Path) -> dict[str, object]:
 
 
 def _verify_existing(target: Path) -> Path:
-    manifest = target / "trafficvisson-model-pack.json"
+    manifest = target / "trafficsupervision-model-pack.json"
     model = target / "model.onnx"
     notice = target / "MODEL-SOURCE.md"
     if not manifest.is_file() or not model.is_file() or not notice.is_file():
@@ -203,7 +203,7 @@ def install(destination_root: Path) -> Path:
             _source_notice(),
             encoding="utf-8",
         )
-        manifest_path = temporary / "trafficvisson-model-pack.json"
+        manifest_path = temporary / "trafficsupervision-model-pack.json"
         _write_json(manifest_path, _manifest(model_path, notice_path))
         temporary.replace(target)
         return target / manifest_path.name

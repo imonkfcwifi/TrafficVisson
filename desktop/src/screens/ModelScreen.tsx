@@ -28,7 +28,7 @@ import {
 import { getActiveProjectId, useProjectCatalog } from "../projectCatalog";
 
 async function readModelRegistry(projectId: string) {
-  const api = window.trafficVisson;
+  const api = window.trafficSuperVision;
   if (!api?.labels || !api.datasets) {
     throw new Error("모델 저장소는 설치형 Electron 앱에서 연결됩니다.");
   }
@@ -44,7 +44,7 @@ async function readModelRegistry(projectId: string) {
 }
 
 async function readSourceCandidates() {
-  const api = window.trafficVisson;
+  const api = window.trafficSuperVision;
   if (!api?.sources) {
     throw new Error("외부 소스 카탈로그는 설치형 Electron 앱에서 연결됩니다.");
   }
@@ -228,7 +228,7 @@ export function ModelScreen() {
           : "현재 프로젝트의 라벨로 불변 데이터셋 버전을 만듭니다.";
 
   async function createDatasetSnapshot() {
-    const api = window.trafficVisson;
+    const api = window.trafficSuperVision;
     if (!projectId || !stats || stats.currentAnswerCount <= 0 || !api) return;
     setCreating(true);
     setError(null);

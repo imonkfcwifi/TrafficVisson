@@ -1,6 +1,6 @@
 """Install a pinned, evaluation-only Grounding DINO Tiny model pack.
 
-The pack is intentionally excluded from the TrafficVisson installer and active
+The pack is intentionally excluded from the TrafficSuperVision installer and active
 model registry.  It exists only for local, review-only research evaluations.
 No downloaded file is executed and Transformers is later required to load the
 snapshot with ``local_files_only=True`` and ``trust_remote_code=False``.
@@ -285,7 +285,7 @@ def _download_file(
     request = urllib.request.Request(
         url,
         method="GET",
-        headers={"User-Agent": "TrafficVisson-evaluation-pack/0.1.0"},
+        headers={"User-Agent": "TrafficSuperVision-evaluation-pack/0.1.0"},
     )
     total = 0
     try:
@@ -394,9 +394,9 @@ def install_pack(
     )
     if not base.is_absolute():
         raise PackInstallError("PROGRAMDATA must be absolute")
-    pack_parent = base / "TrafficVisson" / "ModelPacks"
+    pack_parent = base / "TrafficSuperVision" / "ModelPacks"
     pack_parent.mkdir(parents=True, exist_ok=True)
-    pack_parent = _safe_directory(pack_parent, "TrafficVisson model-pack directory")
+    pack_parent = _safe_directory(pack_parent, "TrafficSuperVision model-pack directory")
     target = pack_parent / f"{PACK_ID}-{PACK_VERSION}"
     if target.exists() or target.is_symlink():
         target = _safe_directory(target, "Grounding DINO evaluation pack")
@@ -445,7 +445,7 @@ def install_pack(
 - Declared model-card license: Apache-2.0
 - Snapshot selection: Safetensors weights and required processor/tokenizer files only
 - `pytorch_model.bin`: intentionally excluded
-- TrafficVisson installer redistribution: disabled
+- TrafficSuperVision installer redistribution: disabled
 - Use: local review-only proposal evaluation
 
 The downloaded snapshot is loaded offline with `local_files_only=True`,
@@ -490,7 +490,7 @@ automatic labels, incidents, report facts, model promotions, or sidecars.
                 "redistribution_enabled": False,
                 "notice": (
                     "The official Hugging Face model card declares Apache-2.0. "
-                    "TrafficVisson installer redistribution remains disabled "
+                    "TrafficSuperVision installer redistribution remains disabled "
                     "for this research pack."
                 ),
             },
@@ -547,7 +547,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Install the pinned Grounding DINO Tiny snapshot as a "
-            "TrafficVisson evaluation-only local pack."
+            "TrafficSuperVision evaluation-only local pack."
         )
     )
     parser.add_argument(

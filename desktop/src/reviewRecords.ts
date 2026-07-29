@@ -11,6 +11,8 @@ export type ReviewRecord = {
   selectedType: string;
   finalGeometry?: { x: number; y: number; width: number; height: number };
   severity?: string;
+  severitySource?: "user";
+  reviewMode?: "precision" | "quick";
   action?: string;
   ocrText?: string;
   reviewedAt: string;
@@ -28,9 +30,8 @@ const reviewCache = new Map<
 >();
 
 function severityFromApi(value?: string) {
-  if (value === "urgent") return "긴급";
-  if (value === "major") return "심각";
-  if (value === "minor") return "경미";
+  if (value === "urgent" || value === "major") return "높음";
+  if (value === "minor") return "낮음";
   return "보통";
 }
 

@@ -152,7 +152,7 @@ test("GPX selections reject unsupported and oversized files", async (context) =>
 
 test("export directory selections expose only an opaque handle", async (context) => {
   const fixtureRoot = await mkdtemp(
-    path.join(os.tmpdir(), "trafficvisson-export-parent-"),
+    path.join(os.tmpdir(), "trafficsupervision-export-parent-"),
   );
   context.after(() => rm(fixtureRoot, { recursive: true, force: true }));
   const exportRoot = path.join(fixtureRoot, "내보내기");
@@ -165,7 +165,7 @@ test("export directory selections expose only an opaque handle", async (context)
 
   assert.equal(selection.selectionId, SELECTION_ID);
   assert.equal(selection.directory.name, "내보내기");
-  assert.doesNotMatch(JSON.stringify(selection), /trafficvisson-export-parent-/);
+  assert.doesNotMatch(JSON.stringify(selection), /trafficsupervision-export-parent-/);
   assert.equal(registry.resolvePath(SELECTION_ID), await realPath(exportRoot));
   assert.equal(registry.consumePath(SELECTION_ID), await realPath(exportRoot));
   assert.throws(

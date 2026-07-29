@@ -1,10 +1,10 @@
-# [역사 스냅샷] TrafficVisson Desktop alpha.6 디자인·동작 QA
+# [역사 스냅샷] TrafficSuperVision Desktop alpha.6 디자인·동작 QA
 
 > **주의 — 이 문서는 2026-07-28 alpha.6 검증 결과를 보존한 역사 자료이며 현재 구현 기준으로 사용하지 않는다.**  
-> **현재 제품·구현 단일 기준:** 루트 [`TRAFFIC_VISSON_MASTER_PLAN.md`](../TRAFFIC_VISSON_MASTER_PLAN.md) v2.10  
+> **현재 제품·구현 단일 기준:** 루트 [`TRAFFIC_SUPER_VISION_MASTER_PLAN.md`](../TRAFFIC_SUPER_VISION_MASTER_PLAN.md) v2.13
 > **현재 디자인·동작 QA:** 루트 [`design-qa.md`](../design-qa.md)  
-> **현재 UI 감사 포인터:** [`final-suit-p2-audit.md`](../qa/aaa-continuation-20260729/final-suit-p2-audit.md)는 alpha.10 UI를 P0 0건·P1 0건·P2 0건으로 판정했다. History 청크 약 969.24kB의 저사양 PC 첫 진입 성능은 P3로 남아 있으며, 이 현재 판정은 아래 alpha.6 역사 결과나 제품 전체·현장 수용 완료를 다시 쓰지 않는다.  
-> SQLite v4 Incident 영속화, `trafficvisson-artifact-export-v3`, 승인 사건 JPEG·MP4 ZIP과 2026-07-29 회귀 결과는 위 두 현재 문서에서 확인한다.
+> **현재 UI 감사 포인터:** 루트 `design-qa.md` §10과 [`qa/visual-reaudit-20260729`](../qa/visual-reaudit-20260729/)는 post-fix Home·Labeling·Report를 P0 0건·P1 0건·P2 0건으로 판정한다. 1280×720 live pixel·정밀 심각도·실제 OCR 상태는 P3 증거 공백이며 제품 전체 완료 판정이 아니다.
+> **현재 성능·회귀:** `HistoryScreen` 초기 22.28kB(gzip 7.60kB), 별도 `HistoryMap` 947.96kB(gzip 249.38kB) P3 경계. renderer 150/150, Electron 80/80, Python bridge 614 passed·2 skipped, typecheck/build passed. 아래 alpha.6 본문은 역사 기록으로 보존한다.
 
 검증일: 2026-07-28  
 검증 범위: 2026-07-28 당시 소스와 alpha.6 `win-unpacked` Electron의 1280×720 원스크린 UI, 자연어 AI 선라벨 명령 compile/run, SQLite v3 라벨·DatasetVersion, 실제 bridge 모델 관리 화면, 외부 source registry 계약, 자동 회귀·패키징 게이트  
@@ -38,7 +38,7 @@
 - `05-packaged-auto-label-compiled-1280x720.jpg`: alpha.6 `win-unpacked` 앱에서 같은 자연어 명령을 고정 recipe로 컴파일한 상태
 - `06-packaged-model-registry-1280x720.jpg`: alpha.6 `win-unpacked` 앱의 실제 bridge 모델 관리 화면
 
-참고 이미지의 Pretendard 타이포그래피, 차분한 청회색 작업면, 얕은 유리 질감, 제한된 청색 강조, 검은 주요 CTA, 둥근 패널 계층을 유지했다. 중첩 웹페이지형 외곽 프레임이나 브라우저 메뉴는 사용하지 않는다. 긴 가변 데이터는 해당 패널 안에서만 제한적으로 스크롤하며 화면 전체 문서 스크롤에 의존하지 않는다.
+참고 이미지의 타이포그래피 위계를 SUIT Variable로 통일하고, 차분한 청회색 작업면, 얕은 유리 질감, 제한된 청색 강조, 검은 주요 CTA, 둥근 패널 계층을 유지했다. 중첩 웹페이지형 외곽 프레임이나 브라우저 메뉴는 사용하지 않는다. 긴 가변 데이터는 해당 패널 안에서만 제한적으로 스크롤하며 화면 전체 문서 스크롤에 의존하지 않는다.
 
 ## 자연어 AI 선라벨 명령
 
@@ -154,13 +154,13 @@ GPU 학습 실행, 모델 성능 비교, 후보 모델 승격·거부·롤백은
 - 클린 PC 설치·업그레이드·제거
 - Authenticode, 라이선스 고지, SBOM, 상용 배포 승인
 
-현재 PC의 한/글 COM 사전 점검은 `HWPFrame.HwpObject` 미등록 상태다. 코드 경로와 registry-only preflight를 실문서 HWP/HWPX 종단 통과로 해석하지 않는다.
+alpha.6 당시 개발 PC의 한/글 COM 사전 점검은 `HWPFrame.HwpObject` 미등록 상태였다. 현재 PC에는 COM이 등록되어 있지만, 어느 경우에도 registry-only preflight를 실문서 HWP/HWPX 종단 통과로 해석하지 않는다.
 
 ## 패키지 경계
 
 이번 alpha.6 QA는 2026-07-28 당시 소스, 새 NSIS 생성, 당시 release manifest·checksum, frozen bridge, 실제 `win-unpacked` Electron 실행까지 검증했다. 자연어 명령 compile과 ModelScreen을 패키지 앱에서 1280×720으로 다시 확인했으며 확정 라벨이나 DatasetVersion은 만들지 않았다.
 
-- 설치본: `desktop/release/TrafficVisson-Setup-0.1.0-alpha.6-x64.exe`
+- 설치본: `desktop/release/TrafficSuperVision-Setup-0.1.0-alpha.6-x64.exe`
 - 크기: `329,614,000 bytes`
 - SHA-256: `4af550503b430755865451ccf974d73a091d3823b8fcb3d2f5d82a8e4af4f3c2`
 - 당시 검증 근거: 이 문서에 보존한 설치본명·크기·SHA-256과 날짜가 고정된 `qa/auto-label-alpha6-20260728` 실기동 캡처

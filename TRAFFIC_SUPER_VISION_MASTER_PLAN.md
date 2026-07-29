@@ -1,12 +1,81 @@
-# TrafficVisson 통합 로컬 AI 도로점검 플랫폼 마스터 계획서
+# TrafficSuperVision 통합 로컬 AI 도로점검 플랫폼 마스터 계획서
 
 > 문서 상태: 목표 제품 기준·구현 로드맵  
-> 문서 버전: 2.10  
+> 문서 버전: 2.13
 > 현재 구현 기준일: 2026-07-29  
 > 상태 표기: 구현됨 / 부분 구현 / 미구현 / 목표  
 > 완료 표시가 없는 현재형 설명은 최종 제품의 목표 동작을 의미한다.  
 > 대상 플랫폼: Windows 설치형 Electron 애플리케이션  
 > 핵심 원칙: 로컬 영상 처리, 사용자 확인형 라벨링, 프로젝트별 모델, 증거 중심 GPS 재생, 한/글 COM 보고서 작성
+
+## North Star — 절대 제품 수용 기준
+
+TrafficSuperVision은 기능 모듈을 모아 둔 웹 화면이 아니라 **Windows Electron 단일 프로그램**이다. 사용자는 프로젝트를 최초 한 번 설정한 뒤 주행 영상 하나만 넣는다. 프로그램은 다른 화면을 돌아다니며 단계별 실행 버튼을 누르게 하지 않고, 입력 검증부터 질문 큐 준비까지 하나의 영속 `PipelineJob`으로 자동 실행한다. 사용자가 질문 검토를 끝내면 같은 provenance 아래의 Incident, 지도·타임라인, raw·확정 CSV, 증거 패키지와 HWPX `DocumentEditPlan` 미리보기가 자동 갱신되어야 한다.
+
+UI는 일반 작업에서 **하나의 기본 Windows 창**을 사용한다. 홈·영상 가져오기·질문 라벨링·분석·사건 검토·모델 관리·GPS 히스토리·보고서·내보내기는 그 창 안에서 전환되는 제품 화면이며, 별도 웹 SaaS나 브라우저 화면을 창 안에 다시 감싸지 않는다. 프로젝트 최초 설정만 영상 가져오기 화면 위의 명시적인 일회성 모달로 열리며, 설정 모달을 제품 본체처럼 보이게 만들어서는 안 된다.
+
+여기서 “하나의 창”은 “페이지 하나”나 “설정 화면 하나”를 뜻하지 않는다. 1280×720에서도 현재 화면 이름, 이동 가능한 아홉 화면, 활성 화면이 제품 셸에서 즉시 읽혀야 하며, 사용자가 홈을 설정창으로 오해하거나 다른 기능이 별도 프로그램에 있다고 추측하게 만들면 단일 창 UX 수용 실패다.
+
+다음 네 동작만 사용자 승인으로 남긴다.
+
+1. 영상 권리 확인과 분석 시작
+2. 빠른·정밀 질문 답변
+3. 필요할 때 프로젝트 모델 학습 시작
+4. 한/글 문서에 HWPX 편집 계획 실제 적용
+
+분석 화면 이동, 2fps 인덱스 실행, 5~10fps 재탐색, DINO·OCR·SAM2 실행, 사건 병합, 유사 사례 검색, CSV 생성 또는 보고서 초안 생성을 단계별 버튼으로 요구하면 해당 기능의 존재 여부와 무관하게 제품 UX 수용 실패다.
+
+### 최초 1회 프로젝트 설정
+
+- 판정 프로필: `빠른 판정` 또는 `정밀 판정`
+- 질문 정책: 학습 보조·전수 검토·빠른 검토
+- 기본 3·4분기 기반 HWPX 양식
+- 검지·한국어 OCR·SAM2 모델팩과 버전
+- Codex 또는 Claude 보고서·구조화 판단 Provider
+- 결과 저장 위치
+
+### 영상 1회 입력 후 자동 파이프라인
+
+`권리 확인·분석 시작`
+→ magic/MIME/SHA-256/메타데이터 검사
+→ 영상 내 시간대별 GPS 탐색과 GPX preflight
+→ 기본 2fps 밀집 프레임 인덱스
+→ 후보 구간 5~10fps 재분석
+→ Grounding DINO·도로 전용 모델·한국어 OCR
+→ SAM2 마스크·전후 프레임 추적
+→ 시간·IoU·카메라 이동·GPS 기반 동일 사건 병합
+→ 3·4분기 승인 사례 DB의 유사 사진·점검 문구 3~5건 검색
+→ 비전 LLM의 유형·유지보수 필요·조치·심각도 추천 JSON
+→ 대표 이미지·마스크·전후 프레임·클립·GPS·유사 사례를 갖춘 질문 큐
+→ 사용자 검토 후 Annotation·Incident 투영
+→ 지도·영상·타임라인, raw·확정 CSV와 증거 패키지 자동 갱신
+→ sample 양식의 정확한 셀·네모·사진·점검 의견 위치를 대상으로 한 `DocumentEditPlan`과 HWPX 미리보기 자동 준비
+→ 사용자 적용 승인 후 한/글 COM 부분 편집·재열기·48쪽 전체 렌더 검증·수락/거절/롤백
+
+이 전 과정은 project-scoped `PipelineJob`/DAG 한 건이 연결한다. 각 stage의 상태, 진행률, 입력·출력 해시, 모델·설정 버전, 재시도 횟수, 취소, 오류, 재개 지점과 provenance를 영속 저장한다. 앱이나 PC가 재시작되면 정확한 단계에서 재개하고, 같은 원본 SHA-256과 같은 프로젝트 설정 버전은 멱등 처리한다. `모델 미설치`, `분석 실패`, `검지 0건`, `GPS/GPX 필요`, `부분 성공`, `완료`를 서로 다른 상태로 유지하며 부분 성공을 전체 성공으로 표시하지 않는다.
+
+### 라벨링 절대 기준
+
+- 빠른 판정은 `Y/N/U/E` 한 번으로 저장하고 다음 카드로 이동하며 심각도는 `미평가`로 보존한다.
+- 정밀 판정은 `Y` 뒤 같은 카드의 `1/2/3`으로 낮음·보통·높음을 한 번 선택하면 저장하고 다음 카드로 이동한다.
+- 심각도 선택에 목록이나 드롭다운을 사용하지 않는다.
+- AI·YOLO 심각도는 추천값이고 사용자 최종값과 별도 필드·provenance로 저장한다.
+- 낙하물과 긴급 제안은 모든 모드에서 강제 질문이다.
+- 영역 수정은 임시 박스 이동이 아니라 `한 번 클릭 → SAM2 마스크 재생성·추적 → 사용자 재확인`이다.
+- 사용자 승인 전 확정 Annotation·Incident·학습 데이터·보고서 사건은 모두 0건이어야 한다.
+
+### 정직한 예외와 역할 경계
+
+- 영상에 시간대별 GPS가 없으면 preflight에서 GPX 추가를 요청하되, GPS 없이도 검지·질문·CSV·보고서는 계속한다. 촬영 시작 좌표 하나로 이동 경로를 만들지 않는다.
+- Grounding DINO는 객체 박스 후보, SAM2는 마스크·추적, 전용 모델은 포트홀·차선, LLM은 의미·문장 제안을 담당한다. 어느 하나도 단독으로 확정 정답을 생성하지 않는다.
+- Codex·Claude CLI는 보고서와 구조화 판단 Provider이며 수천 프레임 대량 검지 엔진으로 사용하지 않는다.
+- 3·4분기 sample HWPX/PDF는 단순 참고가 아니라 실제 보고서 양식이자 사용자 확인 전 `weak_unconfirmed` 사례 DB다. 사진·캡션·점검 의견·분기·노선·페이지·표/행/열·사진 슬롯·네모 위치와 문서·사진 해시를 보존하고, 사용자 승인 뒤에만 `approved_reference`로 승격한다.
+
+현재 개발 PC 기준은 Codex CLI `0.145.0`, Claude Code `2.1.201`, `HWPFrame.HwpObject` COM 등록, NVIDIA RTX A2000 12GB·driver `572.16`, FFmpeg/FFprobe `4.4.1`이다. CLI 로그인 ready 상태는 사용자가 확인했으며 프로그램도 실행 시마다 공식 CLI의 비밀정보 비접근 상태 조회로 재검증한다. FFmpeg는 4.4.1 호환 경로를 유지한다.
+
+### 최종 E2E 수용 시험
+
+실제 NAS 영상 한 건을 새 프로젝트에 넣는 시점부터 자동 질문 큐 생성, 키보드 검토, 승인 Incident, 시간대별 GPS가 있을 때의 경로 재생, raw·확정 CSV와 증거 패키지, sample HWPX 편집 미리보기의 네모·사진·점검 의견 위치, 한/글 COM 적용과 48쪽 검증까지 **하나의 PipelineJob과 동일 provenance**로 통과해야 한다. 이 시험이 끝나기 전에는 “영상만 넣으면 알아서 된다”거나 제품 전체가 완료되었다고 주장하지 않는다.
 
 ## 0. 현재 구현 현황
 
@@ -21,19 +90,34 @@
 | 프로젝트 저장소 | 부분 구현 | SQLite v4에 기존 `Project`, `ImportInspection`, `Import`, `MediaAsset`, `Trip`, 완료 `AnalysisJob`, 정규 라벨·DatasetVersion과 영구 `incidents` 테이블을 함께 유지한다. JSONL 답변 감사 기록을 원본 권위로 삼아 최신 `yes`·`edit` 답변을 `incident_id=question_id`인 active Incident로 결정적으로 upsert하고, `no`·`unsure` 최신 revision은 기존 사건을 감사 정보와 함께 superseded 상태로 전환한다. 프로젝트·분석 작업 격리 API와 Review·History 재조회까지 연결했으며, 기존 JSON·SHA-256·증거 파일과 51개 완료 작업은 재작성하지 않았다. 실제 사용자 승인 Incident는 현재 0건이다. 신규 queued/running 작업, 정규 `Detection`, 모델·보고서 카탈로그는 아직 영속화하지 않았다 |
 | 실제 영상 장면 후보 추출 | 구현됨 | 공유 폴더 51개, 112,976,270,871 bytes, 56,020.015초(15.561시간)가 카탈로그와 파일명·크기 기준으로 정확히 일치한다. 장면·선명도 후보 349건과 JPEG/H.264 근거 698개를 저장했다. 영상당 최대 8프레임 제한 때문에 후보 간 평균은 160.52초이며, 이는 학습·검토용 희소 표본이지 도로 결함의 dense recall 결과가 아니다 |
 | 도로 결함·삭초·낙하물·OCR 모델 | 부분 구현 | 모델팩 스키마, 격리 worker, CLIP·ONNX 비파괴 평가, resumable dense 실행기와 review-only sidecar에 더해 alpha.9에서 고정 해시의 오프라인 ONNX Grounding DINO Tiny Q4 실행기를 번들 대상으로 구현했다. 소스 앱 경로에서 실제 완료 작업의 후보 프레임 7개를 CPU로 약 23.844초에 평가해 사용자 검토용 제안 7건을 만들었지만, 표지판·식생 객체를 찾는 것과 “식생이 표지판을 가려 삭초가 필요하다”는 관계·유지보수 판정을 신뢰성 있게 확정하는 것은 다르다. 별도 Vinoth RDD YOLOv8s intake는 349개 대표 JPEG에서 10프레임·11박스를 제안했으나 사람 확인 결과 확정 양성 0프레임, 판단 어려움 1프레임, 오탐 9프레임·10박스였고 출처·권리도 확정되지 않아 활성화·설치본 번들·재배포를 거부했다. 기존 희소 JPEG 평가와 Grounding DINO·EasyOCR 제한평가도 확정 양성 성능을 입증하지 못했다. 모든 결과는 모델 점수의 review-only 후보이며 자동 라벨·확정 사건·모델 승격으로 사용하지 않는다 |
-| 질문형 라벨링 | 부분 구현 | 실제 후보 이미지·클립, 예/아니오/보류/영역 수정, 프로젝트·작업 범위 답변 저장과 감사 해시를 구현했다. 자연어 명령은 지원 유형과 버전 고정 프롬프트 레시피로 컴파일되고 원문 대신 허용된 구조화 프롬프트와 해시만 고정 실행기에 전달된다. alpha.9의 `명령 실행`은 무결성이 검증된 번들 ONNX Grounding DINO 실행기로 현재 완료 작업의 프레임을 실제 추론하고, 검증된 결과를 질문 sidecar에 review-only 제안으로 가져온다. 동일 recipe의 유효 결과가 있으면 캐시를 재사용하고 실행기 사용 불가 시 이를 명시한다. 응답의 `proposal_origin`과 `proposal_generation_status`로 새 로컬 추론·검증된 캐시·사용 불가를 구분한다. 어떤 경로도 사용자 응답 없이 라벨·Incident·학습 데이터를 만들지 않으며 point-prompt 자동 분할은 미구현이다 |
+| 질문형 라벨링 | 부분 구현 | 실제 후보 이미지·클립과 빠른/정밀 판정, 키보드·클릭 자동 진행, 정밀 판정의 사용자 심각도 확정을 구현했다. 자연어 명령과 번들 Grounding DINO 결과는 review-only 제안이며 사용자 응답 없이 라벨·Incident·학습 데이터를 만들지 않는다. `PipelineJob` review gate는 질문 검토 완료 전 확정 투영을 차단한다. point-prompt SAM2 service·IPC·UI는 구현됐지만 현재 runtime 모델을 사용할 수 없고 실제 마스크·추적 종단은 미완료다 |
 | 프로젝트별 데이터셋·모델 | 부분 구현 | SQLite v4의 승인·음성·보류·제외 라벨 통계와 불변 `DatasetVersion` 생성·목록·해시 재사용을 구현했다. 같은 `analysis_job_id`의 표본은 train/validation으로 갈라지지 않는다. ModelScreen은 실제 bridge 통계를 읽고 현재 답변이 1건 이상일 때만 `userConfirmed=true`로 스냅샷을 만들며, 실제 답변 0건 상태에서는 스냅샷과 학습 버튼이 모두 비활성이다. GPU 학습, 유형별 고정 검증 게이트, 성능 비교, 승격·롤백은 미구현 |
-| 외부 모델·라벨 데이터 출처 | 부분 구현 | 읽기 전용 `/source-candidates`와 고정 `ProgramData\TrafficVisson` 증거 probe를 유지한다. 이 카탈로그 경로는 임의 탐색·다운로드·가중치 실행·라벨 생성을 하지 않는다. 별도로 alpha.9 번들 실행기는 Apache-2.0인 `onnx-community/grounding-dino-tiny-ONNX` revision `11778337bb87ff84af72a64928c86616d86c495e`의 `onnx/model_q4.onnx`만 사용하며, 모델 SHA-256·manifest·라이선스·고지 파일을 배포 무결성 체인에 포함한다. 이 번들은 검토 후보 생성만 허용하고 프로젝트 학습 데이터에 자동 혼합하지 않는다 |
+| 외부 모델·라벨 데이터 출처 | 부분 구현 | 읽기 전용 `/source-candidates`와 고정 `ProgramData\TrafficSuperVision` 증거 probe를 유지한다. 이 카탈로그 경로는 임의 탐색·다운로드·가중치 실행·라벨 생성을 하지 않는다. 별도로 alpha.9 번들 실행기는 Apache-2.0인 `onnx-community/grounding-dino-tiny-ONNX` revision `11778337bb87ff84af72a64928c86616d86c495e`의 `onnx/model_q4.onnx`만 사용하며, 모델 SHA-256·manifest·라이선스·고지 파일을 배포 무결성 체인에 포함한다. 이 번들은 검토 후보 생성만 허용하고 프로젝트 학습 데이터에 자동 혼합하지 않는다 |
 | GPS 히스토리 | 부분 구현 | 완료 분석 작업을 Trip으로 사용해 `.gpx` 원본을 불투명 파일 선택으로 연결·교체하고, 시간대가 있는 최대 50,000개 지점을 원본 SHA-256·정규 레코드 해시·revision과 함께 프로젝트별로 저장한다. 영상 오프셋 ±24시간, 10초 초과 gap, 최대 8,000개 표시용 샘플을 검증하며 MapLibre에서 실제 경로·진행선·현재 위치·후보 위치와 영상·타임라인·사건 선택을 같은 재생 시각으로 동기화한다. gap과 GPX 시간 범위 밖에서는 좌표를 만들지 않는다. 현재 사용자 영상에는 시간대별 GPX가 없어 실제 운영 주행 재생 증거는 아직 없고, 방향 마커·도로명/주소 검증도 남아 있다 |
 | CSV·구조화 내보내기 | 구현됨 | `trafficvisson-artifact-export-v3`로 7개 CSV, `report_payload.json`, `manifest.json`과 승인 사건의 실제 근거 미디어를 검증 ZIP으로 생성한다. 정확히 선택한 분석 작업의 active·approved Incident만 대상으로 `evidence/{incident_id}/representative.jpg`와 `evidence/{incident_id}/preview.mp4`를 포함하고, 전체 원본 영상은 제외한다. GPX가 연결된 작업은 renderer 샘플과 별개로 최대 50,000개 전체 지점을 `route_points.csv`에 보존하고 manifest에 track/source/record SHA-256, offset, revision, gap·영상 범위 통계를 기록한다. GPX 미연결은 `not_attached`로 명시한다. 선택 작업 밖·비활성·미승인 후보는 확정 출력과 증거 패키지에 포함하지 않는다 |
 | 증거 미디어·비식별화 공유본 | 부분 구현 | 내부 검토용 승인 Incident JPEG·MP4의 ZIP 포함과 파일별 magic·크기·SHA-256 검증을 구현했다. 얼굴·번호판 자동 흐림과 공유용 비식별화 파생본 생성은 아직 연결되지 않았다 |
 | Codex·Claude Provider | 부분 구현 | 공식 CLI 상태·로그인 흐름·제한 데이터 보고서 생성·JSON 스키마 검사와 로컬 모델 비활성 슬롯 구현. 연결 해제·독립 사용량 API는 미구현 |
-| HWP/HWPX COM | 부분 구현 | COM 점검, 파일 선택, HWPML 요약, 텍스트·셀 편집 미리보기/적용, 별도 저장·재열기·해시·세션 롤백 코드 경로를 구현했다. 현재 PC는 `HWPFrame.HwpObject` 미등록으로 실문서 COM 종단을 실행하지 못했다. 이미지·지도·전 페이지 레이아웃 검증·영구 복구 저널은 미구현 |
-| Windows 설치본 | 부분 구현 | 현재 `0.1.0-alpha.10` NSIS는 frozen bridge, FFmpeg·FFprobe, 고정 실행기와 227,229,745-byte Q4 ONNX 모델, tokenizer·설정·Apache-2.0 라이선스·고지를 포함한다. 최종 재생성 설치본은 491,689,854 bytes, SHA-256 `b0b0a79f952fd614f8c23a449073bfeea108af82e164c5a59f9c1d84d408f945`다. TypeScript, Vite production build, 546 passed·2 skipped 전체 회귀, 패키징과 frozen bridge 스모크를 통과했고 SUIT Variable 2.0.5 전체 face가 번들되어 Vite가 `SUIT-Variable` WOFF2를 생성했다. final-suit-p2 UI 감사도 P0·P1·P2 0건으로 통과했다. 다만 `NotSigned`, `development_only_not_distribution_ready`이며 History 청크 약 969.24kB의 P3 성능 경계와 클린 PC 설치·업그레이드·제거 검증은 남아 있다 |
+| HWP/HWPX COM | 부분 구현 | COM 점검, 파일 선택, HWPML 요약, 텍스트·셀 편집 미리보기/적용, 별도 저장·재열기·해시·세션 롤백 코드 경로를 구현했다. 2026-07-29 읽기 전용 재점검에서 `HWPFrame.HwpObject`와 `.1` ProgID가 동일 CLSID로 등록된 것을 확인했다. 등록 여부와 실문서 편집 성공은 다르므로 sample 원본 보존, 작업본 적용, 재열기와 48쪽 전체 렌더 종단은 아직 미검증으로 유지한다 |
+| Windows 설치본 | 부분 구현 | alpha.10 NSIS의 frozen bridge·FFmpeg·Q4 ONNX 모델팩과 서명 전 배포 경계는 역사 패키지 증거로 보존한다. 현재 source gate는 renderer 150/150, Electron 80/80, bridge 614 passed·2 skipped, typecheck/build passed이며 post-fix UI 감사도 P0·P1·P2 0건이다. `HistoryScreen` 초기 청크는 22.28kB(gzip 7.60kB)로 분리됐다. 다만 `NotSigned`, `development_only_not_distribution_ready`이며 별도 `HistoryMap` 947.96kB(gzip 249.38kB)의 첫 지도 진입 성능과 클린 PC 설치·업그레이드·제거 검증은 남아 있다 |
+
+### 0.1 v2.13 실제 NAS PipelineJob 현재 증거
+
+- 프로젝트: `11111111-1111-4111-8111-111111111111`
+- `PipelineJob`: `98282642-e5bd-42a2-98b2-04c8c2c81a6d`
+- 분석 작업: `7571e9f1-09ff-4236-aeb7-4946fca4ac0a`
+- 원본: `20250905_095953.mp4`
+- 원본 SHA-256: `020ac3d642e1b02ad1d3834a5fd98b6e24ad38de00b74262bce93e4280eb16a4`
+- 현재 상태: `awaiting_review` / `question_queue`, 92%, 질문 1건
+- GPS 경계: 시간대별 GPS와 연결된 GPX가 모두 없으므로 경로·사건 좌표를 만들지 않는다.
+- 승인 경계: 사용자 답변 0건, 확정 `Annotation` 0건, 확정 `Incident` 0건이다.
+
+`PipelineJob`은 모든 durable stage checkpoint를 검사해 질문 검토 완료 전에는 답변 감사 원장만 보존하고 `Annotation`·`Incident`를 투영하지 않는다. 검토 완료 뒤에도 완료된 원본·질문 후보 provenance를 다시 검증한 **정확히 같은 analysis**만 확정 투영하며, 그때 해당 analysis의 CSV와 증거 패키지를 자동 생성한다. 다른 작업·미승인 후보·불완전 stage를 부분 성공으로 승격하지 않는다.
+
+SAM2 point refinement의 서비스·IPC·라벨링 UI 경로는 구현되어 있다. 그러나 현재 런타임 모델은 사용할 수 없고 실제 영상에서 `한 번 클릭 → 마스크 재생성·추적 → 재확인` 종단은 아직 통과하지 않았으므로 자동 분할 완료로 표시하지 않는다.
 
 현재 확보된 영상에는 시간대별 GPS 트랙이 없다. 유효한 ISO 6709 좌표는 `촬영 시작 위치`로만 사용하며 후보 위치나 이동 경로로 보간하지 않는다. GPX 입력·오프셋·경로 재생 기능은 구현됐지만 실제 경로는 사용자가 시간대가 있는 GPX를 연결한 작업에서만 활성화한다.
 
-### 0.1 2026-07-28 alpha.6 실제 데이터·Windows 패키징 역사 기록
+### 0.2 2026-07-28 alpha.6 실제 데이터·Windows 패키징 역사 기록
 
 - 실제 공유 폴더 영상과 카탈로그: 파일명·크기 기준 51개 중 51개 정확히 일치, 누락 0, 초과 0
 - 총 입력 크기·재생시간: 112,976,270,871 bytes, 56,020.015초(15.561시간)
@@ -42,7 +126,7 @@
 - 위치 메타데이터: 유효한 촬영 시작 좌표 25건, 영점 좌표 14건, 좌표 없음 12건
 - SQLite v3 migration: v2의 `projects` 1, `media_assets` 51, `trips` 51, 완료 `analysis_jobs` 51, 후보 합계 349, 증거 합계 698을 보존하고 정규 라벨·DatasetVersion 테이블과 불변 trigger를 추가했다. 실제 사용자 답변·annotation·DatasetVersion은 0건이다
 - GPS 카탈로그 상태: `capture_start_only` 25, `missing` 26. 영점 좌표는 위치로 사용하지 않음
-- v1 카탈로그 백업: `%LOCALAPPDATA%\TrafficVisson\bridge-data\catalog.pre-v2-20260728.sqlite3`
+- v1 카탈로그 백업: `%LOCALAPPDATA%\TrafficSuperVision\bridge-data\catalog.pre-v2-20260728.sqlite3`
 - 선택 영상 내보내기 회귀: `20250916_153726.mp4`의 선택 작업에서 raw detection 7행, 그중 실험 sidecar 제안 5행, 질문 7행, 확정 incident·annotation 0행을 `trafficvisson-artifact-export-v2`로 생성했다
 - 구조화 내보내기: 7개 CSV와 2개 JSON을 담은 ZIP 9개 엔트리, 산출물 크기·SHA-256 전수 일치. v2 검증 ZIP SHA-256은 `2a54288d0f57b836f52b721f20986504cfdad8a04eb1f618aecb843efbbf2cd4`
 - CSV 승인 경계: 실험 제안은 `raw_detections.csv`와 `label_questions.csv`에만 합성한다. 확률이 아닌 CLIP·ONNX 점수에는 legacy `confidence`를 비워 두고 `score_semantics`, `score_calibration`, `proposal_origin`, `review_only`, `automatic_labeling_allowed`와 provenance 해시를 고정 열로 기록한다. 사용자 승인 없이 확정 출력에 포함하지 않되, 승인 뒤에는 원시 검지를 확정 사건의 추적 근거로 참조할 수 있다
@@ -52,7 +136,7 @@
 - alpha.6 외부 출처 계약: source manifest·고정 allowlist digest·로컬 artifact inventory·라이선스를 모두 검증한 출처만 `verified_inactive`로 등록한다. 제품에 기본 allowlist와 자동 다운로드·자동 활성화 경로는 없다
 - UI·성능 회귀: 실제 Electron 1280×720의 9개 화면에서 전체 페이지 스크롤 없이 핵심 조작을 확인했다. 초기 메인 JS는 377.18KiB에서 250.96KiB, CSS는 184.10KiB에서 131.81KiB로 줄었다
 - 제품 의존성 감사: `npm audit --omit=dev` 0건. 전체 개발 도구 체인은 electron-builder 전이 의존성에서 high 16건이 남아 있어 별도 업데이트 검증이 필요
-- alpha.6 검증 설치본: `desktop/release/TrafficVisson-Setup-0.1.0-alpha.6-x64.exe`
+- alpha.6 검증 설치본: `desktop/release/TrafficSuperVision-Setup-0.1.0-alpha.6-x64.exe`
 - 설치본 크기: 329,614,000 bytes
 - 설치본 SHA-256: `4af550503b430755865451ccf974d73a091d3823b8fcb3d2f5d82a8e4af4f3c2`
 - 배포 상태: `NotSigned`, `development_only_not_distribution_ready`
@@ -60,13 +144,13 @@
 - 역사 증거 경계: 위 alpha.6 설치본의 파일명·크기·SHA-256과 당시 QA 캡처를 고정 기록으로 사용한다. 현재 `desktop/release/release-manifest.json`과 `SHA256SUMS.txt`는 최신 빌드로 교체되는 파일이므로 alpha.6 증거 포인터로 사용하지 않는다
 - 검증 환경: Windows x64, OS build 26200
 - 실행 스모크: alpha.6 clean frozen bridge에서 H.264 후보 클립 생성·재생과 `scene_fallback`을 확인했다. unpacked Electron의 창 제목·제품 아이콘·네이티브 caption·AUMID와 1280×720 자연어 recipe compile·실제 bridge ModelScreen을 확인했다. 별도 alpha.4 읽기 전용 actual-data QA에서는 동봉 bridge가 실제 완료 작업 51건·후보/질문 349건·질문 제안 43건(CLIP 24, ONNX 19)·사용자 답변 0건을 복구했고, bridge-data·라벨·sidecar·SQLite·UNC 지문은 전후 동일했다
-- 한/글 사전 점검: registry-only opt-in preflight 1건은 통과했으며 문서나 COM 객체를 실행하지 않았다. 현재 PC 결과는 `available=false`, `HWPFrame.HwpObject`의 `prog_id_registered=false`, `security_module_registered=true`, 메시지는 `한/글 자동화가 등록되어 있지 않습니다.`다. 따라서 이 PC에서는 실제 HWP/HWPX COM 종단 쓰기를 검증할 수 없음
+- 한/글 사전 점검: alpha.6 당시 registry-only opt-in preflight 1건은 통과했으며 문서나 COM 객체를 실행하지 않았다. 당시 결과는 `available=false`, `HWPFrame.HwpObject`의 `prog_id_registered=false`, `security_module_registered=true`였다. 이는 역사 기록이며, 현재 PC에는 COM이 등록돼 있다. 다만 sample 적용·재열기·48쪽 전체 렌더 종단은 현재도 미검증이다
 - 모델 상태: LAION CLIP과 peterhdd 포트홀 ONNX 개발 후보 팩은 별도 비파괴 평가와 질문 sidecar에만 사용했다. 별도 Vinoth RDD YOLOv8s intake도 349개 JPEG에서 10프레임·11박스를 제안했지만 확정 양성 0, 판단 어려움 1프레임, 오탐 9프레임·10박스였고 정확한 RDD 출처·라이선스와 YOLOv8 base-weight 권리가 불명확하다. 두 포트홀 계열 팩 모두 승격하지 않았으며 Vinoth 팩은 활성화·설치본 번들·재배포를 명시적으로 거부한다
 - 배포 차단 조건: 설치본과 내부 실행 파일은 `NotSigned`; 클린 PC 설치·업그레이드·제거, 정식 아이콘·EULA·Third-Party Notices·SBOM, 지원 중인 Python 빌드 환경, 고정된 Python 의존성, FFmpeg GPL/libx264 재배포 의무, 한컴 보안 모듈, 실제 결함/OCR 모델을 검증해야 함
 
 따라서 이 산출물은 기능 확인용 개발 알파 설치본이며 외부 납품·상용 배포본이 아니다.
 
-### 0.2 2026-07-29 SQLite v4·증거 내보내기 검증 기록
+### 0.3 2026-07-29 SQLite v4·증거 내보내기 검증 기록
 
 - SQLite v4 migration은 v3 데이터와 불변 DatasetVersion을 보존하면서 영구 `incidents` 테이블, 프로젝트·질문·분석 작업·후보 경계, active/superseded revision 전이를 추가한다
 - 최신 `yes`·`edit` 답변만 active Incident가 되며 `no`·`unsure`는 기존 Incident를 삭제하지 않고 superseded 감사 상태로 전환한다. JSONL 답변 기록이 계속 원본 권위다
@@ -78,9 +162,9 @@
 - 소스 회귀 게이트: domain 10, renderer state 74, Electron 46, Python bridge 353 passed·2 skipped, Sites worker 4 passed
 - Electron 증거 화면: `qa/aaa-iteration-20260728/30-export-evidence-contract-final.png`, `qa/aaa-iteration-20260728/31-export-completed-final.jpg`
 - 실제 승인 Incident 0건인 선택 작업을 Electron에서 내보내 `8개 데이터 파일 + manifest + ZIP` 10개를 생성했다. ZIP 내부는 9개 member, 증거 미디어 0개, 크기 4,491 bytes, SHA-256 `85e9baa297ca5de95355e7607c544bbe8473c81a33def892a0ea8f7dfc743581`이며 manifest·디스크·ZIP의 파일 크기와 해시, CSV 행 수가 모두 일치하고 절대경로 유출이 없었다
-- alpha.7 설치본: `desktop/release/TrafficVisson-Setup-0.1.0-alpha.7-x64.exe`, 328,146,565 bytes, SHA-256 `b80ef818fc58541040965cad7d7ffe26fd46c6c641403b6ed1563ef851672453`
+- alpha.7 설치본: `desktop/release/TrafficSuperVision-Setup-0.1.0-alpha.7-x64.exe`, 328,146,565 bytes, SHA-256 `b80ef818fc58541040965cad7d7ffe26fd46c6c641403b6ed1563ef851672453`
 - alpha.7 release manifest 생성 시각: `2026-07-28T16:28:00.525Z` (`2026-07-29 01:28:00.525+09:00`). 7개 배포 artifact와 manifest를 포함한 `SHA256SUMS.txt` 8개 항목이 모두 일치한다
-- alpha.7 실행 상태: `win-unpacked/TrafficVisson.exe`가 frozen `TrafficVissonBridge.exe`를 직접 기동하고 실제 프로젝트 `20250916_073358.mp4`와 후보 7건을 복구했다. 실기동 화면은 `qa/aaa-iteration-20260728/32-alpha7-unpacked-home.jpg`에 보존했다. 설치본과 실행 파일은 `NotSigned`, release readiness는 `development_only_not_distribution_ready`다
+- alpha.7 실행 상태: `win-unpacked/TrafficSuperVision.exe`가 frozen `TrafficSuperVisionBridge.exe`를 직접 기동하고 실제 프로젝트 `20250916_073358.mp4`와 후보 7건을 복구했다. 실기동 화면은 `qa/aaa-iteration-20260728/32-alpha7-unpacked-home.jpg`에 보존했다. 설치본과 실행 파일은 `NotSigned`, release readiness는 `development_only_not_distribution_ready`다
 - alpha.7 자연어 선라벨 실기동: unpacked 앱에서 `표지판을 가린 수풀을 찾아줘`를 `sign_vegetation_occlusion` 고정 레시피로 컴파일하고 현재 분석 영상 범위의 검토 전용 실행을 확인했다. 설치된 해당 모델 proposal이 없어 `AI 모델을 사용할 수 없음`, 일치 0건, 자동 수락 0건, 학습 반영 0건으로 끝났으며 빈 실행 감사 기록을 저장했다. 화면은 `qa/aaa-iteration-20260728/33-alpha7-auto-label-result.jpg`에 보존했다
 
 ### 0.3 실험 모델·dense 실행기·OCR 제한평가
@@ -121,32 +205,32 @@ resumable dense 실행기는 실제 최단 영상 `20250905_095953.mp4` 2.8095�
 - 육안 판정: 3개 제안 모두 `표지판이 식생에 가려진 상태`를 뒷받침하지 않는 오탐이다. 두 건은 같은 주차장 장면의 작은 무관 영역이고 한 건은 식생 가림이 없는 이정표다. 이 결과는 어려운 음성 예제 또는 검토 표본일 뿐 유형 정밀도·재현율이나 자동 라벨 성능의 증거가 아니다
 - 비파괴 경계: 위 실행은 자동 라벨 0건, Incident 0건, 질문 sidecar 0건, 모델 승격 0건을 유지했고 보호된 원본 분석·SQLite·답변·프로젝트 파일을 변경하지 않았다. 결과와 연락시트는 별도 `ModelEvaluations` 디렉터리와 `qa/aaa-iteration-20260729/12-grounding-command-sign-vegetation-contact-sheet.jpg`에만 저장했다
 - 앱 연결 경계: 설치형 앱의 `명령 실행`은 여전히 기존 persisted proposal을 필터링하는 기능이다. 위 Grounding DINO 실행기는 외부 운영자용 평가 경로이며 앱 bridge 작업 큐·질문 카드 sidecar에 연결되지 않았다. alpha.8 설치본도 ML 런타임과 가중치를 포함하지 않는다
-- 읽기 전용 출처 probe: `/source-candidates`는 `%PROGRAMDATA%\TrafficVisson` 아래 코드에 고정된 증거 상대경로만 검사하고 파일당 최대 2MiB를 읽어 pinned SHA-256과 비교한다. 임의 디렉터리 검색, 사용자 경로 입력, 네트워크 접근, 다운로드, 압축 해제, 가중치 실행, 외부 라벨 import는 하지 않는다. 일부 파일만 있거나 해시가 다르면 `unverified_local`로 격리한다
+- 읽기 전용 출처 probe: `/source-candidates`는 `%PROGRAMDATA%\TrafficSuperVision` 아래 코드에 고정된 증거 상대경로만 검사하고 파일당 최대 2MiB를 읽어 pinned SHA-256과 비교한다. 임의 디렉터리 검색, 사용자 경로 입력, 네트워크 접근, 다운로드, 압축 해제, 가중치 실행, 외부 라벨 import는 하지 않는다. 일부 파일만 있거나 해시가 다르면 `unverified_local`로 격리한다
 - 출처 5종: 정확한 snapshot 증거가 모두 일치한 Grounding DINO Tiny와 LAION CLIP ViT-B/32 Road Baseline만 `installed_validation_only`로 표시한다. 이는 가중치 실행 허가나 활성 모델을 뜻하지 않는다. SAM2.1 Hiera Small과 CC0-1.0 Road Issues Detection Dataset 9,660장은 `not_installed` 검토 후보이며, Pothole Detection YOLOv8은 19/19 육안 오탐과 모델 카드 Apache-2.0·원 데이터셋 OpenRAIL 조건 차이 때문에 `rejected`·로컬 캐시 격리 상태다
 - alpha.8 소스 회귀 게이트: domain 10 passed, renderer 76 passed, Electron 48 passed, Python bridge 362 passed·환경 의존 2 skipped, Sites worker 4 passed
-- alpha.8 설치본: `desktop/release/TrafficVisson-Setup-0.1.0-alpha.8-x64.exe`, 328,170,964 bytes, SHA-256 `ce1d5c09202959bb1da63826b5b9bd3d94dbbea11d802972c794866956e8e16d`
+- alpha.8 설치본: `desktop/release/TrafficSuperVision-Setup-0.1.0-alpha.8-x64.exe`, 328,170,964 bytes, SHA-256 `ce1d5c09202959bb1da63826b5b9bd3d94dbbea11d802972c794866956e8e16d`
 - alpha.8 release manifest 생성 시각: `2026-07-28T17:25:47.361Z` (`2026-07-29 02:25:47.361+09:00`). 7개 배포 artifact와 manifest를 포함한 `SHA256SUMS.txt` 8개 항목이 모두 일치한다. 설치본과 동봉 실행 파일은 `NotSigned`, release readiness는 `development_only_not_distribution_ready`다
 - 미완료 경계: 실제 사용자 답변·승인 라벨·annotation·active/superseded Incident·DatasetVersion은 계속 0건이다. 검증된 dense 도로 결함 모델, 앱 관리형 명령 추론, 실제 GPS 경로 재생, 얼굴·번호판 비식별화, 프로젝트 GPU 학습·승격·롤백, 실제 HWP/HWPX COM 종단, 코드 서명과 클린 PC 배포 검증은 P0/P1 미완료다. 따라서 alpha.8은 기능 확인용 개발 알파이며 통합 제품 완성이나 현장 수용 완료를 의미하지 않는다
 
 ### 0.5 2026-07-29 alpha.9 자연어 로컬 AI 실행기·UI 재감사
 
 - 앱 연결: Electron main이 개발 시 `desktop/build/command-proposal-runner`, 패키지 시 `resources/command-proposal-runner`의 고정 경로만 bridge 환경에 전달한다. renderer는 실행 파일·모델·경로·인수·임계값을 선택하지 못한다
-- 실행기: PyInstaller one-file `trafficvisson-command-proposal-runner.exe`와 ONNX Runtime, tokenizer, NumPy, Pillow를 함께 고정했다. runner manifest SHA-256 `65f6cc1f6941b25936c10b8387a7867d6249e25b5453a1d2cb8567e28ba547f3`를 bridge 소스와 release 검증기에 신뢰 루트로 고정했다
+- 실행기: PyInstaller one-file `trafficsupervision-command-proposal-runner.exe`와 ONNX Runtime, tokenizer, NumPy, Pillow를 함께 고정했다. runner manifest SHA-256 `65f6cc1f6941b25936c10b8387a7867d6249e25b5453a1d2cb8567e28ba547f3`를 bridge 소스와 release 검증기에 신뢰 루트로 고정했다
 - 모델: `onnx-community/grounding-dino-tiny-ONNX` revision `11778337bb87ff84af72a64928c86616d86c495e`의 `onnx/model_q4.onnx`만 사용한다. 모델 파일은 227,229,745 bytes, SHA-256 `2ed98a91b75f00d325c7581bee83b92b5b98460981772edf5ed844370ac25c11`, 라이선스는 Apache-2.0이다. model manifest·tokenizer·설정·라이선스·Third-Party Notices의 크기와 해시도 실행 전 검증한다
-- 오프라인·격리: 실행기는 bounded stdin JSON 하나를 받고 bounded stdout JSON 하나만 내보낸다. 네트워크 다운로드, 임의 명령행 경로, TrafficVisson DB·Incident·라벨·보고서 쓰기를 하지 않는다. bridge는 실행 전 runner→model manifest→모든 모델 artifact 해시를 검증하고 응답의 프로젝트·작업·recipe·후보 ID·박스 범위를 다시 검증한다
+- 오프라인·격리: 실행기는 bounded stdin JSON 하나를 받고 bounded stdout JSON 하나만 내보낸다. 네트워크 다운로드, 임의 명령행 경로, TrafficSuperVision DB·Incident·라벨·보고서 쓰기를 하지 않는다. bridge는 실행 전 runner→model manifest→모든 모델 artifact 해시를 검증하고 응답의 프로젝트·작업·recipe·후보 ID·박스 범위를 다시 검증한다
 - 실행 장치: ONNX Runtime의 `DmlExecutionProvider`가 있으면 우선하고 `CPUExecutionProvider`를 fallback으로 사용한다. 현재 개발 PC의 번들 실행기는 CPU fallback으로 실제 후보 프레임 7개를 약 23.844초에 처리했다
 - 실제 소스 실행: 완료 작업의 7프레임을 평가해 7개 사용자 검토용 제안을 만들었고 결과 출처는 `proposal_origin=local_model_generated`, 생성 상태는 `proposal_generation_status=generated`로 구분했다. 자동 라벨 0건, Incident 0건, 학습 반영 0건, 모델 승격 0건을 유지했다. 같은 명령을 다시 실행할 때는 정확한 recipe·후보·해시의 검증된 캐시만 사용할 수 있다
 - 성능 경계: 이 실행은 로컬 앱이 프레임을 실제 추론해 질문 후보를 만든다는 종단 연결 증거다. 객체 박스가 7건 있다는 사실은 삭초 필요·표지판 가림·파손을 올바르게 판정했다는 뜻이 아니다. 현재 Grounding DINO는 표지판·식생 같은 개체를 찾는 검토 보조에는 쓸 수 있으나 개체 간 가림 관계와 유지보수 조치의 신뢰도는 별도 사용자 라벨·한국 도로 검증 세트·전용 모델로 검증해야 한다
 - UI 정정: alpha.8 재감사는 “전체 문서 스크롤 없음”을 중심으로 통과시켰지만, 컨셉 대비 네 개의 동등한 KPI 카드, 큰 빈 패널, 8~10px 글자, 짧은 line-height, 한국어와 mono 혼용, 배지·하단 진행 영역 잘림을 충분히 잡지 못했다. alpha.9는 앱 번들 `SUIT Variable 2.0.5`(OFL-1.1), 비대칭 핵심 카드, 최소 글자·line-height, 카드 밀도, 한 화면 작업대와 내부 스크롤 소유권을 다시 조정했다. 실제 소스 Electron 1280×720 9개 화면과 컨셉 결합 비교는 `qa/ui-iteration-20260729`에 보존했고, 최종 패키지의 로컬 AI 결과는 `qa/aaa-iteration-20260729/17-alpha9-suit-packaged-local-ai-result-1280x720.png`에 보존했다
 - 배포 무결성: release manifest schema v2는 기존 앱·bridge·FFmpeg 산출물에 runner EXE, runner manifest, model manifest와 Q4 ONNX를 더해 11개 배포 artifact를 검증하고 manifest 자체를 포함한 checksum 12개를 생성했다. manifest 생성 시각은 `2026-07-28T19:03:29.146Z`(`2026-07-29 04:03:29.146+09:00`)다. 설치본은 491,356,877 bytes, SHA-256 `c4d00ec0d122df534621ae40e18fe8b6d39ef85517284d7684ebb46e0c99ec2b`, Authenticode `NotSigned`다
-- 패키지 종단: `win-unpacked/TrafficVisson.exe`가 실제 프로젝트와 51개 완료 분석 작업을 복구했다. AI 제안이 0건이던 `20250820_133356.mp4` 작업에서 새 자연어 명령을 실행해 CPU fallback으로 프레임 7개를 약 14.856초에 처리하고 `local_model_generated/generated` review-only 제안 7건을 만들었다. 자동 라벨·Incident·학습·승격은 0건이다
+- 패키지 종단: `win-unpacked/TrafficSuperVision.exe`가 실제 프로젝트와 51개 완료 분석 작업을 복구했다. AI 제안이 0건이던 `20250820_133356.mp4` 작업에서 새 자연어 명령을 실행해 CPU fallback으로 프레임 7개를 약 14.856초에 처리하고 `local_model_generated/generated` review-only 제안 7건을 만들었다. 자동 라벨·Incident·학습·승격은 0건이다
 - 변경하지 않은 승인 경계: 실제 사용자 답변·승인 라벨·annotation·active/superseded Incident·DatasetVersion은 여전히 0건이다. 자연어 AI는 사용자의 라벨링을 대신 완료하지 않고 검토할 프레임과 영역을 줄여 주는 보조 기능이다
 
 ## 1. 문서 목적
 
-이 문서는 차량에 고정한 휴대폰으로 촬영한 주행 영상과 GPS 기록을 이용해 도로 파손, 시설물 이상, 낙하물, 식생 가림, 차선 도색 상태 등을 검지하고, 사용자의 간단한 질문 응답을 학습용 라벨로 전환하며, 결과를 지도·영상·CSV·HWP/HWPX 보고서로 연결하는 TrafficVisson 목표 제품 사양과 구현 로드맵을 정의하는 단일 마스터 계획서다.
+이 문서는 차량에 고정한 휴대폰으로 촬영한 주행 영상과 GPS 기록을 이용해 도로 파손, 시설물 이상, 낙하물, 식생 가림, 차선 도색 상태 등을 검지하고, 사용자의 간단한 질문 응답을 학습용 라벨로 전환하며, 결과를 지도·영상·CSV·HWP/HWPX 보고서로 연결하는 TrafficSuperVision 목표 제품 사양과 구현 로드맵을 정의하는 단일 마스터 계획서다.
 
-TrafficVisson은 브라우저에서만 동작하는 웹 SaaS가 아니다. Electron으로 배포되는 Windows 설치형 서비스이며, 완성 제품은 다음 기능을 한 제품 안에서 연결한다.
+TrafficSuperVision은 브라우저에서만 동작하는 웹 SaaS가 아니다. Electron으로 배포되는 Windows 설치형 서비스이며, 완성 제품은 다음 기능을 한 제품 안에서 연결한다.
 
 1. 로컬 파일과 영상 링크 수집
 2. AI 후보 추출과 사용자 질문형 라벨링
@@ -427,11 +511,11 @@ flowchart LR
 
 > 현재 상태: 장면 변화·선명도 후보 추출, 선택형 모델팩 계약, CLIP·ONNX 비파괴 평가, resumable dense 실행기와 review-only sidecar를 구현했다. alpha.9에는 앱의 자연어 명령에서 실제 프레임 추론을 시작하는 고정 해시 오프라인 ONNX Grounding DINO Tiny Q4 실행기와 bridge 검토 큐 가져오기를 연결했다. 실행기는 DML을 우선하고 현재 개발 PC에서는 CPU fallback으로 7개 프레임을 약 23.844초에 평가해 review-only 제안 7건을 만들었다. 모든 출력은 확률이 아닌 `model_score_not_probability`이며 자동 라벨·Incident·학습·모델 승격은 0건이다. 기존 alpha.8 이전 평가에서는 349개 희소 대표 JPEG의 CLIP 29건·peterhdd 포트홀 ONNX 19건, Grounding DINO deterministic30의 25프레임·47박스, 작업 한정 GPU 평가의 3프레임·3박스가 모두 확정 양성 성능을 입증하지 못했다. 이후 별도 Vinoth RDD 평가도 같은 349개 JPEG에서 10프레임·11박스를 제안했지만 확정 양성 0, 판단 어려움 1프레임, 오탐 9프레임·10박스였고 출처·재배포 권리까지 불명확해 활성화·번들·재배포를 거부했다. EasyOCR deterministic12도 `도척` 1건만 참고 가능한 후보였다. 따라서 현재 연결은 질문 후보 생성 기능의 구현이지 실제 도로 결함의 dense 정밀도·재현율, 객체 관계 판정, 추적기, 자동 분할, 한국어 도로 OCR 위치 검증의 완료가 아니다.
 
-외부 모델팩·공개 라벨 데이터셋용 `source_registry`의 순수 검증 계약은 I/O를 하지 않는다. 그 앞단의 `SourceCandidateProbe`만 `%PROGRAMDATA%\TrafficVisson` 아래 코드에 고정된 증거 상대경로를 읽으며, 각 파일을 최대 2MiB로 제한하고 pinned SHA-256과 정확히 비교한다. 모든 고정 증거가 일치하면 `verified_snapshot`, 일부만 있거나 해시가 다르면 `unverified_local`, 없으면 `absent`다. renderer에는 읽기 전용 `/source-candidates`로 변환된 카탈로그 상태만 전달한다. 이 경로는 임의 파일 탐색·사용자 지정 경로·네트워크 읽기·다운로드·압축 해제·모델 실행·라벨 import를 하지 않는다. `installed_validation_only`도 과거 검증 증거를 읽었다는 뜻이며 가중치 실행, 자동 활성화, 프로젝트 학습 연결을 허가하지 않는다.
+외부 모델팩·공개 라벨 데이터셋용 `source_registry`의 순수 검증 계약은 I/O를 하지 않는다. 그 앞단의 `SourceCandidateProbe`만 `%PROGRAMDATA%\TrafficSuperVision` 아래 코드에 고정된 증거 상대경로를 읽으며, 각 파일을 최대 2MiB로 제한하고 pinned SHA-256과 정확히 비교한다. 모든 고정 증거가 일치하면 `verified_snapshot`, 일부만 있거나 해시가 다르면 `unverified_local`, 없으면 `absent`다. renderer에는 읽기 전용 `/source-candidates`로 변환된 카탈로그 상태만 전달한다. 이 경로는 임의 파일 탐색·사용자 지정 경로·네트워크 읽기·다운로드·압축 해제·모델 실행·라벨 import를 하지 않는다. `installed_validation_only`도 과거 검증 증거를 읽었다는 뜻이며 가중치 실행, 자동 활성화, 프로젝트 학습 연결을 허가하지 않는다.
 
 2026-07-29 외부 출처 조사와 실제 제한평가를 함께 적용한 후보 판정은 다음과 같다.
 
-| 후보 | 공개 조건·용도 | TrafficVisson 판정 |
+| 후보 | 공개 조건·용도 | TrafficSuperVision 판정 |
 |---|---|---|
 | [onnx-community/grounding-dino-tiny-ONNX](https://huggingface.co/onnx-community/grounding-dino-tiny-ONNX) | Apache-2.0, revision `11778337bb87ff84af72a64928c86616d86c495e`, Q4 ONNX zero-shot object detection | alpha.9의 번들 검토 전용 실행기다. 선택 파일 `onnx/model_q4.onnx`의 크기·SHA-256과 모델 manifest·라이선스·고지를 고정한다. review-only 질문 제안 생성만 허용하며 자동 라벨·Incident·프로젝트 학습·모델 승격을 금지한다 |
 | [IDEA-Research/grounding-dino-tiny](https://huggingface.co/IDEA-Research/grounding-dino-tiny) | Apache-2.0, Transformers 기반 zero-shot object detection | alpha.8까지의 별도 운영자 평가 역사다. deterministic30의 25프레임·47박스와 작업 한정 GPU 평가의 3프레임·3박스 모두 유지보수 사건을 입증하지 못했다. alpha.9에서 도입되어 현재 alpha.10에도 유지되는 번들 ONNX 팩과 이 역사적 성능 결과를 섞어 해석하지 않는다 |
@@ -446,7 +530,7 @@ flowchart LR
 - 목표 결함 모델 후보는 분할 성능·라이선스·배포 가능성을 검증한 뒤 확정한다. 개인 연구용 후보로 `YOLO26s-seg`, 입력 크기 1280px를 평가한다.
 - 목표 추적기는 짧은 구간의 객체 연결을 위한 ByteTrack 계열이다.
 - 도로·차선·식생 관계는 분할 마스크로 계산한다.
-- 현재 영역 수정은 사용자가 클릭한 지점을 기준으로 임시 박스를 이동·확정한다. 목표는 point-prompt 기반 `InteractiveSegmenter` 인터페이스다.
+- point-prompt 기반 `InteractiveSegmenter` 서비스·IPC·라벨링 UI는 구현했다. 현재 SAM2 런타임 모델을 사용할 수 없고 실제 프레임 마스크·추적 종단을 통과하지 않았으므로 임시 박스 fallback과 완성된 SAM2 보정을 구분한다.
 - 한국어 이정표·터널명 OCR의 목표 후보는 PaddleOCR 한국어 인식 모델이다.
 - 얼굴·번호판 비식별화는 도로 결함 모델과 분리된 전용 검지 모델로 처리한다.
 - 학습은 PyTorch 환경, 배포 추론은 검증된 ONNX 모델을 우선 사용한다.
@@ -529,7 +613,7 @@ Ultralytics 계열은 개인 연구 단계의 초기 선택이다. 비공개 납
 | 주체 | 역할 |
 |---|---|
 | 후보 추출 엔진 | 대표 프레임·클립 추출, AI 박스·마스크·OCR 선행 제안 |
-| TrafficVisson 질문 UI | 어려운 기술 용어를 쉬운 질문과 선택지로 변환 |
+| TrafficSuperVision 질문 UI | 어려운 기술 용어를 쉬운 질문과 선택지로 변환 |
 | 사용자 | 예·아니오·판단 어려움, 유형·심각도·조치, 영역 수정 승인 |
 | 데이터 운영 보조 | 링크 영상 목록화, 대량 후보 검수, 오탐·미탐 표본 감사 |
 | 모델 평가 엔진 | 라벨 품질, 분포, 검증 세트, 성능 회귀 확인 |
@@ -990,11 +1074,11 @@ project/
 
 아래 절차는 완성 제품의 목표 흐름이며, 현재 실제 쓰기 경로는 검증된 `fill_text`와 `fill_cell` 작업으로 제한한다.
 
-현재 개발 PC에서는 registry-only 사전 점검 코드만 검증했다. 보안 모듈 레지스트리는 확인되지만 `HWPFrame.HwpObject` ProgID가 등록되지 않아 `available=false`이며, 문서를 열거나 COM 편집을 실행한 실제 종단 증거는 없다. HWP/HWPX 기능의 구현 계약과 이 PC에서의 실행 가능 상태를 구분한다.
+2026-07-29 읽기 전용 재점검에서 현재 개발 PC의 `HWPFrame.HwpObject`와 `HWPFrame.HwpObject.1` ProgID가 CLSID `{2291CF00-64A1-4877-A9B4-68CFE89612D6}`로 등록된 것을 확인했다. 과거 alpha.6의 미등록 기록은 당시 역사 증거로만 유지한다. COM 등록은 실행 가능성의 필요조건일 뿐이며, sample 원본을 건드리지 않는 작업본 편집, 정확한 표·네모·사진·점검 의견 위치, 저장·재열기·48쪽 전체 렌더 검증을 통과하기 전에는 HWP/HWPX 종단 완료로 간주하지 않는다.
 
 ### 14.1 지원 방식
 
-- TrafficVisson 기본 점검보고서 제공
+- TrafficSuperVision 기본 점검보고서 제공
 - 사용자가 보유한 HWP/HWPX 양식 지원
 - 설치된 한/글에서 양식을 열거나 현재 열린 문서를 감지
 - HWPML 구조, 표, 문단, 사진 영역, 기존 서식 분석
@@ -1033,7 +1117,7 @@ project/
 ### 14.4 COM 안전 원칙
 
 - HWP COM은 별도 STA worker에서 실행한다.
-- TrafficVisson이 연 문서·프로세스만 자동 제어한다.
+- TrafficSuperVision이 연 문서·프로세스만 자동 제어한다.
 - 작업 전 임시 복사본과 복구 저널을 만든다.
 - 한 작업에서 서로 다른 편집 엔진을 섞지 않는다.
 - 기대한 문서 스냅샷과 다르면 쓰기를 거부한다.
@@ -1068,7 +1152,7 @@ project/
 
 - Codex는 공식 Codex CLI의 ChatGPT 로그인 흐름을 사용한다.
 - Claude는 Claude Code의 공식 Console 또는 Pro/Max 로그인 흐름을 사용한다.
-- TrafficVisson은 인증 파일, refresh token, 세션 쿠키를 직접 읽지 않는다.
+- TrafficSuperVision은 인증 파일, refresh token, 세션 쿠키를 직접 읽지 않는다.
 - 로그인·로그아웃과 자격증명 저장은 각 공식 CLI가 소유한다.
 - 앱은 CLI 설치·버전·연결 상태와 출력 전용 실행 결과만 확인한다.
 
@@ -1271,7 +1355,7 @@ fixture 전용 `reports/draft|plan|apply|accept|reject` 계약은 테스트 호�
 ## 18. 권장 저장소 구조
 
 ```text
-TrafficVisson/
+TrafficSuperVision/
   apps/
     desktop/
       src/main/
@@ -1309,7 +1393,7 @@ TrafficVisson/
     model/
     hwp/
   docs/
-  TRAFFIC_VISSON_MASTER_PLAN.md
+  TRAFFIC_SUPER_VISION_MASTER_PLAN.md
 ```
 
 `superkorea` 저장소를 런타임 의존성이나 import 경로로 사용하지 않는다.
@@ -1532,7 +1616,7 @@ alpha.8의 마지막 완결 패키지 게이트는 역사 기록으로 다음과
 
 - domain 10, renderer 76, Electron 48, Python bridge 362 passed·환경 의존 2 skipped, Sites worker 4 passed
 - 실기동 1280×720: `qa/aaa-iteration-20260729/13-alpha8-packaged-home-1280x720.jpg`, `14-alpha8-packaged-labeling-command-1280x720.jpg`, `15-alpha8-packaged-model-sources-1280x720.jpg`, `16-alpha8-packaged-model-rejected-dataset-1280x720.jpg`
-- 설치본: `desktop/release/TrafficVisson-Setup-0.1.0-alpha.8-x64.exe`, 328,170,964 bytes, SHA-256 `ce1d5c09202959bb1da63826b5b9bd3d94dbbea11d802972c794866956e8e16d`, release checksum 8/8, `NotSigned`
+- 설치본: `desktop/release/TrafficSuperVision-Setup-0.1.0-alpha.8-x64.exe`, 328,170,964 bytes, SHA-256 `ce1d5c09202959bb1da63826b5b9bd3d94dbbea11d802972c794866956e8e16d`, release checksum 8/8, `NotSigned`
 
 alpha.9의 마지막 완결 패키지 확인도 역사 기록으로 다음과 같다.
 
@@ -1552,11 +1636,13 @@ alpha.9의 마지막 완결 패키지 확인도 역사 기록으로 다음과 �
 - `npm run test:all`: **546 passed, 2 skipped, 실패 0**. Domain 10, renderer 91, Electron 56, Python bridge 382 passed·2 skipped, release manifest 3, Sites 4
 - TypeScript, Vite production build, Windows NSIS 패키징, frozen bridge 스모크: passed
 - SUIT Variable 2.0.5 전체 face를 앱에 번들하고 Vite가 `SUIT-Variable-gqD86R3M.woff2` 624,536 bytes를 생성
-- alpha.10 installer: `desktop/release/TrafficVisson-Setup-0.1.0-alpha.10-x64.exe`, 491,689,854 bytes, SHA-256 `b0b0a79f952fd614f8c23a449073bfeea108af82e164c5a59f9c1d84d408f945`, `NotSigned`, `development_only_not_distribution_ready`
+- alpha.10 installer: `desktop/release/TrafficSuperVision-Setup-0.1.0-alpha.10-x64.exe`, 491,689,854 bytes, SHA-256 `b0b0a79f952fd614f8c23a449073bfeea108af82e164c5a59f9c1d84d408f945`, `NotSigned`, `development_only_not_distribution_ready`
 - GPX 가져오기·오프셋·영상 시각 보간·MapLibre 경로/진행선/현재점/후보점·전체 경로 export provenance는 구현됨. 시간대가 있는 실제 운영 GPX 수용은 아직 미실시
 - Vinoth RDD intake는 349개 JPEG에서 10프레임·11박스를 제안했으나 확정 양성 0, 판단 어려움 1프레임, 오탐 9프레임·10박스였고 활성화·설치본 번들·재배포를 거부함
 - **PASSED — final-suit-p2 UI 시각 감사:** [`qa/aaa-continuation-20260729/final-suit-p2-audit.md`](qa/aaa-continuation-20260729/final-suit-p2-audit.md)에서 P0 0건·P1 0건·P2 0건으로 판정했다. 실제 Electron의 1280×720 DPR 1.0, Windows 최소 창 반올림이 적용된 1282×722 DPR 1.25, 1600×900 DPR 1.0에서 라벨링 안전 문구·정책값 고아행·11.5px 증거 메타데이터/검지 오버레이·History 하단 독립 스크롤의 마지막 사건과 provenance 도달성을 확인했다
-- **P3 성능 경계:** lazy-load되는 `HistoryScreen` 청크가 약 969.24kB로 Vite 500kB 경고를 남긴다. 이번 UI 감사에서는 기능·가시성 결함이 없었지만 저사양 현장 PC의 첫 History 진입 시간은 별도 성능 예산으로 측정해야 한다
+- **v2.13 post-fix UI 재감사:** `qa/visual-reaudit-20260729/`의 Home·Labeling·Report 실화면과 참조 결합본 6개에서 P0 0건·P1 0건·P2 0건이다. 다만 1280×720 live pixel 재캡처, 정밀 판정의 심각도 선택 상태, OCR 관측이 실제로 존재하는 카드 상태는 P3 증거 공백으로 남는다
+- **v2.13 현재 소스 회귀:** renderer 150/150, Electron 80/80, Python bridge 614 passed·2 skipped, TypeScript typecheck와 Vite production build passed
+- **P3 성능 경계:** `HistoryScreen` 초기 청크는 22.28kB(gzip 7.60kB)로 분리됐고, 지도를 열 때 lazy-load되는 `HistoryMap` 청크 947.96kB(gzip 249.38kB)가 Vite 500kB 경고를 남긴다. 초기 화면 성능 회귀는 해소했지만 저사양 현장 PC의 첫 지도 진입 시간은 별도 측정해야 한다
 
 이 수치는 앱 버튼이 실제 로컬 ONNX 추론을 시작하고 검토 전용 제안을 가져오는 연결 및 현재 소스·패키지 회귀를 검증한다. GPU 학습·승격, 실제 운영 GPX 수용, 한/글 COM 실문서 종단이나 도로 결함 정밀도·재현율을 통과했다는 뜻은 아니다. 실제 사용자 승인 라벨·Incident는 0건이다.
 
@@ -1608,7 +1694,7 @@ alpha.9의 마지막 완결 패키지 확인도 역사 기록으로 다음과 �
 
 완료 조건: 비전문 사용자가 50건을 처리하고 유효 annotation을 생성한다.
 
-현재 진척: 실제 bridge 질문 GET에 24개 작업·43개 기존 실험 제안을 review-only로 연결했고, 51개 완료 영상 선택기와 다음 제안 영상 이동을 구현했다. alpha.9에서는 자연어 명령을 지원 유형과 고정 recipe로 컴파일하고, 고정 해시의 번들 ONNX Grounding DINO 실행기로 정확한 완료 작업의 프레임을 실제 추론해 검증된 review-only 질문 sidecar를 생성하는 앱 경로까지 연결했다. 소스 종단에서 7프레임·제안 7건·약 23.844초 CPU 실행을 확인했고 자동 승인·학습 라벨·Incident는 0건이었다. 최신 사용자 승인 답변은 SQLite v4 Incident로 투영된다. 실제 사용자 답변은 아직 0건이며 50건 사용성 시험, point-prompt 자동 분할, 사건 단위 중복 제거, 한국 도로 성능 검증이 남아 있어 M3 완료가 아니다.
+현재 진척: 실제 bridge 질문 GET과 빠른/정밀 판정 UI, 키보드·클릭 자동 진행, 정밀 판정의 사용자 심각도 확정, review-only Grounding DINO 제안을 연결했다. point-prompt SAM2 service·IPC·UI 경로도 구현했지만 runtime 모델을 사용할 수 없어 실제 마스크·추적 종단은 미완료다. 실제 NAS PipelineJob은 질문 1건 대기, 사용자 답변·Annotation·Incident 0건이며 50건 사용성 시험과 한국 도로 성능 검증이 남아 있어 M3 완료가 아니다.
 
 ### M4 - 핵심 도로 검지
 
@@ -1702,7 +1788,7 @@ alpha.9의 마지막 완결 패키지 확인도 역사 기록으로 다음과 �
 
 현재 진척: 현재 소스에서 자연어 선라벨 recipe·실행 감사, 고정 해시의 번들 ONNX Grounding DINO 실행기와 review-only bridge import, SQLite v4 라벨·DatasetVersion·Incident, 실제 bridge ModelScreen, 읽기 전용 `/source-candidates`, 승인 사건 근거 JPEG·MP4 export v3를 구현했다. alpha.10 package 정의는 실행기와 Q4 모델팩을 `extraResources`로 포함하고 release manifest schema v2가 runner→model manifest→ONNX 무결성을 검증한다. 546 passed·2 skipped 전체 회귀, TypeScript, Vite production build, Windows NSIS 패키징과 frozen bridge 스모크를 통과했다. `SUIT Variable 2.0.5` 전체 face를 번들했고 Vite 산출물에 `SUIT-Variable` WOFF2가 포함된다. GPX import·offset·interpolation·MapLibre 재생·전체 경로 export는 구현됐지만 실제 운영 GPX 수용은 남아 있다. Vinoth RDD 팩은 활성화·번들·재배포 거부 상태다.
 
-alpha.6·alpha.7·alpha.8·alpha.9 설치본은 역사 기록이다. 현재 alpha.10 installer는 491,689,854 bytes, SHA-256 `b0b0a79f952fd614f8c23a449073bfeea108af82e164c5a59f9c1d84d408f945`이며 `NotSigned`, `development_only_not_distribution_ready`다. final-suit-p2 UI 감사는 P0·P1·P2 0건으로 통과했지만 이는 이번 UI 범위의 판정일 뿐 제품 전체나 현장 수용 완료가 아니다. 실제 사용자 답변·DatasetVersion·자동 승인 라벨은 0건이며 GPU 학습·승격, 실제 운영 GPX 수용, 한/글 COM 실문서 종단, History 약 969.24kB 청크의 저사양 PC 첫 진입 성능 측정, 서명, 클린 PC 설치·업그레이드·제거가 남아 있다.
+alpha.6·alpha.7·alpha.8·alpha.9 설치본과 alpha.10 installer의 크기·해시는 역사 기록이다. 현재 source gate는 renderer 150/150, Electron 80/80, bridge 614 passed·2 skipped, typecheck/build passed이며 post-fix UI 감사는 P0·P1·P2 0건이다. 실제 사용자 답변·DatasetVersion·자동 승인 라벨은 0건이며 GPU 학습·승격, 실제 운영 GPX 수용, 한/글 sample 적용·48쪽 검증, 별도 `HistoryMap` 947.96kB(gzip 249.38kB)의 저사양 PC 첫 지도 진입 성능 측정, 서명, 클린 PC 설치·업그레이드·제거가 남아 있다.
 
 ---
 

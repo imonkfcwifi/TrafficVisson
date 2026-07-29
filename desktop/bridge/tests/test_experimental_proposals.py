@@ -697,7 +697,7 @@ def test_production_export_overlays_review_only_sidecar_without_confirmation(
             == []
         )
 
-    output = next(export_root.glob("trafficvisson-export-*"))
+    output = next(export_root.glob("trafficsupervision-export-*"))
 
     def csv_rows(file_name):
         with (output / file_name).open(
@@ -854,7 +854,7 @@ def test_production_export_does_not_leak_sidecar_from_a_newer_analysis_job(
         )
         assert exported.status_code == 200, exported.text
 
-    output = next(export_root.glob("trafficvisson-export-*"))
+    output = next(export_root.glob("trafficsupervision-export-*"))
     with (output / "raw_detections.csv").open(
         "r", encoding="utf-8-sig", newline=""
     ) as source_file:

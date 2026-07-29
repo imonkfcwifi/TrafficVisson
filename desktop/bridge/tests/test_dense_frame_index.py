@@ -243,6 +243,8 @@ def test_ffmpeg_argv_is_non_shell_data_and_output_is_confined(tmp_path):
     assert isinstance(extraction.argv, tuple)
     assert "-n" in extraction.argv
     assert "-y" not in extraction.argv
+    assert "-fps_mode" not in extraction.argv
+    assert extraction.argv[extraction.argv.index("-vsync") + 1] == "0"
     assert str(source) in extraction.argv
     assert extraction.argv[extraction.argv.index("-frames:v") + 1] == "16"
     assert (

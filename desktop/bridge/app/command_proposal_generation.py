@@ -27,6 +27,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping, Optional, Protocol, Sequence
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from .analysis_jobs import ResolvedAnalysisArtifact
@@ -41,10 +42,11 @@ from .contracts import (
 RUNNER_MANIFEST_SCHEMA = "trafficvisson.command-proposal-runner.v1"
 RUNNER_REQUEST_SCHEMA = "trafficvisson.command-proposal-request.v1"
 RUNNER_RESPONSE_SCHEMA = "trafficvisson.command-proposal-response.v1"
-RUNNER_EXECUTABLE_NAME = "trafficvisson-command-proposal-runner.exe"
+RUNNER_EXECUTABLE_NAME = "trafficsupervision-command-proposal-runner.exe"
 RUNNER_MANIFEST_NAME = "runner-manifest.json"
 MODEL_DIRECTORY_NAME = "model-pack"
 MODEL_MANIFEST_NAME = "manifest.json"
+MODEL_MANIFEST_SCHEMA = "trafficvisson.command-proposal-model-pack.v2"
 
 MAX_MANIFEST_BYTES = 2 * 1024 * 1024
 MAX_RESPONSE_BYTES = 8 * 1024 * 1024
@@ -60,7 +62,7 @@ RUNNER_TIMEOUT_SECONDS = 540.0
 # the executable hash it declares about itself.  Tests and future signed
 # installers may inject a runner with an explicit out-of-band pinned hash.
 PINNED_PROGRAMDATA_RUNNER_MANIFEST_SHA256: Optional[str] = (
-    "65f6cc1f6941b25936c10b8387a7867d6249e25b5453a1d2cb8567e28ba547f3"
+    "dff0d3ab3204c3728245cc7bc4e91fa73d3b08b234ba853916cd518e2e5060c6"
 )
 
 _SHA256 = re.compile(r"^[a-f0-9]{64}$")
@@ -68,6 +70,11 @@ _CANDIDATE_ID = re.compile(r"^[a-f0-9]{20}$")
 _SAFE_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _SAFE_VERSION = re.compile(r"^[0-9A-Za-z][0-9A-Za-z._+-]{0,31}$")
 _SAFE_ARTIFACT_PART = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$")
+_SAFE_LONG_VERSION = re.compile(
+    r"^[0-9A-Za-z][0-9A-Za-z._+-]{0,127}$"
+)
+_SPDX = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.+-]{0,63}$")
+_CUDA_VERSION = re.compile(r"^[0-9]{1,2}\.[0-9]{1,2}$")
 
 
 class CommandProposalGenerationError(ValueError):
@@ -76,6 +83,10 @@ class CommandProposalGenerationError(ValueError):
 
 class CommandProposalGenerator(Protocol):
     """Dependency-injection contract for bridge-owned proposal generation."""
+
+    def status(self) -> Mapping[str, Any]:
+        """Return scrubbed installation/manifest readiness without execution."""
+        ...
 
     def generate(
         self,
@@ -174,6 +185,12 @@ class UnavailableCommandProposalGenerator:
         ),
     ) -> None:
         self._message_ko = message_ko
+
+    def status(self) -> Mapping[str, Any]:
+        return {
+            "state": "unavailable",
+            "error_code": "model_pack_not_configured",
+        }
 
     def generate(
         self,
@@ -441,6 +458,175 @@ def _verify_model_artifacts(
             raise CommandProposalGenerationError(
                 "model artifact integrity verification failed"
             )
+
+
+def _verify_model_pack_metadata(
+    manifest: Mapping[str, Any],
+    *,
+    expected_pack_id: str,
+    expected_pack_version: str,
+) -> None:
+    required = {
+        "schema_version",
+        "pack_id",
+        "pack_version",
+        "model",
+        "source",
+        "license",
+        "gpu_requirements",
+        "inference",
+        "review_policy",
+        "artifacts",
+    }
+    if set(manifest) != required:
+        raise CommandProposalGenerationError(
+            "command proposal model metadata fields are invalid"
+        )
+    if (
+        manifest["schema_version"] != MODEL_MANIFEST_SCHEMA
+        or manifest["pack_id"] != expected_pack_id
+        or manifest["pack_version"] != expected_pack_version
+    ):
+        raise CommandProposalGenerationError(
+            "command proposal model identity is invalid"
+        )
+
+    model = manifest["model"]
+    if (
+        not isinstance(model, Mapping)
+        or set(model)
+        != {"name", "version", "task", "format", "selected_artifact"}
+        or not isinstance(model["name"], str)
+        or not 1 <= len(model["name"].strip()) <= 128
+        or not isinstance(model["version"], str)
+        or not _SAFE_LONG_VERSION.fullmatch(model["version"])
+        or model["task"] != "zero_shot_object_detection"
+        or model["format"] != "onnx"
+        or not isinstance(model["selected_artifact"], str)
+        or _safe_model_relative_path(
+            model["selected_artifact"]
+        ).suffix.casefold()
+        != ".onnx"
+    ):
+        raise CommandProposalGenerationError(
+            "command proposal model identity metadata is invalid"
+        )
+
+    source = manifest["source"]
+    if (
+        not isinstance(source, Mapping)
+        or set(source)
+        != {
+            "repository_url",
+            "repo_id",
+            "resolved_revision",
+            "selected_model",
+        }
+        or not isinstance(source["repo_id"], str)
+        or not 1 <= len(source["repo_id"]) <= 128
+        or not isinstance(source["resolved_revision"], str)
+        or not re.fullmatch(r"[a-f0-9]{40,64}", source["resolved_revision"])
+        or source["selected_model"] != model["selected_artifact"]
+        or not _safe_https_url(source["repository_url"])
+    ):
+        raise CommandProposalGenerationError(
+            "command proposal model source metadata is invalid"
+        )
+
+    licence = manifest["license"]
+    if (
+        not isinstance(licence, Mapping)
+        or set(licence)
+        != {
+            "weights_spdx",
+            "runtime_spdx",
+            "license_url",
+            "commercial_use_confirmed",
+            "redistribution_allowed",
+            "notice_artifact",
+        }
+        or not isinstance(licence["weights_spdx"], str)
+        or not _SPDX.fullmatch(licence["weights_spdx"])
+        or not isinstance(licence["runtime_spdx"], str)
+        or not _SPDX.fullmatch(licence["runtime_spdx"])
+        or licence["commercial_use_confirmed"] is not True
+        or not isinstance(licence["redistribution_allowed"], bool)
+        or licence["notice_artifact"] != "THIRD-PARTY-NOTICES.md"
+        or not _safe_https_url(licence["license_url"])
+    ):
+        raise CommandProposalGenerationError(
+            "command proposal model license metadata is invalid"
+        )
+
+    gpu = manifest["gpu_requirements"]
+    if (
+        not isinstance(gpu, Mapping)
+        or set(gpu)
+        != {
+            "required",
+            "cpu_fallback",
+            "recommended_min_vram_mb",
+            "cuda_min_version",
+        }
+        or not isinstance(gpu["required"], bool)
+        or not isinstance(gpu["cpu_fallback"], bool)
+        or isinstance(gpu["recommended_min_vram_mb"], bool)
+        or not isinstance(gpu["recommended_min_vram_mb"], int)
+        or not 0 <= gpu["recommended_min_vram_mb"] <= 131_072
+        or not (
+            gpu["cuda_min_version"] is None
+            or (
+                isinstance(gpu["cuda_min_version"], str)
+                and _CUDA_VERSION.fullmatch(gpu["cuda_min_version"])
+            )
+        )
+        or (gpu["required"] and gpu["cuda_min_version"] is None)
+    ):
+        raise CommandProposalGenerationError(
+            "command proposal model GPU metadata is invalid"
+        )
+
+    policy = manifest["review_policy"]
+    if (
+        not isinstance(policy, Mapping)
+        or policy.get("review_only") is not True
+        or policy.get("automatic_labeling_allowed") is not False
+        or policy.get("incident_creation_allowed") is not False
+        or policy.get("model_promotion_allowed") is not False
+    ):
+        raise CommandProposalGenerationError(
+            "command proposal model review boundary is invalid"
+        )
+
+    artifact_paths = {
+        row.get("path")
+        for row in manifest["artifacts"]
+        if isinstance(row, Mapping)
+    }
+    if (
+        model["selected_artifact"] not in artifact_paths
+        or licence["notice_artifact"] not in artifact_paths
+    ):
+        raise CommandProposalGenerationError(
+            "command proposal model metadata references missing artifacts"
+        )
+
+
+def _safe_https_url(value: object) -> bool:
+    if not isinstance(value, str) or not 1 <= len(value) <= 2_048:
+        return False
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return False
+    return bool(
+        parsed.scheme == "https"
+        and parsed.netloc
+        and not parsed.username
+        and not parsed.password
+        and not parsed.query
+        and not parsed.fragment
+    )
 
 
 def _canonical_json(value: Any) -> bytes:
@@ -744,7 +930,7 @@ class FixedManifestCommandProposalGenerator:
         program_data: Optional[str] = None,
     ) -> CommandProposalGenerator:
         packaged_root = os.environ.get(
-            "TRAFFICVISSON_COMMAND_PROPOSAL_RUNNER_ROOT"
+            "TRAFFICSUPERVISION_COMMAND_PROPOSAL_RUNNER_ROOT"
         )
         if packaged_root:
             candidate = Path(packaged_root)
@@ -774,7 +960,7 @@ class FixedManifestCommandProposalGenerator:
             return UnavailableCommandProposalGenerator()
         runner_root = (
             Path(base)
-            / "TrafficVisson"
+            / "TrafficSuperVision"
             / "CommandProposalRunner"
             / "grounding-dino-v1"
         )
@@ -900,6 +1086,11 @@ class FixedManifestCommandProposalGenerator:
                 "command proposal model manifest integrity check failed"
             )
         _verify_model_artifacts(resolved_model_root, model_manifest)
+        _verify_model_pack_metadata(
+            model_manifest,
+            expected_pack_id=model.pack_id,
+            expected_pack_version=model.pack_version,
+        )
         return (
             executable,
             resolved_model_root,
@@ -910,6 +1101,30 @@ class FixedManifestCommandProposalGenerator:
             },
             manifest_sha256,
         )
+
+    def status(self) -> Mapping[str, Any]:
+        try:
+            _executable, _model_root, manifest, manifest_sha256 = (
+                self._load_verified_runner()
+            )
+        except CommandProposalGenerationError:
+            return {
+                "state": "failed",
+                "error_code": "model_pack_invalid",
+            }
+        model = manifest["model"]
+        return {
+            "state": "ready",
+            "error_code": None,
+            "provider": model["provider"],
+            "pack_id": model["pack_id"],
+            "pack_version": model["pack_version"],
+            "manifest_sha256": model["manifest_sha256"],
+            "runner_manifest_sha256": manifest_sha256,
+            "capabilities": ["natural_language_box_proposals"],
+            "review_only": True,
+            "bulk_frame_detection_provider": "local_model",
+        }
 
     def generate(
         self,

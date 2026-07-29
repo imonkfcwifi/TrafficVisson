@@ -45,7 +45,16 @@ test("bridge client supplies auth internally and blocks redirects", async () => 
   assert.equal(observed.options.redirect, "error");
   assert.equal(observed.options.credentials, "omit");
   assert.equal(observed.options.headers.Authorization, `Bearer ${TEST_TOKEN}`);
+  await client.request("PUT", "/projects/11111111-1111-4111-8111-111111111111/pipeline/profile", {
+    body: { review_mode: "precision" },
+  });
+  assert.equal(observed.options.method, "PUT");
+  assert.equal(
+    observed.url,
+    "http://127.0.0.1:43123/projects/11111111-1111-4111-8111-111111111111/pipeline/profile",
+  );
   await assert.rejects(() => client.request("DELETE", "/health"), /allowlisted/);
+  await assert.rejects(() => client.request("PATCH", "/health"), /allowlisted/);
   await assert.rejects(() => client.request("GET", "//attacker.example"), /invalid/);
   await assert.rejects(() => client.request("GET", "/projects/../providers"), /invalid/);
 });
@@ -133,6 +142,37 @@ test("bridge client streams bounded evidence with internal auth and byte ranges"
   assert.equal(response.headers.get("authorization"), null);
   assert.equal(response.headers.get("content-type"), "image/jpeg");
   assert.equal(response.headers.get("content-range"), "bytes 0-3/400");
+});
+
+test("bridge client accepts the bounded raster formats used by HWPX samples", async () => {
+  for (const mediaType of [
+    "image/bmp",
+    "image/gif",
+    "image/png",
+    "image/webp",
+  ]) {
+    const body = Uint8Array.from([1, 2, 3, 4]);
+    const client = new BridgeClient({
+      baseUrl: "http://127.0.0.1:43123",
+      token: TEST_TOKEN,
+      fetchImpl: async () =>
+        new Response(body, {
+          status: 200,
+          headers: {
+            "Content-Length": String(body.byteLength),
+            "Content-Type": mediaType,
+          },
+        }),
+    });
+    const response = await client.requestBinary("/reference-image", {
+      maximumBytes: 64,
+    });
+    assert.equal(response.headers.get("content-type"), mediaType);
+    assert.deepEqual(
+      new Uint8Array(await response.arrayBuffer()),
+      body,
+    );
+  }
 });
 
 test("bridge client rejects invalid or oversized binary responses", async () => {

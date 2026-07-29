@@ -225,7 +225,7 @@ def _model_source() -> dict:
         ],
         "artifacts": [
             {
-                "path": "trafficvisson-model-pack.json",
+                "path": "trafficsupervision-model-pack.json",
                 "role": "model_manifest",
                 "size_bytes": 1200,
                 "sha256": MODEL_MANIFEST_SHA256,

@@ -32,9 +32,11 @@ import {
   evidenceBridgePath,
   isAllowedRendererNavigation,
   parseEvidenceUrl,
+  parseWeakCaseImageUrl,
   parseDevServerUrl,
   resolveDevServerUrl,
   resolveRendererAsset,
+  weakCaseImageBridgePath,
 } from "./security.mjs";
 import { applyProductIdentity } from "./product-identity.mjs";
 
@@ -58,10 +60,10 @@ const commandProposalRunnerRoot = app.isPackaged
 const rendererRoot = path.join(desktopRoot, "dist", "client");
 const devServerUrl = resolveDevServerUrl(
   app.isPackaged,
-  process.env.TRAFFICVISSON_RENDERER_URL,
+  process.env.TRAFFICSUPERVISION_RENDERER_URL,
 );
 const smokeTestMode =
-  !app.isPackaged && process.env.TRAFFICVISSON_SMOKE_TEST === "1";
+  !app.isPackaged && process.env.TRAFFICSUPERVISION_SMOKE_TEST === "1";
 const EXPORT_TIMEOUT_MS = 30 * 60 * 1000;
 const AUTO_LABELING_RUN_TIMEOUT_MS = 10 * 60 * 1000;
 const nativeWindowChrome =
@@ -111,10 +113,11 @@ protocol.registerSchemesAsPrivileged([
 const supervisor = new BridgeSupervisor({
   bridgeRoot,
   commandProposalRunnerRoot,
+  electronVersion: process.versions.electron,
   pythonExecutable: app.isPackaged
     ? undefined
     : resolvePythonExecutable({
-        configured: process.env.TRAFFICVISSON_PYTHON,
+        configured: process.env.TRAFFICSUPERVISION_PYTHON,
       }),
   frozenBridgeExecutable: app.isPackaged
     ? resolveFrozenBridgeExecutable({ resourcesPath: process.resourcesPath })
@@ -177,7 +180,7 @@ function registerIpcHandlers() {
   registerHandler(IPC_CHANNELS.DIALOG_HWP_DOCUMENT, async (_payload, event) => {
     const parentWindow = BrowserWindow.fromWebContents(event.sender);
     const options = {
-      title: "TrafficVisson 보고서 양식을 선택하세요",
+      title: "TrafficSuperVision 보고서 양식을 선택하세요",
       buttonLabel: "양식 선택",
       properties: ["openFile", "dontAddToRecent"],
       filters: [{ name: "한/글 문서", extensions: ["hwp", "hwpx"] }],
@@ -195,7 +198,7 @@ function registerIpcHandlers() {
     async (_payload, event) => {
       const parentWindow = BrowserWindow.fromWebContents(event.sender);
       const options = {
-        title: "TrafficVisson 추적 패키지를 저장할 폴더를 선택하세요",
+        title: "TrafficSuperVision 추적 패키지를 저장할 폴더를 선택하세요",
         buttonLabel: "저장 폴더 선택",
         properties: ["openDirectory", "createDirectory", "dontAddToRecent"],
       };
@@ -214,6 +217,24 @@ function registerIpcHandlers() {
   });
   registerHandler(IPC_CHANNELS.SOURCE_CANDIDATES_LIST, () =>
     supervisor.request("GET", "/source-candidates"),
+  );
+  registerHandler(IPC_CHANNELS.WEAK_CASE_SOURCES_LIST, (payload) =>
+    supervisor.request(
+      "GET",
+      `/projects/${encodeId(payload.projectId)}/reference-cases/sources`,
+    ),
+  );
+  registerHandler(IPC_CHANNELS.WEAK_CASE_SEARCH, (payload) =>
+    supervisor.request(
+      "POST",
+      `/projects/${encodeId(payload.projectId)}/reference-cases/search`,
+      {
+        body: toBridgePayload(
+          IPC_CHANNELS.WEAK_CASE_SEARCH,
+          payload,
+        ),
+      },
+    ),
   );
   registerHandler(IPC_CHANNELS.PROJECT_LIST, () => supervisor.request("GET", "/projects"));
   registerHandler(IPC_CHANNELS.PROJECT_CREATE, (_payload) =>
@@ -331,10 +352,133 @@ function registerIpcHandlers() {
       { body: {} },
     ),
   );
+  registerHandler(IPC_CHANNELS.DENSE_INDEX_START, (payload) =>
+    supervisor.request(
+      "POST",
+      `/projects/${encodeId(payload.projectId)}/dense-index/jobs`,
+      {
+        body: toBridgePayload(
+          IPC_CHANNELS.DENSE_INDEX_START,
+          payload,
+        ),
+      },
+    ),
+  );
+  registerHandler(IPC_CHANNELS.DENSE_INDEX_LIST, (payload) =>
+    supervisor.request(
+      "GET",
+      `/projects/${encodeId(payload.projectId)}/dense-index/jobs?limit=100`,
+    ),
+  );
+  registerHandler(IPC_CHANNELS.DENSE_INDEX_GET, (payload) =>
+    supervisor.request(
+      "GET",
+      `/projects/${encodeId(payload.projectId)}/dense-index/jobs/${encodeId(payload.jobId)}`,
+    ),
+  );
+  registerHandler(IPC_CHANNELS.DENSE_INDEX_CANCEL, (payload) =>
+    supervisor.request(
+      "POST",
+      `/projects/${encodeId(payload.projectId)}/dense-index/jobs/${encodeId(payload.jobId)}/cancel`,
+      { body: {} },
+    ),
+  );
+  registerHandler(IPC_CHANNELS.PIPELINE_PROFILE_CONFIGURE, (payload) =>
+    supervisor.request(
+      "PUT",
+      `/projects/${encodeId(payload.projectId)}/pipeline/profile`,
+      {
+        body: toBridgePayload(
+          IPC_CHANNELS.PIPELINE_PROFILE_CONFIGURE,
+          payload,
+        ),
+      },
+    ),
+  );
+  registerHandler(IPC_CHANNELS.PIPELINE_PROFILE_GET, (payload) =>
+    supervisor.request(
+      "GET",
+      `/projects/${encodeId(payload.projectId)}/pipeline/profile`,
+    ),
+  );
+  registerHandler(IPC_CHANNELS.PIPELINE_START, (payload) =>
+    supervisor.request(
+      "POST",
+      `/projects/${encodeId(payload.projectId)}/pipeline/jobs`,
+      {
+        body: toBridgePayload(
+          IPC_CHANNELS.PIPELINE_START,
+          payload,
+        ),
+      },
+    ),
+  );
+  registerHandler(IPC_CHANNELS.PIPELINE_LIST, (payload) =>
+    supervisor.request(
+      "GET",
+      `/projects/${encodeId(payload.projectId)}/pipeline/jobs?limit=128`,
+    ),
+  );
+  registerHandler(IPC_CHANNELS.PIPELINE_GET, (payload) =>
+    supervisor.request(
+      "GET",
+      `/projects/${encodeId(payload.projectId)}/pipeline/jobs/${encodeId(payload.jobId)}`,
+    ),
+  );
+  registerHandler(IPC_CHANNELS.PIPELINE_CANCEL, (payload) =>
+    supervisor.request(
+      "POST",
+      `/projects/${encodeId(payload.projectId)}/pipeline/jobs/${encodeId(payload.jobId)}/cancel`,
+      { body: {} },
+    ),
+  );
+  registerHandler(IPC_CHANNELS.PIPELINE_RESUME, (payload) =>
+    supervisor.request(
+      "POST",
+      `/projects/${encodeId(payload.projectId)}/pipeline/jobs/${encodeId(payload.jobId)}/resume`,
+      { body: {} },
+    ),
+  );
+  registerHandler(IPC_CHANNELS.PIPELINE_REVIEW_COMPLETE, (payload) =>
+    supervisor.request(
+      "POST",
+      `/projects/${encodeId(payload.projectId)}/pipeline/jobs/${encodeId(payload.jobId)}/review-complete`,
+      {
+        body: toBridgePayload(
+          IPC_CHANNELS.PIPELINE_REVIEW_COMPLETE,
+          payload,
+        ),
+      },
+    ),
+  );
   registerHandler(IPC_CHANNELS.CANDIDATE_QUESTIONS_LIST, (payload) =>
     supervisor.request(
       "GET",
       `/projects/${encodeId(payload.projectId)}/analysis/jobs/${encodeId(payload.jobId)}/label-questions`,
+    ),
+  );
+  registerHandler(IPC_CHANNELS.MASK_REFINEMENT_CAPABILITY, (payload) =>
+    supervisor.request(
+      "POST",
+      `/projects/${encodeId(payload.projectId)}/analysis/jobs/${encodeId(payload.jobId)}/candidates/${encodeId(payload.candidateId)}/mask-refinement-capability`,
+      {
+        body: toBridgePayload(
+          IPC_CHANNELS.MASK_REFINEMENT_CAPABILITY,
+          payload,
+        ),
+      },
+    ),
+  );
+  registerHandler(IPC_CHANNELS.MASK_REFINEMENT_REQUEST, (payload) =>
+    supervisor.request(
+      "POST",
+      `/projects/${encodeId(payload.projectId)}/analysis/jobs/${encodeId(payload.jobId)}/candidates/${encodeId(payload.candidateId)}/mask-refinements`,
+      {
+        body: toBridgePayload(
+          IPC_CHANNELS.MASK_REFINEMENT_REQUEST,
+          payload,
+        ),
+      },
     ),
   );
   registerHandler(IPC_CHANNELS.CANDIDATE_ANSWER, (payload) =>
@@ -483,6 +627,9 @@ function registerIpcHandlers() {
       { body: bridgePayload },
     );
   });
+  registerHandler(IPC_CHANNELS.RUNTIME_READINESS, () =>
+    supervisor.request("GET", "/runtime/readiness"),
+  );
   registerHandler(IPC_CHANNELS.PROVIDERS_LIST, () => supervisor.request("GET", "/providers"));
   registerHandler(IPC_CHANNELS.PROVIDER_LOGIN, (payload) =>
     supervisor.request("POST", `/providers/${encodeId(payload.provider)}/login`, {
@@ -607,9 +754,16 @@ async function registerRendererProtocol() {
           headers: { Allow: "GET" },
         });
       }
-      const identity = parseEvidenceUrl(request.url);
+      let bridgePath;
+      try {
+        const identity = parseEvidenceUrl(request.url);
+        bridgePath = evidenceBridgePath(identity);
+      } catch {
+        const identity = parseWeakCaseImageUrl(request.url);
+        bridgePath = weakCaseImageBridgePath(identity);
+      }
       const bridgeResponse = await supervisor.requestBinary(
-        evidenceBridgePath(identity),
+        bridgePath,
         { range: request.headers.get("range") ?? undefined },
       );
       const headers = new Headers(bridgeResponse.headers);
@@ -671,6 +825,16 @@ async function createMainWindow() {
     minHeight: 720,
     show: false,
     backgroundColor: "#e8edf5",
+    ...(app.isPackaged
+      ? {}
+      : {
+          icon: path.join(
+            currentDirectory,
+            "..",
+            "build",
+            "icon.ico",
+          ),
+        }),
     autoHideMenuBar: process.platform !== "darwin",
     ...nativeWindowChrome,
     webPreferences: {
@@ -770,7 +934,7 @@ if (!app.requestSingleInstanceLock()) {
   app
     .whenReady()
     .then(async () => {
-      // macOS retains its conventional system application menu. TrafficVisson
+      // macOS retains its conventional system application menu. TrafficSuperVision
       // ships for Windows, where the generic Electron menu is not product UI.
       if (process.platform !== "darwin") {
         Menu.setApplicationMenu(null);

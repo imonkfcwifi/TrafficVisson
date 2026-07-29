@@ -23,6 +23,10 @@ const importSource = await readFile(
   new URL("./screens/ImportScreen.tsx", import.meta.url),
   "utf8",
 );
+const reportSource = await readFile(
+  new URL("./screens/ReportScreen.tsx", import.meta.url),
+  "utf8",
+);
 
 test("compact overrides load after the shared and product shell styles", () => {
   assert.match(
@@ -48,15 +52,45 @@ test("desktop history header follows its text block inside the screen", () => {
 test("short desktop report keeps provider, edit plan, and document in one viewport", () => {
   assert.match(
     compactStyles,
-    /\.screen--report \.report-layout\s*\{[^}]*height:\s*100%;[^}]*gap:\s*8px;/s,
+    /\.screen--report \.report-layout\s*\{[^}]*height:\s*100%;[^}]*grid-template-columns:\s*minmax\(320px,\s*34fr\)\s*minmax\(0,\s*66fr\);[^}]*gap:\s*8px;/s,
   );
   assert.match(
     compactStyles,
-    /\.screen--report \.report-controls\s*\{[^}]*grid-template-rows:[^;}]*minmax\(310px,\s*1\.55fr\)[^;}]*minmax\(176px,\s*0\.85fr\)/s,
+    /\.screen--report \.report-controls\s*\{[^}]*grid-template-rows:[^;}]*minmax\(380px,\s*1fr\)[^;}]*140px/s,
   );
   assert.match(
     compactStyles,
     /\.screen--report \.edit-plan-empty\s*\{[^}]*min-height:\s*0;[^}]*flex:\s*1;/s,
+  );
+  assert.match(
+    compactStyles,
+    /\.screen--report \.provider-panel\s*\{[^}]*overflow:\s*hidden;/s,
+  );
+  assert.match(
+    compactStyles,
+    /\.screen--report \.edit-plan-panel:has\(\.edit-plan-empty\) \.edit-op-list\s*\{[^}]*overflow:\s*hidden;/s,
+  );
+  assert.match(
+    compactStyles,
+    /\.screen--report \.document-stage\s*\{[^}]*padding:\s*14px 16px 34px;/s,
+  );
+});
+
+test("report sketch controls expose honest one-page navigation and real zoom state", () => {
+  assert.match(
+    reportSource,
+    /role="toolbar"[\s\S]*aria-label="문서 구성 스케치 보기 도구"/,
+  );
+  assert.match(reportSource, /구성 스케치 1 \/ 1/);
+  assert.match(reportSource, /실제 페이지 렌더링 전/);
+  assert.match(reportSource, /changeDocumentZoom\(-10\)/);
+  assert.match(reportSource, /changeDocumentZoom\(10\)/);
+  assert.match(reportSource, /onClick=\{fitDocumentWidth\}/);
+  assert.match(reportSource, /style=\{\{ zoom: `\$\{documentZoom\}%` \}\}/);
+  assert.doesNotMatch(reportSource, /구성 스케치 1 \/ 48|페이지 1 \/ 48/);
+  assert.match(
+    reportSource,
+    /document-runtime-notice notice notice--warning" role="status"/,
   );
 });
 

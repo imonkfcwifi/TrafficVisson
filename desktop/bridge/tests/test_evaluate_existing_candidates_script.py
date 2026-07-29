@@ -96,7 +96,7 @@ def _fixture_data_root(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
     with sqlite3.connect(sqlite_path) as connection:
         connection.execute("CREATE TABLE source_guard (value TEXT)")
         connection.execute("INSERT INTO source_guard VALUES ('unchanged')")
-    model_manifest = tmp_path / "trafficvisson-model-pack.json"
+    model_manifest = tmp_path / "trafficsupervision-model-pack.json"
     model_manifest.write_text("{}", encoding="utf-8")
     return data_root, model_manifest, record_path, image_path
 

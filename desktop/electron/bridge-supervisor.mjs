@@ -5,7 +5,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { BridgeClient } from "./bridge-client.mjs";
 
-const READY_PREFIX = "TRAFFICVISSON_BRIDGE_READY ";
+const READY_PREFIX = "TRAFFICSUPERVISION_BRIDGE_READY ";
 const MAX_HANDSHAKE_BYTES = 16 * 1024;
 const MAX_LOG_LINES = 200;
 const SAFE_ENVIRONMENT_KEYS = new Set([
@@ -23,7 +23,7 @@ const SAFE_ENVIRONMENT_KEYS = new Set([
   "SYSTEMDRIVE",
   "SYSTEMROOT",
   "TEMP",
-  "TRAFFICVISSON_VISION_MODEL_PACK",
+  "TRAFFICSUPERVISION_VISION_MODEL_PACK",
   "TMP",
   "TMPDIR",
   "WINDIR",
@@ -57,7 +57,7 @@ export function resolvePythonExecutable({ isPackaged = false, resourcesPath, con
     if (!existsSync(embedded)) throw new Error("Embedded Python runtime is missing");
     return embedded;
   }
-  return configured || process.env.TRAFFICVISSON_PYTHON || (process.platform === "win32" ? "python" : "python3");
+  return configured || process.env.TRAFFICSUPERVISION_PYTHON || (process.platform === "win32" ? "python" : "python3");
 }
 
 export function resolveFrozenBridgeExecutable({ resourcesPath } = {}) {
@@ -67,7 +67,7 @@ export function resolveFrozenBridgeExecutable({ resourcesPath } = {}) {
   const executable = path.join(
     resourcesPath,
     "bridge",
-    process.platform === "win32" ? "TrafficVissonBridge.exe" : "TrafficVissonBridge",
+    process.platform === "win32" ? "TrafficSuperVisionBridge.exe" : "TrafficSuperVisionBridge",
   );
   if (!existsSync(executable)) {
     throw new Error("Packaged bridge executable is missing");
@@ -84,7 +84,7 @@ export function buildBridgeEnvironment(baseEnvironment, token) {
   }
   safeEnvironment.PYTHONDONTWRITEBYTECODE = "1";
   safeEnvironment.PYTHONUNBUFFERED = "1";
-  safeEnvironment.TRAFFICVISSON_BRIDGE_TOKEN = token;
+  safeEnvironment.TRAFFICSUPERVISION_BRIDGE_TOKEN = token;
   return safeEnvironment;
 }
 
@@ -93,6 +93,7 @@ export class BridgeSupervisor extends EventEmitter {
   #commandProposalRunnerRoot;
   #pythonExecutable;
   #frozenBridgeExecutable;
+  #electronVersion;
   #spawn;
   #fetch;
   #startupTimeoutMs;
@@ -108,6 +109,7 @@ export class BridgeSupervisor extends EventEmitter {
     commandProposalRunnerRoot,
     pythonExecutable,
     frozenBridgeExecutable,
+    electronVersion,
     spawnImpl = spawn,
     fetchImpl = globalThis.fetch,
     startupTimeoutMs = 15_000,
@@ -119,6 +121,11 @@ export class BridgeSupervisor extends EventEmitter {
       : null;
     this.#pythonExecutable = pythonExecutable;
     this.#frozenBridgeExecutable = frozenBridgeExecutable;
+    this.#electronVersion =
+      typeof electronVersion === "string" &&
+      /^[0-9A-Za-z][0-9A-Za-z._+-]{0,63}$/.test(electronVersion)
+        ? electronVersion
+        : null;
     this.#spawn = spawnImpl;
     this.#fetch = fetchImpl;
     this.#startupTimeoutMs = startupTimeoutMs;
@@ -152,6 +159,10 @@ export class BridgeSupervisor extends EventEmitter {
     const command = this.#frozenBridgeExecutable || this.#pythonExecutable;
     const args = this.#frozenBridgeExecutable ? [] : ["-I", "-B", "-u", launcherPath];
     const childEnvironment = buildBridgeEnvironment(process.env, this.#token);
+    if (this.#electronVersion) {
+      childEnvironment.TRAFFICSUPERVISION_ELECTRON_VERSION =
+        this.#electronVersion;
+    }
     if (this.#commandProposalRunnerRoot) {
       if (
         !path.isAbsolute(this.#commandProposalRunnerRoot) ||
@@ -160,7 +171,7 @@ export class BridgeSupervisor extends EventEmitter {
         this.#state = "failed";
         throw new Error("Packaged command proposal runner is missing");
       }
-      childEnvironment.TRAFFICVISSON_COMMAND_PROPOSAL_RUNNER_ROOT =
+      childEnvironment.TRAFFICSUPERVISION_COMMAND_PROPOSAL_RUNNER_ROOT =
         this.#commandProposalRunnerRoot;
     }
     if (this.#frozenBridgeExecutable) {

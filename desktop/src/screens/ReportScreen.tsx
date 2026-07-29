@@ -1,14 +1,19 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Bot,
   Check,
+  ChevronLeft,
+  ChevronRight,
   FileCheck2,
   FileText,
   FolderOpen,
   LoaderCircle,
   LockKeyhole,
   LogIn,
+  Maximize2,
+  Minus,
+  Plus,
   RefreshCw,
   RotateCcw,
   Save,
@@ -20,6 +25,7 @@ import {
   Badge,
   Button,
   GlassPanel,
+  IconButton,
   PanelHeader,
   StatusDot,
 } from "../components/ui";
@@ -38,6 +44,8 @@ import {
   type ProviderId,
   type ReportGenerationResult,
 } from "../reportSessionState";
+import { parseActivePersistentIncidents } from "../persistentIncidents";
+import { usePipelineUi } from "../pipelineJobs";
 
 type ProviderState = "not_connected" | "ready" | "unavailable" | "coming_soon";
 
@@ -47,11 +55,31 @@ type ProviderConnection = {
   state: ProviderState;
   authentication_owner: "official_cli" | "not_applicable";
   capabilities: {
+    structured_judgment: boolean;
+    bulk_frame_detection: false;
     report_draft: boolean;
     document_edit_plan: boolean;
     usage_information: boolean;
   };
   message: string;
+  diagnostic_state:
+    | "not_installed"
+    | "installed"
+    | "not_connected"
+    | "ready"
+    | "expired"
+    | "network_unavailable"
+    | "error"
+    | "coming_soon";
+  installation_state: "installed" | "not_installed" | "disabled";
+  authentication_state:
+    | "ready"
+    | "signed_out"
+    | "expired"
+    | "unknown"
+    | "not_applicable";
+  network_state: "not_checked" | "offline" | "unknown" | "not_applicable";
+  version?: string;
 };
 
 type HwpPreflight = {
@@ -62,6 +90,21 @@ type HwpPreflight = {
 };
 
 const providerOrder: ProviderId[] = ["codex", "claude", "local"];
+const DOCUMENT_SKETCH_WIDTH = 680;
+const DOCUMENT_ZOOM_MIN = 40;
+const DOCUMENT_ZOOM_MAX = 150;
+
+export function calculateDocumentFitZoom(
+  viewportWidth: number,
+  horizontalPadding: number,
+) {
+  const usableWidth = Math.max(0, viewportWidth - horizontalPadding);
+  const fitZoom = Math.floor((usableWidth / DOCUMENT_SKETCH_WIDTH) * 100);
+  return Math.max(
+    DOCUMENT_ZOOM_MIN,
+    Math.min(DOCUMENT_ZOOM_MAX, fitZoom),
+  );
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -71,20 +114,83 @@ function parseProviders(value: unknown): ProviderConnection[] {
   if (!isRecord(value) || !Array.isArray(value.providers)) {
     throw new Error("Provider 상태 응답 형식이 올바르지 않습니다.");
   }
-  return value.providers.filter((row): row is ProviderConnection => {
-    if (!isRecord(row) || !isRecord(row.capabilities)) return false;
-    return (
+  return value.providers.map((row) => {
+    if (
+      !isRecord(row) ||
+      !isRecord(row.capabilities) ||
+      !(
       providerOrder.includes(row.provider as ProviderId) &&
       ["not_connected", "ready", "unavailable", "coming_soon"].includes(
         String(row.state),
       ) &&
       typeof row.display_name === "string" &&
       typeof row.message === "string" &&
+      typeof row.capabilities.structured_judgment === "boolean" &&
+      row.capabilities.bulk_frame_detection === false &&
       typeof row.capabilities.report_draft === "boolean" &&
       typeof row.capabilities.document_edit_plan === "boolean" &&
-      typeof row.capabilities.usage_information === "boolean"
-    );
+      typeof row.capabilities.usage_information === "boolean" &&
+      [
+        "not_installed",
+        "installed",
+        "not_connected",
+        "ready",
+        "expired",
+        "network_unavailable",
+        "error",
+        "coming_soon",
+      ].includes(String(row.diagnostic_state)) &&
+      ["installed", "not_installed", "disabled"].includes(
+        String(row.installation_state),
+      ) &&
+      [
+        "ready",
+        "signed_out",
+        "expired",
+        "unknown",
+        "not_applicable",
+      ].includes(String(row.authentication_state)) &&
+      ["not_checked", "offline", "unknown", "not_applicable"].includes(
+        String(row.network_state),
+      ) &&
+      (row.version === undefined ||
+        (typeof row.version === "string" &&
+          /^[vV]?[0-9][0-9A-Za-z.+-]{0,63}$/.test(row.version)))
+      )
+    ) {
+      throw new Error("Provider 상태 응답 형식이 올바르지 않습니다.");
+    }
+    return row as ProviderConnection;
   });
+}
+
+function providerDiagnosticSummary(item: ProviderConnection | undefined) {
+  if (!item) return "상태 확인 전";
+  const installation =
+    item.installation_state === "installed"
+      ? "설치됨"
+      : item.installation_state === "disabled"
+        ? "비활성"
+        : "미설치";
+  const authentication = {
+    ready: "로그인 정상",
+    signed_out: "로그인 필요",
+    expired: "로그인 만료",
+    unknown: "인증 미확인",
+    not_applicable: "인증 해당 없음",
+  }[item.authentication_state];
+  const network = {
+    not_checked: "네트워크 미검사",
+    offline: "네트워크 끊김",
+    unknown: "네트워크 미확인",
+    not_applicable: "네트워크 해당 없음",
+  }[item.network_state];
+  return [
+    item.version ? `v${item.version.replace(/^[vV]/, "")}` : "버전 미확인",
+    installation,
+    authentication,
+    network,
+  ].join(" · ");
 }
 
 function parsePreflight(value: unknown): HwpPreflight {
@@ -106,6 +212,9 @@ function parsePreview(value: unknown): HwpPreviewResult {
     value.mode !== "preview" ||
     typeof value.operation_count !== "number" ||
     !isRecord(value.operation_types) ||
+    Object.values(value.operation_types).some(
+      (count) => typeof count !== "number" || !Number.isInteger(count) || count < 0,
+    ) ||
     !isRecord(value.structure) ||
     typeof value.structure.paragraph_count !== "number" ||
     typeof value.structure.table_count !== "number" ||
@@ -120,8 +229,14 @@ function parsePreview(value: unknown): HwpPreviewResult {
     !/^[a-f0-9]{64}$/.test(value.plan_sha256) ||
     !isRecord(value.target_summary) ||
     typeof value.target_summary.operation_count !== "number" ||
+    value.target_summary.operation_count !== value.operation_count ||
     !isRecord(value.target_summary.operation_types) ||
+    Object.values(value.target_summary.operation_types).some(
+      (count) => typeof count !== "number" || !Number.isInteger(count) || count < 0,
+    ) ||
     !Array.isArray(value.target_summary.targets) ||
+    value.target_summary.targets.length < 1 ||
+    value.target_summary.targets.some((target) => typeof target !== "string") ||
     typeof value.message !== "string"
   ) {
     throw new Error("한/글 구조 미리보기 응답을 검증하지 못했습니다.");
@@ -242,31 +357,6 @@ function parseGeneration(value: unknown): ReportGenerationResult {
   };
 }
 
-function severityToContract(value: string | undefined) {
-  if (value === "긴급") return "urgent" as const;
-  if (value === "심각") return "major" as const;
-  if (value === "경미") return "minor" as const;
-  return "moderate" as const;
-}
-
-async function deterministicIncidentId(jobId: string, candidateId: string) {
-  const digest = new Uint8Array(
-    await crypto.subtle.digest(
-      "SHA-256",
-      new TextEncoder().encode(`TrafficVisson:${jobId}:${candidateId}`),
-    ),
-  );
-  digest[6] = (digest[6] & 0x0f) | 0x50;
-  digest[8] = (digest[8] & 0x3f) | 0x80;
-  const hex = Array.from(digest.slice(0, 16), (value) =>
-    value.toString(16).padStart(2, "0"),
-  ).join("");
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(
-    12,
-    16,
-  )}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-}
-
 function messageFrom(error: unknown, fallback: string) {
   return error instanceof Error && error.message ? error.message : fallback;
 }
@@ -294,12 +384,36 @@ function formatBytes(value: number) {
   return `${value.toLocaleString("ko-KR")} B`;
 }
 
+export function isCurrentReportOperation(
+  requestOperationId: number,
+  activeOperationId: number,
+  requestScopeKey: string | null,
+  activeScopeKey: string | null,
+) {
+  return (
+    requestOperationId === activeOperationId &&
+    requestScopeKey === activeScopeKey
+  );
+}
+
 export function ReportScreen() {
   const runtime = useRuntimeState();
-  const reportScopeKey = runtime.analysisSummary
+  const pipeline = usePipelineUi();
+  const reportScopeKey =
+    runtime.analysisSummary &&
+    runtime.activeImport?.projectId === runtime.analysisSummary.projectId
     ? `${runtime.analysisSummary.projectId}:${runtime.analysisSummary.jobId}`
     : null;
   prepareReportSessionScope(reportScopeKey);
+  const latestReportScopeKeyRef = useRef(reportScopeKey);
+  const activeReportOperationRef = useRef(0);
+  if (latestReportScopeKeyRef.current !== reportScopeKey) {
+    // Increment synchronously during the scope transition.  A request from A
+    // must stay stale even if the user later returns from B to A before that
+    // request resolves.
+    latestReportScopeKeyRef.current = reportScopeKey;
+    activeReportOperationRef.current += 1;
+  }
   const [provider, setProvider] = useReportSessionField("provider");
   const [providers, setProviders] = useState<ProviderConnection[]>([]);
   const [providerLoading, setProviderLoading] = useState(true);
@@ -325,9 +439,40 @@ export function ReportScreen() {
   const [generationLoading, setGenerationLoading] = useState(false);
   const [generationMessage, setGenerationMessage] =
     useReportSessionField("generationMessage");
+  const documentStageRef = useRef<HTMLDivElement>(null);
+  const [documentZoom, setDocumentZoom] = useState(100);
+  const [documentZoomMode, setDocumentZoomMode] =
+    useState<"fit-width" | "manual">("fit-width");
 
   const selectedProvider = providers.find((item) => item.provider === provider);
   const reviewSummary = runtime.analysisSummary;
+  const reportPipeline = useMemo(() => {
+    const job =
+      pipeline.projectId === reviewSummary?.projectId ? pipeline.job : null;
+    const profileSha = job?.provenance.profile_sha256;
+    const sourceSha = job?.provenance.source_sha256;
+    if (
+      !job ||
+      job.status !== "completed" ||
+      runtime.activeImport?.snapshotId !== job.snapshotId ||
+      sourceSha !== reviewSummary?.sourceSha256 ||
+      typeof profileSha !== "string" ||
+      !/^[a-f0-9]{64}$/.test(profileSha)
+    ) {
+      return null;
+    }
+    return {
+      pipelineJobId: job.jobId,
+      pipelineInputFingerprint: job.inputFingerprint,
+      pipelineProfileSha256: profileSha,
+    };
+  }, [
+    pipeline.job,
+    pipeline.projectId,
+    reviewSummary?.projectId,
+    reviewSummary?.sourceSha256,
+    runtime.activeImport?.snapshotId,
+  ]);
   const reviewRows = useReviewHistory(
     reviewSummary
       ? reviewStorageKey(reviewSummary.projectId, reviewSummary.jobId)
@@ -401,14 +546,60 @@ export function ReportScreen() {
     generationLoading ||
     ["previewing", "applying", "rolling_back"].includes(workflow);
 
+  function readFitZoom() {
+    const stage = documentStageRef.current;
+    if (!stage) return 100;
+    const style = window.getComputedStyle(stage);
+    const horizontalPadding =
+      Number.parseFloat(style.paddingLeft) +
+      Number.parseFloat(style.paddingRight);
+    return calculateDocumentFitZoom(stage.clientWidth, horizontalPadding);
+  }
+
+  function fitDocumentWidth() {
+    setDocumentZoomMode("fit-width");
+    setDocumentZoom(readFitZoom());
+  }
+
+  function changeDocumentZoom(delta: number) {
+    setDocumentZoomMode("manual");
+    setDocumentZoom((current) =>
+      Math.max(
+        DOCUMENT_ZOOM_MIN,
+        Math.min(DOCUMENT_ZOOM_MAX, current + delta),
+      ),
+    );
+  }
+
+  function beginReportOperation() {
+    const requestOperationId = activeReportOperationRef.current + 1;
+    activeReportOperationRef.current = requestOperationId;
+    return {
+      requestOperationId,
+      requestScopeKey: reportScopeKey,
+    };
+  }
+
+  function reportOperationIsCurrent(request: {
+    requestOperationId: number;
+    requestScopeKey: string | null;
+  }) {
+    return isCurrentReportOperation(
+      request.requestOperationId,
+      activeReportOperationRef.current,
+      request.requestScopeKey,
+      latestReportScopeKeyRef.current,
+    );
+  }
+
   async function refreshProviders() {
     setProviderLoading(true);
     setProviderError(null);
     try {
-      if (!window.trafficVisson) {
+      if (!window.trafficSuperVision) {
         throw new Error("Provider 확인은 설치형 Electron 앱에서 사용할 수 있습니다.");
       }
-      const next = parseProviders(await window.trafficVisson.providers.list());
+      const next = parseProviders(await window.trafficSuperVision.providers.list());
       setProviders(next);
       const currentProvider = next.find((item) => item.provider === provider);
       const firstReady = next.find((item) => item.state === "ready");
@@ -430,10 +621,10 @@ export function ReportScreen() {
   async function refreshPreflight() {
     setPreflightLoading(true);
     try {
-      if (!window.trafficVisson) {
+      if (!window.trafficSuperVision) {
         throw new Error("한/글 COM 확인은 설치형 Electron 앱에서 사용할 수 있습니다.");
       }
-      setPreflight(parsePreflight(await window.trafficVisson.hwp.preflight()));
+      setPreflight(parsePreflight(await window.trafficSuperVision.hwp.preflight()));
     } catch (error) {
       setPreflight({
         available: false,
@@ -451,7 +642,41 @@ export function ReportScreen() {
     void refreshPreflight();
     // Provider and COM state are intentionally checked, never inferred.
     // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => {
+      // Navigation unmounts this screen without necessarily changing the
+      // analysis scope.  Invalidate its outstanding callbacks as well.
+      activeReportOperationRef.current += 1;
+    };
   }, []);
+
+  useEffect(() => {
+    // Local loading indicators are not stored in the scoped report session.
+    // Reset them as soon as another project/job becomes active.
+    setGenerationLoading(false);
+    setProviderAction(null);
+  }, [reportScopeKey]);
+
+  useEffect(() => {
+    if (documentZoomMode !== "fit-width") return;
+    const stage = documentStageRef.current;
+    if (!stage) return;
+
+    const updateFitZoom = () => {
+      const style = window.getComputedStyle(stage);
+      const horizontalPadding =
+        Number.parseFloat(style.paddingLeft) +
+        Number.parseFloat(style.paddingRight);
+      setDocumentZoom(
+        calculateDocumentFitZoom(stage.clientWidth, horizontalPadding),
+      );
+    };
+
+    updateFitZoom();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(updateFitZoom);
+    observer.observe(stage);
+    return () => observer.disconnect();
+  }, [documentZoomMode]);
 
   function invalidatePreview(message?: string) {
     setPreviewResult(null);
@@ -483,12 +708,12 @@ export function ReportScreen() {
   }
 
   async function launchLogin() {
-    if (provider === "local" || !window.trafficVisson) return;
+    if (provider === "local" || !window.trafficSuperVision) return;
     setProviderAction(provider);
     setProviderError(null);
     setProviderMessage(null);
     try {
-      const result = await window.trafficVisson.providers.login({ provider });
+      const result = await window.trafficSuperVision.providers.login({ provider });
       if (!isRecord(result) || result.state !== "external_cli_owned") {
         throw new Error("공식 CLI 로그인 실행 응답을 확인하지 못했습니다.");
       }
@@ -505,13 +730,15 @@ export function ReportScreen() {
   }
 
   async function selectDocument() {
-    if (!window.trafficVisson) {
+    if (!window.trafficSuperVision) {
       setWorkflow("error");
       setWorkflowMessage("문서 선택은 설치형 Electron 앱에서 사용할 수 있습니다.");
       return;
     }
+    const request = beginReportOperation();
     try {
-      const selection = await window.trafficVisson.dialogs.selectHwpDocument();
+      const selection = await window.trafficSuperVision.dialogs.selectHwpDocument();
+      if (!reportOperationIsCurrent(request)) return;
       if (!selection.selectionId || !selection.file) return;
       setDocumentSelection(selection);
       setGeneration(null);
@@ -519,6 +746,7 @@ export function ReportScreen() {
       setStates({});
       invalidatePreview("새 양식을 선택했습니다. 수락 항목의 구조 미리보기를 실행하세요.");
     } catch (error) {
+      if (!reportOperationIsCurrent(request)) return;
       setWorkflow("error");
       setWorkflowMessage(messageFrom(error, "HWP/HWPX 양식을 선택하지 못했습니다."));
     }
@@ -546,9 +774,10 @@ export function ReportScreen() {
   async function generateReport() {
     const summary = runtime.analysisSummary;
     if (
-      !window.trafficVisson ||
+      !window.trafficSuperVision ||
       !runtime.activeImport ||
       !summary ||
+      !reportScopeKey ||
       !documentSelection?.selectionId ||
       provider === "local"
     ) {
@@ -560,45 +789,42 @@ export function ReportScreen() {
     setGenerationLoading(true);
     setProviderError(null);
     setGenerationMessage(null);
+    const request = beginReportOperation();
     try {
-      const approvedIncidents = await Promise.all(
-        approvedReviews.map(async (review) => {
-          const candidateId = review.questionId.split(":").at(-1) ?? "";
-          const candidate = summary.candidates.find(
-            (item) => item.candidateId === candidateId,
-          );
-          if (!candidate) {
-            throw new Error("승인 라벨과 분석 후보의 연결이 끊어졌습니다.");
-          }
-          return {
-            incidentId: await deterministicIncidentId(
-              summary.jobId,
-              candidate.candidateId,
-            ),
-            reviewState: "approved",
-            incidentType: review.selectedType,
-            severity: severityToContract(review.severity),
-            maintenanceAction:
-              review.action ?? "현장 확인 후 적정 유지보수 조치",
-            ocrText: review.ocrText,
-            locationSummary: "GPS 자료 미연결 · 위치 수동 검증 필요",
-            timeMs: Math.round(
-              candidate.representativeTimestampSeconds * 1_000,
-            ),
-            evidenceRefs: [candidate.representativeImage.artifactRef],
-          };
+      const persistentIncidents = parseActivePersistentIncidents(
+        await window.trafficSuperVision.incidents.list({
+          projectId: summary.projectId,
+          analysisJobId: summary.jobId,
+          includeInactive: false,
+        }),
+        summary.projectId,
+        summary.jobId,
+      );
+      const approvedCandidateIds = new Set(
+        approvedReviews.flatMap((review) => {
+          const candidateId =
+            review.candidateId ?? review.questionId.split(":").at(-1);
+          return candidateId ? [candidateId] : [];
         }),
       );
-      if (!approvedIncidents.length) {
-        throw new Error("보고서에 넣을 사용자 승인 사건이 없습니다.");
+      const incidentIds = persistentIncidents
+        .filter((incident) => approvedCandidateIds.has(incident.candidateId))
+        .map((incident) => incident.incidentId);
+      if (!incidentIds.length) {
+        throw new Error(
+          "현재 분석 작업에 서버가 확인한 활성 승인 사건이 없습니다.",
+        );
       }
       const result = parseGeneration(
-        await window.trafficVisson.reports.generate({
-          projectId: runtime.activeImport.projectId,
+        await window.trafficSuperVision.reports.generate({
+          projectId: summary.projectId,
+          analysisJobId: summary.jobId,
+          sourceFileSha256: summary.sourceSha256,
           provider,
           consent,
           projectLabel: "도로 영상 점검 프로젝트",
-          approvedIncidents,
+          incidentIds,
+          ...(reportPipeline ?? {}),
           documentStructureSummary: {
             documentSnapshotId: `selection:${documentSelection.selectionId}`,
             fieldTargets: ["bookmark:inspection_summary"],
@@ -611,6 +837,7 @@ export function ReportScreen() {
           mapRefs: [],
         }),
       );
+      if (!reportOperationIsCurrent(request)) return;
       setGeneration(result);
       setStates(
         Object.fromEntries(
@@ -622,20 +849,28 @@ export function ReportScreen() {
       );
       invalidatePreview();
       setGenerationMessage(
-        `${result.provider}가 승인 사건 ${approvedIncidents.length}건으로 초안과 편집 계획 ${result.plan.operations.length}건을 생성했습니다.`,
+        `${result.provider}가 서버 확인 승인 사건 ${incidentIds.length}건으로 초안과 편집 계획 ${result.plan.operations.length}건을 생성했습니다.`,
       );
     } catch (error) {
+      if (!reportOperationIsCurrent(request)) return;
       setGeneration(null);
       setProviderError(
         messageFrom(error, "안전한 보고서 초안을 생성하지 못했습니다."),
       );
     } finally {
-      setGenerationLoading(false);
+      if (reportOperationIsCurrent(request)) {
+        setGenerationLoading(false);
+      }
     }
   }
 
   async function previewDocument() {
-    if (!window.trafficVisson || !runtime.activeImport || !documentSelection?.selectionId) {
+    if (
+      !window.trafficSuperVision ||
+      !runtime.activeImport ||
+      !reportScopeKey ||
+      !documentSelection?.selectionId
+    ) {
       setWorkflow("error");
       setWorkflowMessage(
         !runtime.activeImport
@@ -647,20 +882,23 @@ export function ReportScreen() {
     setWorkflow("previewing");
     setWorkflowMessage(null);
     setApplyResult(null);
+    const request = beginReportOperation();
     try {
       const plan = buildPlan();
       const result = parsePreview(
-        await window.trafficVisson.hwp.preview({
+        await window.trafficSuperVision.hwp.preview({
           projectId: runtime.activeImport.projectId,
           documentSelectionId: documentSelection.selectionId,
           plan,
         }),
       );
+      if (!reportOperationIsCurrent(request)) return;
       setPreviewedPlan(plan);
       setPreviewResult(result);
       setWorkflow("previewed");
       setWorkflowMessage(result.message);
     } catch (error) {
+      if (!reportOperationIsCurrent(request)) return;
       setPreviewedPlan(null);
       setPreviewResult(null);
       setWorkflow("error");
@@ -670,8 +908,9 @@ export function ReportScreen() {
 
   async function applyDocument() {
     if (
-      !window.trafficVisson ||
+      !window.trafficSuperVision ||
       !runtime.activeImport ||
+      !reportScopeKey ||
       !documentSelection?.selectionId ||
       !previewedPlan ||
       !previewResult
@@ -682,19 +921,22 @@ export function ReportScreen() {
     }
     setWorkflow("applying");
     setWorkflowMessage(null);
+    const request = beginReportOperation();
     try {
       const result = parseApply(
-        await window.trafficVisson.hwp.apply({
+        await window.trafficSuperVision.hwp.apply({
           projectId: runtime.activeImport.projectId,
           documentSelectionId: documentSelection.selectionId,
           plan: previewedPlan,
           approvalToken: previewResult.approval_token,
         }),
       );
+      if (!reportOperationIsCurrent(request)) return;
       setApplyResult(result);
       setWorkflow("applied");
       setWorkflowMessage(result.message);
     } catch (error) {
+      if (!reportOperationIsCurrent(request)) return;
       setPreviewedPlan(null);
       setPreviewResult(null);
       setWorkflow("error");
@@ -703,14 +945,23 @@ export function ReportScreen() {
   }
 
   async function rollbackDocument() {
-    if (!window.trafficVisson || !runtime.activeImport || !applyResult) return;
+    if (
+      !window.trafficSuperVision ||
+      !runtime.activeImport ||
+      !reportScopeKey ||
+      !applyResult
+    ) {
+      return;
+    }
     setWorkflow("rolling_back");
     setWorkflowMessage(null);
+    const request = beginReportOperation();
     try {
-      const result = await window.trafficVisson.hwp.rollback({
+      const result = await window.trafficSuperVision.hwp.rollback({
         projectId: runtime.activeImport.projectId,
         rollbackToken: applyResult.rollback_token,
       });
+      if (!reportOperationIsCurrent(request)) return;
       if (
         !isRecord(result) ||
         result.rolled_back !== true ||
@@ -723,6 +974,7 @@ export function ReportScreen() {
       setWorkflow("rolled_back");
       setWorkflowMessage(result.message);
     } catch (error) {
+      if (!reportOperationIsCurrent(request)) return;
       setWorkflow("error");
       setWorkflowMessage(messageFrom(error, "생성된 문서를 롤백하지 못했습니다."));
     }
@@ -743,7 +995,7 @@ export function ReportScreen() {
                 ? "neutral"
                 : preflight?.available
                   ? "success"
-                  : "danger"
+                  : "warning"
             }
           >
             한/글 COM ·{" "}
@@ -754,6 +1006,9 @@ export function ReportScreen() {
             .map((item) => (
               <StatusDot key={item.provider} tone={providerTone(item.state)}>
                 {item.display_name} · {providerStatusLabel(item.state)}
+                {item.version
+                  ? ` · v${item.version.replace(/^[vV]/, "")}`
+                  : ""}
               </StatusDot>
             ))}
           {!providerLoading && providers.length === 0 ? (
@@ -798,7 +1053,11 @@ export function ReportScreen() {
                     <Bot size={18} />
                     <span>
                       <strong>{displayName}</strong>
-                      <small>{providerStatusLabel(item?.state)}</small>
+                      <small title={item?.message}>
+                        {item
+                          ? providerDiagnosticSummary(item)
+                          : "상태 확인 전"}
+                      </small>
                     </span>
                   </button>
                 );
@@ -813,6 +1072,11 @@ export function ReportScreen() {
                 <Badge tone="success">비식별 근거 참조 ID</Badge>
                 <Badge tone="success">문서 구조 요약</Badge>
                 <Badge tone="danger">원본 영상 전송 안 함</Badge>
+                <Badge tone={reportPipeline ? "success" : "warning"}>
+                  {reportPipeline
+                    ? "Pipeline provenance 결속"
+                    : "Pipeline provenance 미결속"}
+                </Badge>
               </div>
               <label className="rights-check">
                 <input
@@ -823,7 +1087,7 @@ export function ReportScreen() {
                 <span className="check-visual" aria-hidden="true"><Check size={14} /></span>
                 <span>
                   <strong>표시된 범위만 {selectedProvider?.display_name ?? "선택 Provider"}에 전송합니다.</strong>
-                  <small>인증 파일이나 CLI 토큰은 TrafficVisson이 읽지 않습니다.</small>
+                  <small>인증 파일이나 CLI 토큰은 TrafficSuperVision이 읽지 않습니다.</small>
                 </span>
               </label>
               <div className="provider-actions">
@@ -831,7 +1095,7 @@ export function ReportScreen() {
                 selectedProvider?.state === "not_connected" ? (
                   <Button
                     onClick={() => void launchLogin()}
-                    disabled={providerAction !== null || !window.trafficVisson}
+                    disabled={providerAction !== null || !window.trafficSuperVision}
                   >
                     {providerAction === provider ? (
                       <LoaderCircle className="spin" size={16} />
@@ -1040,7 +1304,7 @@ export function ReportScreen() {
           </header>
 
           {preflight && !preflight.available ? (
-            <div className="document-runtime-notice notice notice--danger" role="alert">
+            <div className="document-runtime-notice notice notice--warning" role="status">
               <AlertTriangle size={17} />
               <div>
                 <strong>한/글 COM을 사용할 수 없습니다.</strong>
@@ -1064,8 +1328,67 @@ export function ReportScreen() {
             </div>
           ) : null}
 
-          <div className="document-stage">
-            <article className="document-page" aria-label="한글 보고서 화면 구성 예시">
+          <div
+            className="document-preview-controls"
+            role="toolbar"
+            aria-label="문서 구성 스케치 보기 도구"
+          >
+            <div className="document-page-navigation">
+              <IconButton
+                label="이전 구성 스케치"
+                disabled
+                title="현재 구성 스케치는 한 장입니다."
+              >
+                <ChevronLeft size={16} />
+              </IconButton>
+              <div className="document-page-indicator">
+                <strong>구성 스케치 1 / 1</strong>
+                <span>실제 페이지 렌더링 전</span>
+              </div>
+              <IconButton
+                label="다음 구성 스케치"
+                disabled
+                title="현재 구성 스케치는 한 장입니다."
+              >
+                <ChevronRight size={16} />
+              </IconButton>
+            </div>
+            <div className="document-zoom-controls">
+              <IconButton
+                label="구성 스케치 축소"
+                onClick={() => changeDocumentZoom(-10)}
+                disabled={documentZoom <= DOCUMENT_ZOOM_MIN}
+              >
+                <Minus size={15} />
+              </IconButton>
+              <output aria-label="현재 구성 스케치 확대율">
+                {documentZoom}%
+              </output>
+              <IconButton
+                label="구성 스케치 확대"
+                onClick={() => changeDocumentZoom(10)}
+                disabled={documentZoom >= DOCUMENT_ZOOM_MAX}
+              >
+                <Plus size={15} />
+              </IconButton>
+              <Button
+                variant="ghost"
+                className="document-fit-button"
+                aria-pressed={documentZoomMode === "fit-width"}
+                onClick={fitDocumentWidth}
+              >
+                <Maximize2 size={15} />
+                너비 맞춤
+              </Button>
+            </div>
+          </div>
+
+          <div className="document-stage" ref={documentStageRef}>
+            <article
+              className="document-page"
+              aria-label="한글 보고서 화면 구성 예시"
+              style={{ zoom: `${documentZoom}%` }}
+            >
               <h2>{generation?.draft.title ?? "도 로 시 설 물 점 검 보 고 서"}</h2>
               <table>
                 <tbody>
@@ -1159,4 +1482,29 @@ export function ReportScreen() {
                 onClick={() => void rollbackDocument()}
                 disabled={!applyResult || busy}
               >
-                {workflow === "rolling_back"
+                {workflow === "rolling_back" ? (
+                  <LoaderCircle className="spin" size={16} />
+                ) : (
+                  <RotateCcw size={16} />
+                )}
+                생성 결과 롤백
+              </Button>
+              <Button
+                variant="primary"
+                disabled={!previewedPlan || workflow !== "previewed"}
+                onClick={() => void applyDocument()}
+              >
+                {workflow === "applying" ? (
+                  <LoaderCircle className="spin" size={17} />
+                ) : (
+                  <Save size={17} />
+                )}
+                승인하고 새 파일로 저장
+              </Button>
+            </div>
+          </footer>
+        </GlassPanel>
+      </div>
+    </div>
+  );
+}

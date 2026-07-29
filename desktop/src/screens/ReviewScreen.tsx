@@ -121,13 +121,13 @@ export function ReviewScreen({
   }, [summary]);
 
   useEffect(() => {
-    if (!summary || !window.trafficVisson) {
+    if (!summary || !window.trafficSuperVision) {
       setReviews({});
       return;
     }
     let active = true;
     setReviewError(null);
-    void window.trafficVisson.candidateQuestions
+    void window.trafficSuperVision.candidateQuestions
       .list({ projectId: summary.projectId, jobId: summary.jobId })
       .then((value) => {
         if (!active || !value || typeof value !== "object") return;
@@ -170,13 +170,13 @@ export function ReviewScreen({
   }, [summary]);
 
   useEffect(() => {
-    if (!summary || !window.trafficVisson) {
+    if (!summary || !window.trafficSuperVision) {
       setIncidents([]);
       return;
     }
     let active = true;
     setIncidentError(null);
-    void window.trafficVisson.incidents
+    void window.trafficSuperVision.incidents
       .list({
         projectId: summary.projectId,
         analysisJobId: summary.jobId,

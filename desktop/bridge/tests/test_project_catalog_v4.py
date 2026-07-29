@@ -13,6 +13,7 @@ from test_project_catalog_v2 import _project, _rows, _write_completed_analysis
 from test_project_catalog_v3 import (
     _answer_record,
     _catalog_with_jobs,
+    _chain_records,
     _seed_v2_database,
 )
 
@@ -363,6 +364,135 @@ def test_nonapproved_answers_do_not_create_incidents_and_projects_are_isolated(
     )
     with pytest.raises(LabelProjectionError, match="project boundary"):
         catalog.project_label_record(project_a, approved_b)
+
+
+def test_verified_ledger_can_defer_and_later_materialize_one_analysis(
+    tmp_path,
+):
+    project_id = uuid4()
+    catalog, fixtures = _catalog_with_jobs(
+        tmp_path,
+        project_id=project_id,
+        job_candidate_counts=[1, 1],
+    )
+    records = _chain_records(
+        project_id,
+        fixtures,
+        [
+            (fixtures[0], 0, "yes"),
+            (fixtures[1], 0, "yes"),
+        ],
+    )
+
+    catalog.project_label_records(
+        project_id,
+        records,
+        materialize_analysis_job_ids=[fixtures[1]["job_id"]],
+    )
+
+    assert len(catalog.list_label_answers(project_id)) == 2
+    annotations = catalog.list_current_annotations(project_id)
+    assert {
+        row["analysis_job_id"] for row in annotations
+    } == {str(fixtures[1]["job_id"])}
+    incidents = catalog.list_incidents(project_id)
+    assert {
+        row["analysis_job_id"] for row in incidents
+    } == {str(fixtures[1]["job_id"])}
+
+    catalog.project_label_records(
+        project_id,
+        records,
+        materialize_analysis_job_ids=[
+            fixtures[0]["job_id"],
+            fixtures[1]["job_id"],
+        ],
+    )
+
+    assert {
+        row["analysis_job_id"]
+        for row in catalog.list_current_annotations(project_id)
+    } == {
+        str(fixtures[0]["job_id"]),
+        str(fixtures[1]["job_id"]),
+    }
+    assert {
+        row["analysis_job_id"]
+        for row in catalog.list_incidents(project_id)
+    } == {
+        str(fixtures[0]["job_id"]),
+        str(fixtures[1]["job_id"]),
+    }
+
+
+def test_pipeline_owned_answer_is_audit_only_until_review_gate_opens(
+    tmp_path,
+):
+    data_root = tmp_path / "bridge-data"
+    fixture = _write_completed_analysis(
+        data_root,
+        project_id=DEMO_PROJECT_ID,
+        source_seed="pipeline-owned-answer",
+    )
+    job_id = fixture["job_id"]
+    candidate = fixture["payload"]["result"]["candidates"][0]
+    candidate_id = candidate["candidate_id"]
+    answer_url = (
+        f"/projects/{DEMO_PROJECT_ID}/analysis/jobs/{job_id}"
+        f"/candidates/{candidate_id}/answer"
+    )
+    incidents_url = f"/projects/{DEMO_PROJECT_ID}/incidents"
+    auth = {"Authorization": f"Bearer {TOKEN}"}
+    app = create_app(
+        TOKEN,
+        fixture_mode=False,
+        allow_test_client=True,
+        bridge_data_root=str(data_root),
+    )
+
+    with TestClient(app) as client:
+        gate = {"closed": True}
+        client.app.state.pipeline_jobs.is_analysis_projection_gated = (
+            lambda project_id, analysis_job_id: (
+                gate["closed"] and analysis_job_id == job_id
+            )
+        )
+        approved = client.post(
+            answer_url,
+            headers=auth,
+            json={
+                "project_id": str(DEMO_PROJECT_ID),
+                "analysis_job_id": str(job_id),
+                "answer": "yes",
+                "selected_issue_type": "road_debris",
+                "severity": "major",
+                "maintenance_action": "낙하물 긴급 수거",
+            },
+        )
+        assert approved.status_code == 201, approved.text
+        audit = client.app.state.candidate_labels.audit_records(
+            DEMO_PROJECT_ID,
+            analysis_job_id=job_id,
+        )
+        assert len(audit) == 1
+        stats = client.app.state.store.current_label_stats(
+            DEMO_PROJECT_ID
+        )
+        assert stats["answer_revision_count"] == 1
+        assert stats["current_answer_count"] == 0
+        assert (
+            client.get(incidents_url, headers=auth).json()["count"]
+            == 0
+        )
+
+        gate["closed"] = False
+        promoted = client.get(incidents_url, headers=auth)
+        assert promoted.status_code == 200, promoted.text
+        assert promoted.json()["count"] == 1
+        stats = client.app.state.store.current_label_stats(
+            DEMO_PROJECT_ID
+        )
+        assert stats["current_answer_count"] == 1
 
 
 def test_incident_api_reconciles_from_jsonl_and_filters_inactive(tmp_path):

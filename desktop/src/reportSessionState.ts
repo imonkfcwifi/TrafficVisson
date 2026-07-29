@@ -90,7 +90,7 @@ export type ReportSessionState = {
   provider: ProviderId;
   consent: boolean;
   operationStates: Record<string, OpState>;
-  documentSelection: TrafficVissonDocumentSelection | null;
+  documentSelection: TrafficSuperVisionDocumentSelection | null;
   workflow: HwpWorkflow;
   workflowMessage: string | null;
   previewResult: HwpPreviewResult | null;
@@ -186,3 +186,12 @@ export function useReportSessionField<K extends keyof ReportSessionState>(
     ) => {
       setReportSessionField(key, action);
     },
+    [key],
+  );
+  return [snapshot[key], setSessionValue];
+}
+
+export function resetReportSessionStateForTests() {
+  reportSessionState = initialReportSessionState();
+  reportSessionListeners.forEach((listener) => listener());
+}

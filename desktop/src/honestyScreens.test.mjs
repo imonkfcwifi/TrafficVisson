@@ -34,6 +34,10 @@ const labelingSource = await readFile(
   new URL("./screens/LabelingScreen.tsx", import.meta.url),
   "utf8",
 );
+const labelingDecisionSource = await readFile(
+  new URL("./labelingDecision.ts", import.meta.url),
+  "utf8",
+);
 const experimentalProposalSource = await readFile(
   new URL("./experimentalProposals.ts", import.meta.url),
   "utf8",
@@ -54,12 +58,14 @@ test("ImportScreen renders every discovered file without browser verification fi
 
 test("ImportScreen invalidates changed input and marks URL as inspect-only", () => {
   assert.match(importSource, /inspectionRun\.current \+= 1/);
-  assert.match(importSource, /cancelStaleHash\(hashJob\)/);
+  assert.doesNotMatch(importSource, /hashJob|cancelStaleHash/);
+  assert.match(importSource, /trafficSuperVision\.pipeline\.start/);
   assert.match(importSource, /run !== inspectionRun\.current/g);
   assert.match(importSource, /URL 기능은 검사 전용/);
   assert.match(importSource, /URL 다운로드, 영상 저장, 프로젝트 등록은 아직 연결되지 않았습니다/);
-  assert.match(importSource, /trafficVisson\.imports\.create/);
-  assert.match(importSource, /inspectedSourceId/);
+  assert.match(importSource, /trafficSuperVision\.imports\.inspect/);
+  assert.match(importSource, /inspected_source_id/);
+  assert.match(importSource, /trafficSuperVision\.media\.registerLocalSelection/);
 });
 
 test("AnalysisScreen contains no fabricated pipeline, GPU, or checkpoint claims", () => {
@@ -79,7 +85,7 @@ test("AnalysisScreen contains no fabricated pipeline, GPU, or checkpoint claims"
 });
 
 test("ImportScreen uses user-facing copy for the renderer security boundary", () => {
-  assert.match(importSource, /안전한 파일 선택/);
+  assert.match(importSource, /선택 파일을 안전한 미디어 입력으로 등록하는 중/);
   assert.doesNotMatch(importSource, /renderer 파일 권한 없음/);
   assert.match(importSource, /대상 · \{compactSourceTail\(source\)\}/);
   assert.match(importSource, /title=\{source \|\| undefined\}/);
@@ -91,7 +97,7 @@ test("ReviewScreen is read-only over real candidates and delegates writes to lab
   assert.match(reviewSource, /candidateQuestions/);
   assert.match(
     reviewSource,
-    /trafficVisson\.incidents[\s\S]*analysisJobId:\s*summary\.jobId/,
+    /trafficSuperVision\.incidents[\s\S]*analysisJobId:\s*summary\.jobId/,
   );
   assert.match(reviewSource, /incident\?\.incidentId/);
   assert.match(reviewSource, /persistentIssueLabel\(incident\.issueType\)/);
@@ -113,7 +119,7 @@ test("HistoryScreen uses evidence clips and candidate timestamps without a synth
   assert.match(historySource, /<video/);
   assert.match(
     historySource,
-    /trafficVisson\.incidents[\s\S]*analysisJobId:\s*summary\.jobId/,
+    /trafficSuperVision\.incidents[\s\S]*analysisJobId:\s*summary\.jobId/,
   );
   assert.match(historySource, /incidentsByCandidateId/);
   assert.match(historySource, /selectedIncident\.incidentId/);
@@ -169,7 +175,16 @@ test("LabelingScreen keeps experimental proposals review-only and understandable
   assert.match(labelingSource, /typeCode === "UNCLASSIFIED_ROAD_EVENT"/);
   assert.match(labelingSource, /question\?\.forced/);
   assert.match(labelingSource, /typeCode === "ROAD_DEBRIS"/);
-  assert.match(labelingSource, /followup && severity === "긴급"/);
+  assert.match(labelingSource, /id:\s*"precision"[\s\S]*id:\s*"quick"/);
+  assert.match(labelingSource, /AI 추천 미제공 · 검지 신뢰도와 심각도는 별개/);
+  assert.match(labelingSource, /severitySource:\s*finalSeverity \? "user"/);
+  assert.match(labelingSource, /decideLabelingSubmission/);
+  assert.match(labelingDecisionSource, /kind:\s*"save_and_advance"/);
+  assert.match(labelingDecisionSource, /includeSeverity:\s*false/);
+  assert.match(labelingSource, /USER_SEVERITIES[\s\S]*key:\s*"1"[\s\S]*key:\s*"2"[\s\S]*key:\s*"3"/);
+  assert.match(labelingSource, /event\.key\.toLowerCase\(\)/);
+  assert.match(labelingSource, /key === "n" \|\| key === "u"/);
+  assert.match(labelingSource, /key === "e"/);
   assert.match(
     experimentalProposalSource,
     /value\.automatic_labeling_allowed !== false/,
@@ -206,4 +221,14 @@ test("ReportScreen does not offer login when an official CLI is unavailable", ()
     reportSource,
     /\{displayOperations\.length \? \([\s\S]*className="bulk-plan-actions"[\s\S]*\) : null\}/,
   );
+  assert.match(
+    reportSource,
+    /trafficSuperVision\.incidents\.list\([\s\S]*analysisJobId:\s*summary\.jobId/,
+  );
+  assert.match(
+    reportSource,
+    /sourceFileSha256:\s*summary\.sourceSha256[\s\S]*incidentIds/,
+  );
+  assert.doesNotMatch(reportSource, /approvedIncidents/);
+  assert.doesNotMatch(reportSource, /severityToContract|deterministicIncidentId/);
 });

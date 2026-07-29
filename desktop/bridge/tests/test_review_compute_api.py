@@ -10,6 +10,8 @@ from app.store import DEMO_PROJECT_ID
 
 TOKEN = "t" * 64
 OTHER_PROJECT_ID = "22222222-2222-4222-8222-222222222222"
+COMPLETED_JOB_ID = "33333333-3333-4333-8333-333333333333"
+COMPLETED_SOURCE_SHA256 = "a" * 64
 
 
 def _headers() -> dict[str, str]:
@@ -84,10 +86,39 @@ def _temporal_detection(
     }
 
 
+def _temporal_request(
+    *,
+    analysis_job_id: str = COMPLETED_JOB_ID,
+    source_sha256: str = COMPLETED_SOURCE_SHA256,
+) -> dict:
+    return {
+        "project_id": str(DEMO_PROJECT_ID),
+        "detections": [
+            _temporal_detection("det-a", 1.0, "pothole"),
+        ],
+        "provenance": {
+            "project_id": str(DEMO_PROJECT_ID),
+            "analysis_job_id": analysis_job_id,
+            "source_file_sha256": source_sha256,
+            "model": {
+                "provider": "local_review_only",
+                "version": "road-model@0.1.0",
+            },
+        },
+    }
+
+
 def test_temporal_review_api_normalizes_aliases_without_state_changes(
     tmp_path,
 ):
     app = _app(tmp_path)
+    app.state.analysis_jobs.get = lambda project_id, job_id: {
+        "project_id": str(project_id),
+        "job_id": str(job_id),
+        "status": "completed",
+        "source_sha256": COMPLETED_SOURCE_SHA256,
+        "result": {"candidates": []},
+    }
     before = _state_snapshot(app)
     _forbid_mutating_services(app)
 
@@ -114,9 +145,8 @@ def test_temporal_review_api_normalizes_aliases_without_state_changes(
                 ],
                 "provenance": {
                     "project_id": str(DEMO_PROJECT_ID),
-                    "analysis_job_id": (
-                        "33333333-3333-4333-8333-333333333333"
-                    ),
+                    "analysis_job_id": COMPLETED_JOB_ID,
+                    "source_file_sha256": COMPLETED_SOURCE_SHA256,
                     "model": {
                         "provider": "local_review_only",
                         "version": "road-model@0.1.0",
@@ -146,6 +176,76 @@ def test_temporal_review_api_normalizes_aliases_without_state_changes(
     assert payload["training_members_created"] == 0
     assert payload["model_versions_changed"] == 0
     assert _state_snapshot(app) == before
+
+
+def test_temporal_review_api_rejects_invalid_or_untrusted_provenance(
+    tmp_path,
+):
+    app = _app(tmp_path)
+    endpoint = (
+        f"/projects/{DEMO_PROJECT_ID}/review/"
+        "temporal-incident-proposals"
+    )
+    trusted_job = {
+        "project_id": str(DEMO_PROJECT_ID),
+        "job_id": COMPLETED_JOB_ID,
+        "status": "completed",
+        "source_sha256": COMPLETED_SOURCE_SHA256,
+        "result": {"candidates": []},
+    }
+
+    with TestClient(app) as client:
+        app.state.analysis_jobs.get = lambda project_id, job_id: trusted_job
+        invalid_job = client.post(
+            endpoint,
+            headers=_headers(),
+            json=_temporal_request(analysis_job_id="not-a-uuid"),
+        )
+        invalid_sha = client.post(
+            endpoint,
+            headers=_headers(),
+            json=_temporal_request(source_sha256="not-a-sha"),
+        )
+
+        app.state.analysis_jobs.get = lambda project_id, job_id: {
+            **trusted_job,
+            "project_id": OTHER_PROJECT_ID,
+        }
+        mismatched_identity = client.post(
+            endpoint,
+            headers=_headers(),
+            json=_temporal_request(),
+        )
+
+        app.state.analysis_jobs.get = lambda project_id, job_id: {
+            **trusted_job,
+            "status": "running",
+            "result": None,
+        }
+        incomplete_job = client.post(
+            endpoint,
+            headers=_headers(),
+            json=_temporal_request(),
+        )
+
+        app.state.analysis_jobs.get = lambda project_id, job_id: {
+            **trusted_job,
+            "source_sha256": "b" * 64,
+        }
+        mismatched_sha = client.post(
+            endpoint,
+            headers=_headers(),
+            json=_temporal_request(),
+        )
+
+    assert invalid_job.status_code == 422
+    assert invalid_sha.status_code == 422
+    assert mismatched_identity.status_code == 409
+    assert incomplete_job.status_code == 409
+    assert mismatched_sha.status_code == 409
+    assert "identity" in mismatched_identity.json()["detail"]
+    assert "completed analysis job" in incomplete_job.json()["detail"]
+    assert "SHA-256 does not match" in mismatched_sha.json()["detail"]
 
 
 def test_model_validation_api_normalizes_legacy_types_and_is_read_only(

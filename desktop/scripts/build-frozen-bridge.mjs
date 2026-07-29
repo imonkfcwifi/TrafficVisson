@@ -8,7 +8,7 @@ const desktopRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 const buildRoot = path.join(desktopRoot, "build");
 const distributionRoot = path.join(buildRoot, "bridge");
 const workRoot = path.join(buildRoot, "pyinstaller-work");
-const expectedBundle = path.join(distributionRoot, "TrafficVissonBridge");
+const expectedBundle = path.join(distributionRoot, "TrafficSuperVisionBridge");
 
 function assertChildPath(candidate, parent) {
   const relative = path.relative(parent, candidate);
@@ -170,7 +170,7 @@ const pyinstallerArguments = [
   "--clean",
   "--onedir",
   "--name",
-  "TrafficVissonBridge",
+  "TrafficSuperVisionBridge",
   "--distpath",
   distributionRoot,
   "--workpath",
@@ -203,9 +203,9 @@ for (const moduleName of excludedAmbientModules) {
 }
 run("python", pyinstallerArguments);
 
-const bridgeExecutable = path.join(expectedBundle, "TrafficVissonBridge.exe");
+const bridgeExecutable = path.join(expectedBundle, "TrafficSuperVisionBridge.exe");
 if (!existsSync(bridgeExecutable)) {
-  throw new Error("PyInstaller did not create TrafficVissonBridge.exe");
+  throw new Error("PyInstaller did not create TrafficSuperVisionBridge.exe");
 }
 
 for (const tool of ["ffmpeg.exe", "ffprobe.exe"]) {

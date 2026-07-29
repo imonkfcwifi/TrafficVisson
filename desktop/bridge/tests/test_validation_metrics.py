@@ -98,6 +98,48 @@ def test_metrics_count_duplicates_as_false_positives_without_double_recall():
     assert metric.duplicate_burden == 0.25
 
 
+def test_event_identity_is_scoped_to_sample_type_and_event_id():
+    truth = [
+        {
+            "sample_id": sample_id,
+            "issue_type": "pothole",
+            "truth_event_ids": ["shared-event-id"],
+        }
+        for sample_id in ("sample-a", "sample-b")
+    ]
+    predictions = [
+        {
+            # Reusing an upstream-local event id in another sample is valid.
+            "prediction_event_id": "shared-prediction-id",
+            "sample_id": sample_id,
+            "issue_type": "pothole",
+            "matched_truth_event_id": "shared-event-id",
+        }
+        for sample_id in ("sample-a", "sample-b")
+    ]
+
+    report = evaluate_model(
+        model_version="candidate-v1",
+        truth_records=truth,
+        prediction_records=predictions,
+    )
+    metric = report.per_type[0]
+
+    assert metric.truth_event_count == 2
+    assert metric.prediction_event_count == 2
+    assert metric.true_positive_count == 2
+    assert metric.false_positive_count == 0
+    assert metric.false_negative_count == 0
+    assert metric.duplicate_prediction_count == 0
+
+    with pytest.raises(ValidationMetricsError, match="sample/type/event"):
+        evaluate_model(
+            model_version="candidate-v1",
+            truth_records=truth,
+            prediction_records=[predictions[0], dict(predictions[0])],
+        )
+
+
 def test_two_percentage_point_recall_drop_is_rejected_at_equality():
     truth = _truth(sample_count=50)
     decision = compare_candidate_to_active(
@@ -156,6 +198,61 @@ def test_false_positive_and_duplicate_increase_reject_candidate():
         "false_positive_rate_increased",
         "duplicate_burden_increased",
     }
+
+
+def test_absolute_and_per_sample_burden_increase_rejects_lower_ratio():
+    truth = _truth(sample_count=30)
+    active = _matched_predictions(10)
+    active.extend(
+        [
+            {
+                "prediction_event_id": "active-duplicate",
+                "sample_id": "sample-000",
+                "issue_type": "pothole",
+                "matched_truth_event_id": "truth-000",
+            },
+        ]
+    )
+    candidate = _matched_predictions(30)
+    candidate.extend(
+        [
+            {
+                "prediction_event_id": f"candidate-duplicate-{index}",
+                "sample_id": "sample-000",
+                "issue_type": "pothole",
+                "matched_truth_event_id": "truth-000",
+            }
+            for index in range(2)
+        ]
+    )
+
+    decision = compare_candidate_to_active(
+        active_model_version="active-v1",
+        candidate_model_version="candidate-v2",
+        truth_records=truth,
+        active_prediction_records=active,
+        candidate_prediction_records=candidate,
+        required_issue_types=["pothole"],
+    )
+
+    active_metric = decision.active_report.per_type[0]
+    candidate_metric = decision.candidate_report.per_type[0]
+    assert (
+        candidate_metric.false_positive_rate
+        < active_metric.false_positive_rate
+    )
+    assert candidate_metric.duplicate_burden < active_metric.duplicate_burden
+    assert decision.decision == "rejected"
+    assert {
+        reason.code for reason in decision.reasons
+    } == {
+        "false_positive_rate_increased",
+        "duplicate_burden_increased",
+    }
+    assert all(
+        "per-validation-sample burden" in reason.message
+        for reason in decision.reasons
+    )
 
 
 def test_eligible_still_requires_explicit_user_promotion():

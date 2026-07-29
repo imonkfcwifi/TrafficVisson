@@ -1,17 +1,17 @@
-# TrafficVisson 데스크톱 디자인 QA
+# TrafficSuperVision 데스크톱 디자인 QA
 
 > 평가일: 2026-07-29  
 > 평가 범위: Windows Electron 제품 셸과 9개 핵심 화면의 1280×720 상태  
 > 참조 이미지: `Pretendard와 리퀴드 글래스 디자인/uploads/pasted-1785143633633-0.png`  
-> 기능·정보구조 참고본: `Pretendard와 리퀴드 글래스 디자인/uploads/TrafficVisson Desktop.dc.html`  
+> 기능·정보구조 참고본: `Pretendard와 리퀴드 글래스 디자인/uploads/TrafficSuperVision Desktop.dc.html`
 > 구현 화면: `desktop/src`  
-> 현재 기능 기준: Master v2.10 · alpha.10 · SQLite v4 · `trafficvisson-artifact-export-v3`  
-> 디자인 QA 결과: alpha.9 검증과 postfix 감사는 역사 증거로 보존한다. alpha.10 기능·패키지 회귀를 통과했고, [`qa/aaa-continuation-20260729/final-suit-p2-audit.md`](qa/aaa-continuation-20260729/final-suit-p2-audit.md)의 최종 UI 시각 감사도 **PASSED — P0 0건 / P1 0건 / P2 0건**으로 판정했다. 이는 제품 전체·현장 수용 완료 판정은 아니다  
+> 현재 기능 기준: Master v2.13 · alpha.10 기반 현재 소스 · SQLite v4 · project-scoped `PipelineJob`
+> 디자인 QA 결과: alpha.9·alpha.10의 이전 감사는 역사 증거로 보존한다. 최신 post-fix Home·Labeling·Report 재감사는 **PASSED — P0 0건 / P1 0건 / P2 0건**이다. 이는 현재 UI 범위의 판정이며 제품 전체·현장 수용 완료 판정은 아니다
 > 제품 상태: development alpha / 기능 완성 전
 
 ## 1. 평가 기준
 
-참조 이미지의 금융 도메인 문구나 차트 형태를 복제하지 않고 다음 시각 원칙을 TrafficVisson 업무 흐름에 적용했다.
+참조 이미지의 금융 도메인 문구나 차트 형태를 복제하지 않고 다음 시각 원칙을 TrafficSuperVision 업무 흐름에 적용했다.
 
 - 밝은 청회색 바탕과 절제된 저채도 유리 패널
 - 좌측 아이콘 레일, 상단 제품·프로젝트 컨텍스트, 한 화면형 작업 공간
@@ -35,7 +35,7 @@
 - alpha.9 최종 결합본: `qa/ui-iteration-20260729/15-reference-vs-final.png`
 - alpha.9 실제 Electron 9개 화면: `qa/ui-iteration-20260729/06-home-final-1280x720.png`부터 `14-export-final-1280x720.png`
 
-alpha.8 당시의 “최종” 판정은 냉정하지 못했다. 전체 문서 스크롤과 기능 노출은 확인했지만, 컨셉 이미지와 나란히 놓았을 때 네 개의 동등한 KPI 카드, 과도한 빈 패널, 8~10px 한글, 짧은 line-height, 한국어와 mono 혼용, 배지와 라벨링 하단 진행 영역의 잘림이 남아 있었다. alpha.9에서 앱에 번들한 `SUIT Variable 2.0.5`(OFL-1.1), 비대칭 주 카드, 얕은 유리 표면, 최소 가독 크기와 한 화면 작업대 기준을 다시 적용했다. TrafficVisson은 참조 화면을 다시 감싼 웹페이지가 아니라 창 전체를 제품 셸로 사용한다.
+alpha.8 당시의 “최종” 판정은 냉정하지 못했다. 전체 문서 스크롤과 기능 노출은 확인했지만, 컨셉 이미지와 나란히 놓았을 때 네 개의 동등한 KPI 카드, 과도한 빈 패널, 8~10px 한글, 짧은 line-height, 한국어와 mono 혼용, 배지와 라벨링 하단 진행 영역의 잘림이 남아 있었다. alpha.9에서 앱에 번들한 `SUIT Variable 2.0.5`(OFL-1.1), 비대칭 주 카드, 얕은 유리 표면, 최소 가독 크기와 한 화면 작업대 기준을 다시 적용했다. TrafficSuperVision은 참조 화면을 다시 감싼 웹페이지가 아니라 창 전체를 제품 셸로 사용한다.
 
 ## 3. 발견 사항과 수정 결과
 
@@ -116,7 +116,7 @@ alpha.8 재감사·패키지 실기동 증거:
 - 별도 Vinoth RDD YOLOv8s intake는 349개 대표 JPEG에서 10프레임·11박스를 제안했으나 사람 확인 결과 확정 양성 0프레임, 판단 어려움 1프레임, 오탐 9프레임·10박스였다. 정확한 RDD 출처·라이선스와 YOLOv8 base-weight 권리도 불명확하므로 활성화·설치본 번들·재배포를 거부하고 평가 전용으로만 보존한다.
 - 승인 전 후보는 Incident로 표시하지 않는다.
 - 영상 컨테이너 메타데이터 좌표는 촬영 시작점으로만 표시하며 후보 위치나 경로로 보간하지 않는다. 별도로 연결한 GPX는 import·offset·영상 시각 보간·MapLibre 경로/진행선/현재점/후보점·전체 경로 export까지 구현됐지만 시간대가 있는 실제 운영 GPX 수용은 아직 없다.
-- HWP/HWPX 문서 영역은 COM 미등록 환경에서 정적 구성 스케치이며 실제 저장 성공으로 표시하지 않는다.
+- 현재 PC에는 HWP COM이 등록돼 있지만 문서 영역은 실제 sample 적용·48쪽 렌더 전의 구성 스케치임을 명시하며 저장 성공으로 표시하지 않는다.
 - URL 입력은 검사 전용이고 다운로드·프로젝트 등록은 미구현으로 표시한다.
 - 승인 근거 JPEG/MP4는 정확히 선택한 작업의 active·approved Incident에 한해 ZIP에 포함하고 전체 원본 영상은 제외한다.
 - 얼굴·번호판 비식별화 공유 파생본은 별도 미구현 기능 게이트다.
@@ -135,13 +135,13 @@ alpha.8의 마지막 완결 패키지 회귀 결과:
 
 alpha.9 역사 검증은 517 passed, 2 skipped, 실패 0이다. 세부 결과는 domain 10, renderer 81, Electron 51, Python bridge 368 passed·2 skipped, release manifest 3, Sites 4이며 TypeScript와 Vite production build도 통과했다. 당시 실제 소스 Electron 1280×720 9개 화면의 document/screen overflow 0과 필수 조작 노출을 확인했고, 최종 `win-unpacked`에서도 SUIT Variable 로드와 자연어 명령→번들 CPU ONNX→신규 review-only 제안 7건을 확인했다.
 
-현재 alpha.10 소스·패키지 회귀는 **546 passed, 2 skipped, 실패 0**이다. 세부 결과는 domain 10, renderer 91, Electron 56, Python bridge 382 passed·2 skipped, release manifest 3, Sites 4이며 TypeScript, Vite production build, Windows NSIS 패키징과 frozen bridge 스모크도 통과했다. SUIT Variable 2.0.5 전체 face가 번들되고 Vite가 `SUIT-Variable-gqD86R3M.woff2`를 생성한 것도 확인했다.
+alpha.10 완결 패키지의 역사 회귀는 **546 passed, 2 skipped, 실패 0**이다. 세부 결과는 domain 10, renderer 91, Electron 56, Python bridge 382 passed·2 skipped, release manifest 3, Sites 4이며 TypeScript, Vite production build, Windows NSIS 패키징과 frozen bridge 스모크도 통과했다. 최신 v2.13 source gate는 §10에 별도로 기록한다.
 
 코드·패키지 회귀와 final-suit-p2 UI 시각 감사는 통과했다. 그러나 이번 시각 감사는 지정 viewport의 핵심 UI 가시성·도달성 판정이며 제품 전체 기능이나 현장 수용 완료 판정이 아니다. 제품은 계속 development alpha이고, 출하 준비도는 코드 서명, 클린 PC 설치·업그레이드·제거, 실제 운영 GPX 수용, 검증된 도로 결함 모델, 비식별화 공유 파생본, HWP COM 실기 검증과 저사양 현장 PC 성능 측정이 완료될 때 별도로 판정한다.
 
 ## 7. Windows alpha.8 산출물 - 역사 기록
 
-- 설치본: `desktop/release/TrafficVisson-Setup-0.1.0-alpha.8-x64.exe`
+- 설치본: `desktop/release/TrafficSuperVision-Setup-0.1.0-alpha.8-x64.exe`
 - 크기: 328,170,964 bytes
 - SHA-256: `ce1d5c09202959bb1da63826b5b9bd3d94dbbea11d802972c794866956e8e16d`
 - 당시 manifest 생성 시각: `2026-07-28T17:25:47.361Z` (`2026-07-29 02:25:47.361+09:00`). 현재 `desktop/release/release-manifest.json`은 최신 빌드로 교체되므로 alpha.8 역사 증거 포인터로 사용하지 않는다
@@ -160,7 +160,7 @@ alpha.9 역사 검증은 517 passed, 2 skipped, 실패 0이다. 세부 결과는
 - runner manifest SHA-256: `65f6cc1f6941b25936c10b8387a7867d6249e25b5453a1d2cb8567e28ba547f3`
 - 모델 출처: `onnx-community/grounding-dino-tiny-ONNX`, revision `11778337bb87ff84af72a64928c86616d86c495e`
 - 선택 모델 SHA-256: `2ed98a91b75f00d325c7581bee83b92b5b98460981772edf5ed844370ac25c11`
-- installer: `desktop/release/TrafficVisson-Setup-0.1.0-alpha.9-x64.exe`
+- installer: `desktop/release/TrafficSuperVision-Setup-0.1.0-alpha.9-x64.exe`
 - 크기: 491,356,877 bytes
 - SHA-256: `c4d00ec0d122df534621ae40e18fe8b6d39ef85517284d7684ebb46e0c99ec2b`
 - release manifest: `2026-07-28T19:03:29.146Z` (`2026-07-29 04:03:29.146+09:00`), 배포 artifact 11개·manifest 포함 checksum 12개
@@ -170,10 +170,10 @@ alpha.9 역사 검증은 517 passed, 2 skipped, 실패 0이다. 세부 결과는
 - 승인 경계: 자동 라벨·Incident·학습·모델 승격 0건
 - 배포 상태: `NotSigned`, `development_only_not_distribution_ready`
 
-## 9. Windows alpha.10 현재 산출물과 final-suit-p2 UI 감사 결과
+## 9. Windows alpha.10 산출물과 final-suit-p2 UI 감사 역사 기록
 
 - 버전: `0.1.0-alpha.10`
-- installer: `desktop/release/TrafficVisson-Setup-0.1.0-alpha.10-x64.exe`
+- installer: `desktop/release/TrafficSuperVision-Setup-0.1.0-alpha.10-x64.exe`
 - 크기: 491,689,854 bytes
 - SHA-256: `b0b0a79f952fd614f8c23a449073bfeea108af82e164c5a59f9c1d84d408f945`
 - 배포 상태: `NotSigned`, `development_only_not_distribution_ready`
@@ -184,5 +184,28 @@ alpha.9 역사 검증은 517 passed, 2 skipped, 실패 0이다. 세부 결과는
 - 모델 경계: Vinoth RDD 349 JPEG 평가의 10프레임·11박스 중 확정 양성 0, 판단 어려움 1프레임, 오탐 9프레임·10박스. 활성화·설치본 번들·재배포 거부
 - **PASSED — final-suit-p2 UI 시각 감사:** [`최종 감사 보고서`](qa/aaa-continuation-20260729/final-suit-p2-audit.md)는 P0 0건·P1 0건·P2 0건이다. 실제 Electron의 1280×720 DPR 1.0, 1282×722 DPR 1.25, 1600×900 DPR 1.0에서 라벨링 안전 문구·정책값 한 글자 고아행·11.5px 증거 메타데이터와 검지 오버레이·History 사건 목록 및 근거 상세의 마지막 항목 도달성을 확인했다
 - **최종 패키지 실기동:** [`패키지 홈`](qa/aaa-continuation-20260729/final-suit-p2-audit/15-packaged-home-1600x900-final.png)과 [`패키지 히스토리`](qa/aaa-continuation-20260729/final-suit-p2-audit/16-packaged-history-1600x900-final.png)에서 SUIT 실제 로드, document scroll 0, History 두 내부 스크롤의 마지막 항목 도달성을 다시 확인했다
-- **P3 성능 경계:** lazy-load되는 `HistoryScreen` 청크는 약 969.24kB로 Vite 500kB 경고가 남는다. 기능·가시성 결함으로 판정하지 않았지만 저사양 현장 PC에서 첫 History 진입 시간을 별도 측정해야 한다
+- **당시 P3 성능 경계:** 당시 lazy-load `HistoryScreen` 청크는 약 969.24kB였다. 최신 source에서는 초기 화면과 `HistoryMap`이 분리됐으며 현재 수치는 §10을 따른다
 - 범위 경계: 위 PASSED는 이번 final-suit UI 감사만의 판정이다. `NotSigned`, `development_only_not_distribution_ready`, 실제 운영 GPX·검지 성능·HWP COM·클린 PC 수용 경계는 그대로다
+
+## 10. v2.13 post-fix Home·Labeling·Report 재감사
+
+최신 실기동 화면과 같은 참조 이미지를 결합해 다시 비교했다. 이 재감사 범위에서는 P0 0건·P1 0건·P2 0건으로 판정한다.
+
+1. Home — 한 Windows 창 안의 현재 화면·9개 목적지·활성 화면을 명시하고, 중복 검은 CTA를 하나로 줄였다. 상태: passed.
+2. Labeling — 대표 프레임을 240~260px로 확보하고 제안 사실·OCR·유사 사례·빠른/정밀 응답을 같은 작업 카드에 유지했다. 상태: passed.
+3. Report — 34:66 제어/문서 비율, 실제 zoom·fit width, 단일 문서 스크롤, COM 미검증 amber 경계를 적용했다. 상태: passed.
+
+증거:
+
+- `qa/visual-reaudit-20260729/01-home-live-1602x1001.png`
+- `qa/visual-reaudit-20260729/02-labeling-live-1602x1001.png`
+- `qa/visual-reaudit-20260729/03-report-live-1602x1001.png`
+- `qa/visual-reaudit-20260729/04-reference-vs-home-live.png`
+- `qa/visual-reaudit-20260729/05-reference-vs-labeling-live.png`
+- `qa/visual-reaudit-20260729/06-reference-vs-report-live.png`
+
+현재 회귀는 renderer 150/150, Electron 80/80, Python bridge 614 passed·2 skipped이며 TypeScript typecheck와 Vite production build도 통과했다. `HistoryScreen` 초기 청크는 22.28kB(gzip 7.60kB)로 줄었고, 별도 `HistoryMap` 청크 947.96kB(gzip 249.38kB)는 저사양 PC의 첫 지도 진입을 측정할 P3 성능 경계다.
+
+남은 P3 증거 공백은 1280×720 live pixel 재캡처, 정밀 판정의 심각도 선택 상태, 실제 OCR 관측이 존재하는 질문 카드다. 또한 실제 NAS PipelineJob은 질문 1건 대기 상태이고 사용자 답변·Annotation·Incident가 모두 0건이므로, 이번 디자인 통과를 검지 성능·승인 종단·HWPX 48쪽 검증 또는 제품 전체 완료로 확대하지 않는다.
+
+result: passed

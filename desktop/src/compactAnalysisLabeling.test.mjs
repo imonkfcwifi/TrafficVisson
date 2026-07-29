@@ -70,6 +70,49 @@ test("final short-desktop safety copy is readable at the 1280 workbench geometry
   );
 });
 
+test("1280 labeling keeps a 240-260px frame and does not hide proposal or OCR evidence", () => {
+  assert.match(
+    polishStyles,
+    /\.screen--labeling \.evidence-image\s*\{[^}]*height:\s*clamp\(240px,\s*34vh,\s*260px\);[^}]*min-height:\s*240px;[^}]*flex-basis:\s*clamp\(240px,\s*34vh,\s*260px\);/s,
+  );
+  assert.match(
+    polishStyles,
+    /\.screen--labeling \.experimental-proposal\s*\{[^}]*min-height:\s*48px;[^}]*max-height:\s*48px;[^}]*flex:\s*0 0 48px;/s,
+  );
+  assert.match(
+    polishStyles,
+    /\.screen--labeling \.proposal-facts\s*\{[^}]*height:\s*27px;[^}]*display:\s*grid;[^}]*grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\);[^}]*overflow:\s*hidden;/s,
+  );
+  assert.match(
+    polishStyles,
+    /\.screen--labeling \.proposal-facts dt,[\s\S]*\.screen--labeling \.proposal-facts dd \.mono\s*\{[^}]*font-size:\s*10\.5px;[^}]*line-height:\s*1\.15;[^}]*text-overflow:\s*ellipsis;/s,
+  );
+  assert.match(
+    polishStyles,
+    /\.screen--labeling \.weak-case-strip__identity\s*\{[^}]*font-size:\s*10\.5px;/s,
+  );
+  assert.match(
+    polishStyles,
+    /\.screen--labeling \.ocr-roi\s*\{[^}]*min-height:\s*42px;[^}]*max-height:\s*42px;[^}]*display:\s*grid;[^}]*grid-template-columns:\s*72px minmax\(0,\s*1fr\);/s,
+  );
+  assert.match(
+    polishStyles,
+    /\.screen--labeling \.ocr-roi > img\s*\{[^}]*width:\s*72px;[^}]*height:\s*42px;[^}]*display:\s*block;/s,
+  );
+  assert.match(
+    polishStyles,
+    /\.screen--labeling \.ocr-roi figcaption strong,[\s\S]*\.screen--labeling \.ocr-roi > p\s*\{[^}]*overflow:\s*hidden;[^}]*font-size:\s*10\.5px;[^}]*text-overflow:\s*ellipsis;[^}]*white-space:\s*nowrap;/s,
+  );
+  assert.match(
+    polishStyles,
+    /\.screen--labeling \.ocr-roi > p\s*\{[^}]*display:\s*block;[^}]*padding:\s*0 5px 3px;/s,
+  );
+  assert.match(
+    polishStyles,
+    /\.screen--labeling \.question-card:has\(> \.ocr-roi\)\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/s,
+  );
+});
+
 test("experimental safety copy reuses spacing without displacing four answers or skip", () => {
   assert.match(
     polishStyles,
@@ -166,6 +209,45 @@ test("question selection stays one row and the four primary responses stay visib
   assert.match(
     compactStyles,
     /\.screen--labeling \.question-card > \.button\s*\{[^}]*flex:\s*0 0 auto/s,
+  );
+});
+
+test("precision severity follow-up keeps 1/2/3 and skip inside the same 720px card", () => {
+  assert.match(
+    labelingSource,
+    /className="followup-card severity-followup"[\s\S]*choice\.key[\s\S]*className="severity-followup__action"/,
+  );
+  assert.match(
+    polishStyles,
+    /\.screen--labeling \.question-card:has\(> \.severity-followup\)\s*\{[^}]*padding:\s*5px 6px;/s,
+  );
+  assert.match(
+    polishStyles,
+    /\.screen--labeling \.severity-followup\s*\{[^}]*min-height:\s*54px;[^}]*max-height:\s*54px;[^}]*flex:\s*0 0 54px;[^}]*grid-template-columns:\s*minmax\(128px,\s*0\.68fr\) minmax\(0,\s*1\.32fr\);[^}]*overflow:\s*hidden;/s,
+  );
+  assert.match(
+    polishStyles,
+    /\.screen--labeling \.severity-choice\s*\{[^}]*min-height:\s*42px;[^}]*padding:\s*4px;/s,
+  );
+  assert.match(
+    polishStyles,
+    /\.screen--labeling[\s\S]*\.question-card:has\(> \.severity-followup\)[\s\S]*> \.experimental-proposal\s*\{[^}]*min-height:\s*48px;[^}]*max-height:\s*48px;[^}]*flex-basis:\s*48px;/s,
+  );
+  assert.match(
+    polishStyles,
+    /\.screen--labeling[\s\S]*\.question-card:has\(> \.severity-followup\)[\s\S]*> \.ocr-roi\s*\{[^}]*min-height:\s*36px;[^}]*max-height:\s*36px;[^}]*height:\s*36px;[^}]*flex-basis:\s*36px;/s,
+  );
+  assert.match(
+    polishStyles,
+    /\.screen--labeling \.severity-followup__intro > small,[\s\S]*\.screen--labeling \.severity-choice small\s*\{[^}]*display:\s*none;/s,
+  );
+  assert.match(
+    polishStyles,
+    /\.screen--labeling[\s\S]*\.question-card:has\(> \.severity-followup\)[\s\S]*> \.explanation\s*\{[^}]*min-height:\s*34px;[^}]*max-height:\s*34px;[^}]*overflow:\s*hidden;/s,
+  );
+  assert.doesNotMatch(
+    polishStyles,
+    /\.screen--labeling \.question-card:has\(> \.severity-followup\)[^}]*overflow-y:\s*(?:auto|scroll)/s,
   );
 });
 

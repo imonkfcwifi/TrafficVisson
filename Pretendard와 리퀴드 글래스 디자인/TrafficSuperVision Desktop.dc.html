@@ -8,14 +8,11 @@
 <body>
 <x-dc>
 <helmet>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pretendard@1.3.9/dist/web/variable/pretendardvariable.min.css">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap">
+  <link rel="stylesheet" href="./fonts/SUIT-Variable.css">
   <style>
     html,body{margin:0;padding:0;background:#e7eaf4}
-    body{font-family:"Pretendard Variable",Pretendard,-apple-system,system-ui,sans-serif;font-feature-settings:"tnum" 1,"case" 1;letter-spacing:-0.006em;text-wrap:pretty;-webkit-font-smoothing:antialiased;color:#11131b}
-    *{box-sizing:border-box}
+    body{font-family:"SUIT Variable",SUIT,sans-serif;font-feature-settings:"tnum" 1,"case" 1;letter-spacing:-0.006em;text-wrap:pretty;-webkit-font-smoothing:antialiased;color:#11131b}
+    *{box-sizing:border-box;font-family:"SUIT Variable",SUIT,sans-serif!important}
     a{color:oklch(0.52 0.19 262);text-decoration:none}
     a:hover{color:oklch(0.42 0.2 262);text-decoration:underline}
     ::-webkit-scrollbar{width:9px;height:9px}
@@ -41,16 +38,16 @@
   <div style="height:50px;flex:none;display:flex;align-items:center;gap:14px;padding:0 12px 0 18px;background:linear-gradient(180deg,rgba(255,255,255,.78),rgba(255,255,255,.52));backdrop-filter:blur(34px) saturate(210%);-webkit-backdrop-filter:blur(34px) saturate(210%);border-bottom:1px solid rgba(28,36,78,.09);box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 1px 14px rgba(58,70,135,.09)">
     <div style="display:flex;align-items:center;gap:8px">
       <div style="width:16px;height:16px;border-radius:5px;background:linear-gradient(160deg,oklch(0.7 0.18 268),oklch(0.5 0.21 278));box-shadow:0 3px 10px rgba(74,108,247,.4)"></div>
-      <span style="font-size:15px;font-weight:620;letter-spacing:-0.018em">TrafficVisson</span>
-      <span style="font-size:12px;color:#565b6a;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">v2.0 · Windows</span>
+      <span style="font-size:15px;font-weight:620;letter-spacing:-0.018em">TrafficSuperVision</span>
+      <span style="font-size:12px;color:#565b6a;font-family:'SUIT Variable',SUIT,sans-serif">v2.0 · Windows</span>
     </div>
     <div style="display:flex;align-items:center;gap:7px;padding:3px 9px 3px 7px;border-radius:8px;background:rgba(255,255,255,.72);backdrop-filter:blur(18px) saturate(200%);-webkit-backdrop-filter:blur(18px) saturate(200%);border:1px solid rgba(255,255,255,.95);box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 1px 3px rgba(58,70,135,.07)">
       <span style="width:5px;height:5px;border-radius:50%;background:oklch(0.46 0.14 158)"></span>
       <span style="font-size:13.5px;font-weight:500">고속국도 1호선 상행 점검</span>
-      <span style="font-size:12px;color:#7a7d86;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">P-2026-014</span>
+      <span style="font-size:12px;color:#7a7d86;font-family:'SUIT Variable',SUIT,sans-serif">P-2026-014</span>
     </div>
     <div style="flex:1"></div>
-    <div style="display:flex;align-items:center;gap:6px"><sc-for list="{{ checks }}" as="c" hint-placeholder-count="6"><div style="display:flex;align-items:center;gap:5px;padding:3px 8px;border-radius:7px;background:rgba(255,255,255,.72);backdrop-filter:blur(18px) saturate(200%);-webkit-backdrop-filter:blur(18px) saturate(200%);border:1px solid rgba(255,255,255,.95);box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 1px 3px rgba(58,70,135,.07)"><span style="width:5px;height:5px;border-radius:50%;background:{{ c.dot }}"></span><span style="font-size:12.5px;color:rgba(22,28,44,.82);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">{{ c.label }}</span></div></sc-for></div>
+    <div style="display:flex;align-items:center;gap:6px"><sc-for list="{{ checks }}" as="c" hint-placeholder-count="6"><div style="display:flex;align-items:center;gap:5px;padding:3px 8px;border-radius:7px;background:rgba(255,255,255,.72);backdrop-filter:blur(18px) saturate(200%);-webkit-backdrop-filter:blur(18px) saturate(200%);border:1px solid rgba(255,255,255,.95);box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 1px 3px rgba(58,70,135,.07)"><span style="width:5px;height:5px;border-radius:50%;background:{{ c.dot }}"></span><span style="font-size:12.5px;color:rgba(22,28,44,.82);font-family:'SUIT Variable',SUIT,sans-serif">{{ c.label }}</span></div></sc-for></div>
     <div style="display:flex;align-items:center;gap:2px;margin-left:6px">
       <div style="width:40px;height:30px;display:grid;place-items:center;border-radius:6px;color:rgba(30,36,56,.68);font-size:14px" style-hover="background:rgba(36,48,96,.09)">─</div>
       <div style="width:40px;height:30px;display:grid;place-items:center;border-radius:6px;color:rgba(30,36,56,.68);font-size:12px" style-hover="background:rgba(36,48,96,.09)">◻</div>
@@ -64,15 +61,15 @@
       <div style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640;padding:4px 8px 8px">화면 · SCREENS</div>
       <sc-for list="{{ nav }}" as="n" hint-placeholder-count="9">
         <div onClick="{{ n.go }}" style="display:flex;align-items:center;gap:9px;padding:8px 11px;border-radius:999px;cursor:pointer;background:{{ n.bg }};border:1px solid {{ n.bd }}" style-hover="background:rgba(255,255,255,.74)">
-          <span style="font-size:11.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:{{ n.numColor }};min-width:32px">{{ n.num }}</span>
+          <span style="font-size:11.5px;font-family:'SUIT Variable',SUIT,sans-serif;color:{{ n.numColor }};min-width:32px">{{ n.num }}</span>
           <span style="font-size:14.5px;font-weight:500;color:{{ n.fg }};flex:1;white-space:nowrap">{{ n.label }}</span>
-          <sc-if value="{{ n.badge }}" hint-placeholder-val="{{ false }}"><span style="font-size:12px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;padding:1px 6px;border-radius:20px;background:{{ n.badgeBg }};color:{{ n.badgeFg }}">{{ n.badge }}</span></sc-if>
+          <sc-if value="{{ n.badge }}" hint-placeholder-val="{{ false }}"><span style="font-size:12px;font-family:'SUIT Variable',SUIT,sans-serif;padding:1px 6px;border-radius:20px;background:{{ n.badgeBg }};color:{{ n.badgeFg }}">{{ n.badge }}</span></sc-if>
         </div>
       </sc-for>
       <div style="flex:1"></div>
       <div style="padding:10px;border-radius:11px;background:rgba(255,255,255,.62);border:1px solid rgba(255,255,255,.88);box-shadow:inset 0 1px 0 rgba(255,255,255,.9);display:flex;flex-direction:column;gap:7px">
         <div style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">단축키 · KEYS</div>
-        <div style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:rgba(24,30,48,.76);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">
+        <div style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:rgba(24,30,48,.76);font-family:'SUIT Variable',SUIT,sans-serif">
           <div style="display:flex;justify-content:space-between"><span>1–9</span><span>화면 이동</span></div>
           <div style="display:flex;justify-content:space-between"><span>Space</span><span>재생·정지</span></div>
           <div style="display:flex;justify-content:space-between"><span>← →</span><span>5초 탐색</span></div>
@@ -86,10 +83,10 @@
         <div data-screen-label="16.7 GPS 히스토리" style="flex:1;min-height:0;display:flex;flex-direction:column;gap:12px;padding:0">
           <div style="display:flex;align-items:center;gap:12px">
             <div style="font-size:25px;font-weight:640;letter-spacing:-0.03em;line-height:1.12">GPS 주행 히스토리</div>
-            <span style="font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(26,32,52,.7);padding:2px 7px;border-radius:6px;background:rgba(255,255,255,.72)">16.7 · playback_time_ms 단일 동기화</span>
+            <span style="font-size:12.5px;font-family:'SUIT Variable',SUIT,sans-serif;color:rgba(26,32,52,.7);padding:2px 7px;border-radius:6px;background:rgba(255,255,255,.72)">16.7 · playback_time_ms 단일 동기화</span>
             <div style="flex:1"></div>
             <div style="display:flex;gap:4px;padding:3px;border-radius:999px;background:rgba(255,255,255,.72);backdrop-filter:blur(18px) saturate(200%);-webkit-backdrop-filter:blur(18px) saturate(200%);border:1px solid rgba(255,255,255,.95);box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 1px 3px rgba(58,70,135,.07)">
-              <sc-for list="{{ rates }}" as="r" hint-placeholder-count="4"><div onClick="{{ r.set }}" style="padding:5px 13px;border-radius:999px;cursor:pointer;font-size:13px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;background:{{ r.bg }};color:{{ r.fg }}">{{ r.label }}</div></sc-for>
+              <sc-for list="{{ rates }}" as="r" hint-placeholder-count="4"><div onClick="{{ r.set }}" style="padding:5px 13px;border-radius:999px;cursor:pointer;font-size:13px;font-family:'SUIT Variable',SUIT,sans-serif;background:{{ r.bg }};color:{{ r.fg }}">{{ r.label }}</div></sc-for>
             </div>
             <div onClick="{{ toggleFollow }}" style="padding:6px 14px;border-radius:999px;cursor:pointer;font-size:13.5px;background:{{ followBg }};color:{{ followFg }};border:1px solid rgba(28,36,78,.08)">차량 추적</div>
           </div>
@@ -99,20 +96,20 @@
               <div style="flex:1;min-height:0;position:relative;border-radius:16px;overflow:hidden;background:rgba(255,255,255,.42);background-image:repeating-linear-gradient(135deg,rgba(60,74,130,.1) 0 10px,transparent 10px 20px)">
                 <div style="position:absolute;inset:0;display:grid;place-items:center;gap:6px;text-align:center">
                   <div style="display:flex;flex-direction:column;gap:5px;align-items:center">
-                    <div style="font-size:13px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(28,34,56,.62);letter-spacing:.04em">[ VIDEO FRAME · 1920×1080 · 30fps ]</div>
-                    <div style="font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:#44474f">input/videos/trip_002_2026-07-14.mp4</div>
+                    <div style="font-size:13px;font-family:'SUIT Variable',SUIT,sans-serif;color:rgba(28,34,56,.62);letter-spacing:.04em">[ VIDEO FRAME · 1920×1080 · 30fps ]</div>
+                    <div style="font-size:12.5px;font-family:'SUIT Variable',SUIT,sans-serif;color:#44474f">input/videos/trip_002_2026-07-14.mp4</div>
                   </div>
                 </div>
                 <sc-for list="{{ boxes }}" as="b" hint-placeholder-count="0">
                   <div style="position:absolute;left:{{ b.x }}%;top:{{ b.y }}%;width:{{ b.w }}%;height:{{ b.h }}%;border:2px solid {{ b.color }};border-radius:4px;box-shadow:0 0 0 1px rgba(0,0,0,.55),0 0 18px {{ b.glow }}">
-                    <div style="position:absolute;left:-2px;top:-20px;display:flex;gap:4px;align-items:center;padding:2px 6px;border-radius:5px;background:{{ b.color }};color:#ffffff;font-size:11.5px;font-weight:700;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;white-space:nowrap">{{ b.label }}</div>
+                    <div style="position:absolute;left:-2px;top:-20px;display:flex;gap:4px;align-items:center;padding:2px 6px;border-radius:5px;background:{{ b.color }};color:#ffffff;font-size:11.5px;font-weight:700;font-family:'SUIT Variable',SUIT,sans-serif;white-space:nowrap">{{ b.label }}</div>
                   </div>
                 </sc-for>
-                <div style="position:absolute;left:12px;top:12px;display:flex;gap:6px;align-items:center;padding:4px 11px;border-radius:999px;background:rgba(255,255,255,.76);backdrop-filter:blur(20px) saturate(200%);-webkit-backdrop-filter:blur(20px) saturate(200%);border:1px solid rgba(255,255,255,.92);box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 2px 8px rgba(58,70,135,.12);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;font-size:13px">
+                <div style="position:absolute;left:12px;top:12px;display:flex;gap:6px;align-items:center;padding:4px 11px;border-radius:999px;background:rgba(255,255,255,.76);backdrop-filter:blur(20px) saturate(200%);-webkit-backdrop-filter:blur(20px) saturate(200%);border:1px solid rgba(255,255,255,.92);box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 2px 8px rgba(58,70,135,.12);font-family:'SUIT Variable',SUIT,sans-serif;font-size:13px">
                   <span style="width:6px;height:6px;border-radius:50%;background:oklch(0.49 0.2 26);animation:tvpulse 1.6s ease-in-out infinite"></span>
                   <span>{{ tc }}</span><span style="color:#565b6a">/ 00:24:12</span>
                 </div>
-                <div style="position:absolute;right:12px;top:12px;display:flex;flex-direction:column;gap:4px;align-items:flex-end;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;font-size:12.5px;color:rgba(22,28,44,.82)">
+                <div style="position:absolute;right:12px;top:12px;display:flex;flex-direction:column;gap:4px;align-items:flex-end;font-family:'SUIT Variable',SUIT,sans-serif;font-size:12.5px;color:rgba(22,28,44,.82)">
                   <div style="padding:3px 8px;border-radius:7px;background:rgba(255,255,255,.76);backdrop-filter:blur(20px) saturate(200%);-webkit-backdrop-filter:blur(20px) saturate(200%);border:1px solid rgba(255,255,255,.92);box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 2px 8px rgba(58,70,135,.12)">{{ latlng }}</div>
                   <div style="padding:3px 8px;border-radius:7px;background:rgba(255,255,255,.76);backdrop-filter:blur(20px) saturate(200%);-webkit-backdrop-filter:blur(20px) saturate(200%);border:1px solid rgba(255,255,255,.92);box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 2px 8px rgba(58,70,135,.12)">{{ headSpeed }}</div>
                   <div style="padding:3px 8px;border-radius:7px;background:rgba(255,255,255,.76);backdrop-filter:blur(20px) saturate(200%);-webkit-backdrop-filter:blur(20px) saturate(200%);border:1px solid rgba(255,255,255,.92);box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 2px 8px rgba(58,70,135,.12)">비식별화 ON · 얼굴 2 / 번호판 3</div>
@@ -120,8 +117,8 @@
               </div>
               <div style="display:flex;align-items:center;gap:12px">
                 <div onClick="{{ togglePlay }}" style="width:46px;height:46px;flex:none;border-radius:50%;display:grid;place-items:center;cursor:pointer;background:linear-gradient(180deg,#2b2f3a,#0d1016);color:#ffffff;box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 8px 20px rgba(16,20,44,.3);font-size:15px;box-shadow:0 3px 14px rgba(74,108,247,.35)">{{ playGlyph }}</div>
-                <div onClick="{{ seekBack }}" style="padding:6px 10px;border-radius:8px;cursor:pointer;background:rgba(255,255,255,.74);font-size:13px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">−5s</div>
-                <div onClick="{{ seekFwd }}" style="padding:6px 10px;border-radius:8px;cursor:pointer;background:rgba(255,255,255,.74);font-size:13px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">+5s</div>
+                <div onClick="{{ seekBack }}" style="padding:6px 10px;border-radius:8px;cursor:pointer;background:rgba(255,255,255,.74);font-size:13px;font-family:'SUIT Variable',SUIT,sans-serif">−5s</div>
+                <div onClick="{{ seekFwd }}" style="padding:6px 10px;border-radius:8px;cursor:pointer;background:rgba(255,255,255,.74);font-size:13px;font-family:'SUIT Variable',SUIT,sans-serif">+5s</div>
                 <div onClick="{{ scrub }}" style="flex:1;height:26px;display:flex;align-items:center;cursor:pointer">
                   <div style="position:relative;width:100%;height:5px;border-radius:3px;background:rgba(36,48,96,.11)">
                     <div style="position:absolute;left:0;top:0;bottom:0;width:{{ pct }}%;border-radius:3px;background:{{ accentColor }}"></div>
@@ -129,7 +126,7 @@
                     <sc-for list="{{ gapMarks }}" as="g" hint-placeholder-count="1"><div style="position:absolute;left:{{ g.left }}%;top:-2px;height:9px;width:{{ g.w }}%;background:repeating-linear-gradient(90deg,oklch(0.56 0.14 74) 0 3px,transparent 3px 6px)"></div></sc-for>
                   </div>
                 </div>
-                <div style="font-size:13px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(24,30,48,.76)">{{ tc }} · frame {{ frameNo }}</div>
+                <div style="font-size:13px;font-family:'SUIT Variable',SUIT,sans-serif;color:rgba(24,30,48,.76)">{{ tc }} · frame {{ frameNo }}</div>
               </div>
             </div>
 
@@ -148,7 +145,7 @@
                 <circle cx="{{ carX }}" cy="{{ carY }}" r="5.5" fill="#fff" stroke="{{ accentColor }}" stroke-width="3"></circle>
               </svg>
               <div style="position:absolute;left:12px;top:12px;display:flex;flex-direction:column;gap:6px">
-                <div style="padding:4px 11px;border-radius:999px;background:rgba(255,255,255,.76);backdrop-filter:blur(20px) saturate(200%);-webkit-backdrop-filter:blur(20px) saturate(200%);border:1px solid rgba(255,255,255,.92);box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 2px 8px rgba(58,70,135,.12);font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(22,28,44,.82)">MapLibre GL JS · 타일 캐시 사용</div>
+                <div style="padding:4px 11px;border-radius:999px;background:rgba(255,255,255,.76);backdrop-filter:blur(20px) saturate(200%);-webkit-backdrop-filter:blur(20px) saturate(200%);border:1px solid rgba(255,255,255,.92);box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 2px 8px rgba(58,70,135,.12);font-size:12.5px;font-family:'SUIT Variable',SUIT,sans-serif;color:rgba(22,28,44,.82)">MapLibre GL JS · 타일 캐시 사용</div>
                 <div style="padding:4px 11px;border-radius:999px;background:rgba(255,255,255,.76);backdrop-filter:blur(20px) saturate(200%);-webkit-backdrop-filter:blur(20px) saturate(200%);border:1px solid rgba(255,255,255,.92);box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 2px 8px rgba(58,70,135,.12);font-size:12.5px;color:rgba(22,28,44,.82)">{{ roadNow }}</div>
               </div>
               <div style="position:absolute;right:12px;bottom:12px;display:flex;flex-direction:column;gap:5px;padding:10px 13px;border-radius:16px;background:rgba(255,255,255,.76);backdrop-filter:blur(20px) saturate(200%);-webkit-backdrop-filter:blur(20px) saturate(200%);border:1px solid rgba(255,255,255,.92);box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 2px 8px rgba(58,70,135,.12)">
@@ -167,15 +164,15 @@
           <div style="height:120px;flex:none;padding:12px 16px;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);border:1px solid rgba(255,255,255,.9);border-radius:22px;box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.55),inset 1px 0 0 rgba(255,255,255,.6),0 18px 44px rgba(58,70,135,.15),0 2px 6px rgba(58,70,135,.06);display:flex;flex-direction:column;gap:8px">
             <div style="display:flex;align-items:center;gap:10px">
               <span style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">사건 타임라인 · INCIDENT TIMELINE</span>
-              <span style="font-size:12.5px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">9건 · 필터: 전체 유형</span>
+              <span style="font-size:12.5px;color:rgba(26,32,52,.7);font-family:'SUIT Variable',SUIT,sans-serif">9건 · 필터: 전체 유형</span>
               <div style="flex:1"></div>
-              <span style="font-size:12.5px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">00:00:00 ─────────── 00:24:12</span>
+              <span style="font-size:12.5px;color:rgba(26,32,52,.7);font-family:'SUIT Variable',SUIT,sans-serif">00:00:00 ─────────── 00:24:12</span>
             </div>
             <div onClick="{{ scrub }}" style="position:relative;flex:1;border-radius:9px;background:linear-gradient(180deg,rgba(255,255,255,.05),rgba(255,255,255,.02));cursor:pointer;overflow:hidden">
               <sc-for list="{{ gapMarks }}" as="g" hint-placeholder-count="1"><div style="position:absolute;top:0;bottom:0;left:{{ g.left }}%;width:{{ g.w }}%;background:repeating-linear-gradient(115deg,oklch(0.66 0.15 78 / .3) 0 5px,transparent 5px 10px)"></div></sc-for>
               <sc-for list="{{ ticks }}" as="k" hint-placeholder-count="0">
                 <div onClick="{{ k.go }}" style="position:absolute;left:{{ k.left }}%;top:{{ k.top }}px;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer">
-                  <div style="padding:1px 5px;border-radius:5px;background:{{ k.chipBg }};color:{{ k.chipFg }};font-size:11px;font-weight:700;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;white-space:nowrap;opacity:{{ k.op }}">{{ k.code }}</div>
+                  <div style="padding:1px 5px;border-radius:5px;background:{{ k.chipBg }};color:{{ k.chipFg }};font-size:11px;font-weight:700;font-family:'SUIT Variable',SUIT,sans-serif;white-space:nowrap;opacity:{{ k.op }}">{{ k.code }}</div>
                   <div style="width:2px;height:{{ k.h }}px;background:{{ k.chipBg }}"></div>
                 </div>
               </sc-for>
@@ -188,18 +185,18 @@
               <div style="padding:9px 12px;display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(28,36,78,.08)">
                 <span style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">사건 목록 · INCIDENTS</span>
                 <div style="flex:1"></div>
-                <span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">review_status</span>
+                <span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'SUIT Variable',SUIT,sans-serif">review_status</span>
               </div>
               <div style="flex:1;overflow-y:auto;overflow-x:hidden">
                 <sc-for list="{{ list }}" as="i" hint-placeholder-count="6">
                   <div onClick="{{ i.go }}" style="display:flex;align-items:center;gap:9px;padding:8px 12px;cursor:pointer;border-left:3px solid {{ i.edge }};background:{{ i.bg }};border-bottom:1px solid rgba(28,36,78,.06)" style-hover="background:rgba(255,255,255,.72)">
-                    <span style="font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(24,30,48,.76);min-width:62px">{{ i.tc }}</span>
+                    <span style="font-size:12.5px;font-family:'SUIT Variable',SUIT,sans-serif;color:rgba(24,30,48,.76);min-width:62px">{{ i.tc }}</span>
                     <span style="width:7px;height:7px;border-radius:50%;background:{{ i.sevColor }};flex:none"></span>
                     <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:1px">
                       <div style="font-size:14px;font-weight:550;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ i.name }}</div>
-                      <div style="font-size:12px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ i.code }} · {{ i.road }}</div>
+                      <div style="font-size:12px;color:rgba(26,32,52,.7);font-family:'SUIT Variable',SUIT,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ i.code }} · {{ i.road }}</div>
                     </div>
-                    <span style="font-size:11.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;padding:2px 6px;border-radius:5px;background:{{ i.stBg }};color:{{ i.stFg }};flex:none">{{ i.status }}</span>
+                    <span style="font-size:11.5px;font-family:'SUIT Variable',SUIT,sans-serif;padding:2px 6px;border-radius:5px;background:{{ i.stBg }};color:{{ i.stFg }};flex:none">{{ i.status }}</span>
                   </div>
                 </sc-for>
               </div>
@@ -208,32 +205,32 @@
             <div style="flex:1;min-width:0;display:flex;flex-direction:column;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);border:1px solid rgba(255,255,255,.9);border-radius:22px;box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.55),inset 1px 0 0 rgba(255,255,255,.6),0 18px 44px rgba(58,70,135,.15),0 2px 6px rgba(58,70,135,.06);overflow:hidden">
               <div style="padding:9px 12px;display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(28,36,78,.08)">
                 <span style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">증거 카드 · EVIDENCE CARD</span>
-                <span style="font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:{{ accentColor }}">{{ cur.id }}</span>
+                <span style="font-size:12.5px;font-family:'SUIT Variable',SUIT,sans-serif;color:{{ accentColor }}">{{ cur.id }}</span>
                 <div style="flex:1"></div>
-                <span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">촬영하지 않은 검토자용 · 10.4</span>
+                <span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'SUIT Variable',SUIT,sans-serif">촬영하지 않은 검토자용 · 10.4</span>
               </div>
               <div style="flex:1;min-height:0;display:flex;gap:10px;padding:10px">
                 <div style="width:308px;flex:none;display:flex;flex-direction:column;gap:6px">
                   <div style="flex:1;border-radius:9px;background:rgba(255,255,255,.42);background-image:repeating-linear-gradient(135deg,rgba(60,74,130,.1) 0 8px,transparent 8px 16px);position:relative;display:grid;place-items:center">
-                    <span style="font-size:12px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(28,34,56,.62);text-align:center">[ 대표 프레임 · AI 마스크 표시 ]<br/>evidence/internal/{{ cur.id }}_ai.png</span>
-                    <div style="position:absolute;left:8px;bottom:8px;padding:2px 6px;border-radius:5px;background:rgba(255,255,255,.82);font-size:11.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(22,28,44,.82)">AI 표시</div>
+                    <span style="font-size:12px;font-family:'SUIT Variable',SUIT,sans-serif;color:rgba(28,34,56,.62);text-align:center">[ 대표 프레임 · AI 마스크 표시 ]<br/>evidence/internal/{{ cur.id }}_ai.png</span>
+                    <div style="position:absolute;left:8px;bottom:8px;padding:2px 6px;border-radius:5px;background:rgba(255,255,255,.82);font-size:11.5px;font-family:'SUIT Variable',SUIT,sans-serif;color:rgba(22,28,44,.82)">AI 표시</div>
                   </div>
                   <div style="display:flex;gap:6px;height:62px">
-                    <div style="flex:1;border-radius:8px;background:rgba(255,255,255,.42);background-image:repeating-linear-gradient(135deg,rgba(60,74,130,.1) 0 8px,transparent 8px 16px);display:grid;place-items:center;font-size:11.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(28,34,56,.62);text-align:center">원본<br/>frame</div>
-                    <div style="flex:1;border-radius:8px;background:rgba(255,255,255,.42);background-image:repeating-linear-gradient(135deg,rgba(60,74,130,.1) 0 8px,transparent 8px 16px);display:grid;place-items:center;font-size:11.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(28,34,56,.62);text-align:center">사용자<br/>최종 영역</div>
-                    <div style="flex:1;border-radius:8px;background:rgba(255,255,255,.42);background-image:repeating-linear-gradient(135deg,rgba(60,74,130,.1) 0 8px,transparent 8px 16px);display:grid;place-items:center;font-size:11.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(28,34,56,.62);text-align:center">공유용<br/>blur</div>
-                    <div style="flex:1;border-radius:8px;background:rgba(255,255,255,.42);background-image:repeating-linear-gradient(135deg,rgba(60,74,130,.1) 0 8px,transparent 8px 16px);display:grid;place-items:center;font-size:11.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(28,34,56,.62);text-align:center">전후<br/>clip 5s</div>
+                    <div style="flex:1;border-radius:8px;background:rgba(255,255,255,.42);background-image:repeating-linear-gradient(135deg,rgba(60,74,130,.1) 0 8px,transparent 8px 16px);display:grid;place-items:center;font-size:11.5px;font-family:'SUIT Variable',SUIT,sans-serif;color:rgba(28,34,56,.62);text-align:center">원본<br/>frame</div>
+                    <div style="flex:1;border-radius:8px;background:rgba(255,255,255,.42);background-image:repeating-linear-gradient(135deg,rgba(60,74,130,.1) 0 8px,transparent 8px 16px);display:grid;place-items:center;font-size:11.5px;font-family:'SUIT Variable',SUIT,sans-serif;color:rgba(28,34,56,.62);text-align:center">사용자<br/>최종 영역</div>
+                    <div style="flex:1;border-radius:8px;background:rgba(255,255,255,.42);background-image:repeating-linear-gradient(135deg,rgba(60,74,130,.1) 0 8px,transparent 8px 16px);display:grid;place-items:center;font-size:11.5px;font-family:'SUIT Variable',SUIT,sans-serif;color:rgba(28,34,56,.62);text-align:center">공유용<br/>blur</div>
+                    <div style="flex:1;border-radius:8px;background:rgba(255,255,255,.42);background-image:repeating-linear-gradient(135deg,rgba(60,74,130,.1) 0 8px,transparent 8px 16px);display:grid;place-items:center;font-size:11.5px;font-family:'SUIT Variable',SUIT,sans-serif;color:rgba(28,34,56,.62);text-align:center">전후<br/>clip 5s</div>
                   </div>
                 </div>
                 <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:7px;overflow-y:auto;overflow-x:hidden">
                   <div style="display:flex;align-items:center;gap:7px">
                     <span style="font-size:19px;font-weight:620;letter-spacing:-0.02em">{{ cur.name }}</span>
-                    <span style="font-size:12px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;padding:2px 6px;border-radius:5px;background:rgba(255,255,255,.78);color:rgba(22,28,44,.82)">{{ cur.code }}</span>
+                    <span style="font-size:12px;font-family:'SUIT Variable',SUIT,sans-serif;padding:2px 6px;border-radius:5px;background:rgba(255,255,255,.78);color:rgba(22,28,44,.82)">{{ cur.code }}</span>
                     <span style="font-size:12px;font-weight:700;padding:2px 7px;border-radius:5px;background:{{ cur.sevColor }};color:#ffffff">{{ cur.sevLabel }}</span>
                   </div>
                   <sc-for list="{{ cur.rows }}" as="r" hint-placeholder-count="8">
                     <div style="display:flex;gap:10px;padding:4px 0;border-bottom:1px solid rgba(28,36,78,.07)">
-                      <span style="width:136px;flex:none;font-size:12.5px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">{{ r.k }}</span>
+                      <span style="width:136px;flex:none;font-size:12.5px;color:rgba(26,32,52,.7);font-family:'SUIT Variable',SUIT,sans-serif">{{ r.k }}</span>
                       <span style="flex:1;font-size:13.5px;color:{{ r.color }}">{{ r.v }}</span>
                     </div>
                   </sc-for>
@@ -253,7 +250,7 @@
         <div data-screen-label="16.1 프로젝트 홈" style="flex:1;min-height:0;display:flex;flex-direction:column;gap:12px;padding:0;overflow-y:auto;overflow-x:hidden">
           <div style="display:flex;align-items:center;gap:12px">
             <div style="font-size:25px;font-weight:640;letter-spacing:-0.03em;line-height:1.12">프로젝트 홈</div>
-            <span style="font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(26,32,52,.7);padding:2px 7px;border-radius:6px;background:rgba(255,255,255,.72)">16.1 · GET /projects/{project_id}</span>
+            <span style="font-size:12.5px;font-family:'SUIT Variable',SUIT,sans-serif;color:rgba(26,32,52,.7);padding:2px 7px;border-radius:6px;background:rgba(255,255,255,.72)">16.1 · GET /projects/{project_id}</span>
             <div style="flex:1"></div>
             <div style="padding:7px 16px;border-radius:999px;background:rgba(255,255,255,.78);font-size:14px;cursor:pointer">프로젝트 열기</div>
             <div style="padding:7px 16px;border-radius:999px;background:linear-gradient(180deg,#2b2f3a,#0d1016);color:#ffffff;box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 8px 20px rgba(16,20,44,.3);font-size:14px;font-weight:600;cursor:pointer">+ 새 프로젝트</div>
@@ -264,31 +261,31 @@
               <div style="font-size:12.5px;color:rgba(26,32,52,.7)">분석 진행률</div>
               <div style="font-size:36px;font-weight:600;letter-spacing:-0.04em;line-height:1">62<span style="font-size:16px;color:rgba(26,32,52,.7)">%</span></div>
               <div style="height:4px;border-radius:3px;background:rgba(36,48,96,.11);overflow:hidden"><div style="width:62%;height:100%;background:oklch(0.49 0.19 262)"></div></div>
-              <div style="font-size:12px;color:rgba(28,34,56,.64);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">trip_003 · 단계 7/15</div>
+              <div style="font-size:12px;color:rgba(28,34,56,.64);font-family:'SUIT Variable',SUIT,sans-serif">trip_003 · 단계 7/15</div>
             </div>
             <div style="padding:13px 14px;border-radius:13px;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.5),0 14px 34px rgba(58,70,135,.13);border:1px solid rgba(255,255,255,.9);display:flex;flex-direction:column;gap:7px">
               <div style="font-size:12.5px;color:rgba(26,32,52,.7)">승인 대기 질문</div>
               <div style="font-size:36px;font-weight:600;letter-spacing:-0.04em;line-height:1">147<span style="font-size:16px;color:rgba(26,32,52,.7)">건</span></div>
               <div style="display:flex;gap:3px;height:4px"><div style="flex:3;background:oklch(0.49 0.2 26);border-radius:3px"></div><div style="flex:5;background:oklch(0.52 0.12 72);border-radius:3px"></div><div style="flex:9;background:rgba(255,255,255,.74);border-radius:3px"></div></div>
-              <div style="font-size:12px;color:rgba(28,34,56,.64);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">강제 질문 18 · 경계 32</div>
+              <div style="font-size:12px;color:rgba(28,34,56,.64);font-family:'SUIT Variable',SUIT,sans-serif">강제 질문 18 · 경계 32</div>
             </div>
             <div style="padding:13px 14px;border-radius:13px;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.5),0 14px 34px rgba(58,70,135,.13);border:1px solid rgba(255,255,255,.9);display:flex;flex-direction:column;gap:7px">
               <div style="font-size:12.5px;color:rgba(26,32,52,.7)">심각 · 긴급 사건</div>
               <div style="font-size:36px;font-weight:600;letter-spacing:-0.04em;line-height:1;color:oklch(0.47 0.19 28)">6<span style="font-size:16px;color:rgba(26,32,52,.7)">건</span></div>
-              <div style="display:flex;gap:4px;font-size:11.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace"><span style="padding:1px 5px;border-radius:4px;background:oklch(0.49 0.2 26);color:#ffffff">긴급 2</span><span style="padding:1px 5px;border-radius:4px;background:oklch(0.51 0.16 45);color:#ffffff">심 4</span></div>
-              <div style="font-size:12px;color:rgba(28,34,56,.64);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">ROAD_DEBRIS 2 · POTHOLE 3</div>
+              <div style="display:flex;gap:4px;font-size:11.5px;font-family:'SUIT Variable',SUIT,sans-serif"><span style="padding:1px 5px;border-radius:4px;background:oklch(0.49 0.2 26);color:#ffffff">긴급 2</span><span style="padding:1px 5px;border-radius:4px;background:oklch(0.51 0.16 45);color:#ffffff">심 4</span></div>
+              <div style="font-size:12px;color:rgba(28,34,56,.64);font-family:'SUIT Variable',SUIT,sans-serif">ROAD_DEBRIS 2 · POTHOLE 3</div>
             </div>
             <div style="padding:13px 14px;border-radius:13px;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.5),0 14px 34px rgba(58,70,135,.13);border:1px solid rgba(255,255,255,.9);display:flex;flex-direction:column;gap:7px">
               <div style="font-size:12.5px;color:rgba(26,32,52,.7)">활성 모델</div>
-              <div style="font-size:22px;font-weight:620;letter-spacing:-0.025em;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">v7</div>
-              <div style="font-size:12px;color:rgba(22,28,44,.82);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">yolo26s-seg · 1280px</div>
-              <div style="font-size:12px;color:oklch(0.46 0.14 158);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">ACTIVE · 후보 v8 대기</div>
+              <div style="font-size:22px;font-weight:620;letter-spacing:-0.025em;font-family:'SUIT Variable',SUIT,sans-serif">v7</div>
+              <div style="font-size:12px;color:rgba(22,28,44,.82);font-family:'SUIT Variable',SUIT,sans-serif">yolo26s-seg · 1280px</div>
+              <div style="font-size:12px;color:oklch(0.46 0.14 158);font-family:'SUIT Variable',SUIT,sans-serif">ACTIVE · 후보 v8 대기</div>
             </div>
             <div style="padding:13px 14px;border-radius:13px;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.5),0 14px 34px rgba(58,70,135,.13);border:1px solid rgba(255,255,255,.9);display:flex;flex-direction:column;gap:7px">
               <div style="font-size:12.5px;color:rgba(26,32,52,.7)">보고서 상태</div>
               <div style="font-size:18px;font-weight:600;letter-spacing:-0.015em">편집 계획 검토 중</div>
-              <div style="font-size:12px;color:rgba(22,28,44,.82);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">DocumentEditPlan · 24 ops</div>
-              <div style="font-size:12px;color:oklch(0.52 0.12 72);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">수락 11 / 거절 2 / 대기 11</div>
+              <div style="font-size:12px;color:rgba(22,28,44,.82);font-family:'SUIT Variable',SUIT,sans-serif">DocumentEditPlan · 24 ops</div>
+              <div style="font-size:12px;color:oklch(0.52 0.12 72);font-family:'SUIT Variable',SUIT,sans-serif">수락 11 / 거절 2 / 대기 11</div>
             </div>
           </div>
 
@@ -297,21 +294,21 @@
               <div style="padding:10px 13px;display:flex;align-items:center;gap:9px;border-bottom:1px solid rgba(28,36,78,.08)">
                 <span style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">최근 주행 · TRIPS</span>
                 <div style="flex:1"></div>
-                <span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">Trip · MediaAsset · GpsTrackPoint</span>
+                <span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'SUIT Variable',SUIT,sans-serif">Trip · MediaAsset · GpsTrackPoint</span>
               </div>
-              <div style="display:grid;grid-template-columns:112px 1fr 94px 90px 84px 104px 90px;gap:0;padding:7px 13px;font-size:12px;color:rgba(28,34,56,.64);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;border-bottom:1px solid rgba(28,36,78,.07)">
+              <div style="display:grid;grid-template-columns:112px 1fr 94px 90px 84px 104px 90px;gap:0;padding:7px 13px;font-size:12px;color:rgba(28,34,56,.64);font-family:'SUIT Variable',SUIT,sans-serif;border-bottom:1px solid rgba(28,36,78,.07)">
                 <div>trip_id</div><div>구간 · 영상</div><div>길이</div><div>GPS</div><div>사건</div><div>질문</div><div>상태</div>
               </div>
               <div style="flex:1;overflow-y:auto;overflow-x:hidden">
                 <sc-for list="{{ trips }}" as="t" hint-placeholder-count="5">
                   <div style="display:grid;grid-template-columns:112px 1fr 94px 90px 84px 104px 90px;align-items:center;gap:0;padding:9px 13px;border-bottom:1px solid rgba(28,36,78,.06);font-size:13.5px" style-hover="background:rgba(255,255,255,.04)">
-                    <div style="font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(22,28,44,.82);font-size:12.5px">{{ t.id }}</div>
-                    <div style="display:flex;flex-direction:column;gap:1px;min-width:0"><span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ t.route }}</span><span style="font-size:12px;color:rgba(28,34,56,.64);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">{{ t.file }}</span></div>
-                    <div style="font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(22,28,44,.82);font-size:12.5px">{{ t.dur }}</div>
-                    <div style="font-size:12px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:{{ t.gpsColor }}">{{ t.gps }}</div>
-                    <div style="font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;font-size:12.5px">{{ t.inc }}</div>
-                    <div style="font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;font-size:12.5px;color:{{ t.qColor }}">{{ t.q }}</div>
-                    <div><span style="font-size:11.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;padding:2px 6px;border-radius:5px;background:{{ t.stBg }};color:{{ t.stFg }}">{{ t.st }}</span></div>
+                    <div style="font-family:'SUIT Variable',SUIT,sans-serif;color:rgba(22,28,44,.82);font-size:12.5px">{{ t.id }}</div>
+                    <div style="display:flex;flex-direction:column;gap:1px;min-width:0"><span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ t.route }}</span><span style="font-size:12px;color:rgba(28,34,56,.64);font-family:'SUIT Variable',SUIT,sans-serif">{{ t.file }}</span></div>
+                    <div style="font-family:'SUIT Variable',SUIT,sans-serif;color:rgba(22,28,44,.82);font-size:12.5px">{{ t.dur }}</div>
+                    <div style="font-size:12px;font-family:'SUIT Variable',SUIT,sans-serif;color:{{ t.gpsColor }}">{{ t.gps }}</div>
+                    <div style="font-family:'SUIT Variable',SUIT,sans-serif;font-size:12.5px">{{ t.inc }}</div>
+                    <div style="font-family:'SUIT Variable',SUIT,sans-serif;font-size:12.5px;color:{{ t.qColor }}">{{ t.q }}</div>
+                    <div><span style="font-size:11.5px;font-family:'SUIT Variable',SUIT,sans-serif;padding:2px 6px;border-radius:5px;background:{{ t.stBg }};color:{{ t.stFg }}">{{ t.st }}</span></div>
                   </div>
                 </sc-for>
               </div>
@@ -329,9 +326,9 @@
                       <div style="width:54px;height:38px;flex:none;border-radius:6px;background:rgba(255,255,255,.42);background-image:repeating-linear-gradient(135deg,rgba(60,74,130,.1) 0 6px,transparent 6px 12px)"></div>
                       <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:1px">
                         <span style="font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ q.text }}</span>
-                        <span style="font-size:12px;color:rgba(28,34,56,.64);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">{{ q.code }} · conf {{ q.conf }}</span>
+                        <span style="font-size:12px;color:rgba(28,34,56,.64);font-family:'SUIT Variable',SUIT,sans-serif">{{ q.code }} · conf {{ q.conf }}</span>
                       </div>
-                      <sc-if value="{{ q.forced }}" hint-placeholder-val="{{ false }}"><span style="font-size:11px;font-weight:700;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;padding:2px 5px;border-radius:4px;background:oklch(0.49 0.2 26);color:#ffffff;flex:none">강제</span></sc-if>
+                      <sc-if value="{{ q.forced }}" hint-placeholder-val="{{ false }}"><span style="font-size:11px;font-weight:700;font-family:'SUIT Variable',SUIT,sans-serif;padding:2px 5px;border-radius:4px;background:oklch(0.49 0.2 26);color:#ffffff;flex:none">강제</span></sc-if>
                     </div>
                   </sc-for>
                 </div>
@@ -340,7 +337,7 @@
                 <div style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">첫 실행 점검 · SELF-CHECK (4.3)</div>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 12px">
                   <sc-for list="{{ selfcheck }}" as="s" hint-placeholder-count="8">
-                    <div style="display:flex;align-items:center;gap:6px;font-size:13px"><span style="width:6px;height:6px;border-radius:50%;background:{{ s.dot }};flex:none"></span><span style="color:rgba(18,22,36,.92)">{{ s.label }}</span><span style="flex:1"></span><span style="font-size:11.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:{{ s.dot }}">{{ s.st }}</span></div>
+                    <div style="display:flex;align-items:center;gap:6px;font-size:13px"><span style="width:6px;height:6px;border-radius:50%;background:{{ s.dot }};flex:none"></span><span style="color:rgba(18,22,36,.92)">{{ s.label }}</span><span style="flex:1"></span><span style="font-size:11.5px;font-family:'SUIT Variable',SUIT,sans-serif;color:{{ s.dot }}">{{ s.st }}</span></div>
                   </sc-for>
                 </div>
               </div>
@@ -353,19 +350,19 @@
         <div data-screen-label="16.2 영상 가져오기" style="flex:1;min-height:0;display:flex;flex-direction:column;gap:12px;padding:0">
           <div style="display:flex;align-items:center;gap:12px">
             <div style="font-size:25px;font-weight:640;letter-spacing:-0.03em;line-height:1.12">영상 가져오기 · 링크 검증</div>
-            <span style="font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(26,32,52,.7);padding:2px 7px;border-radius:6px;background:rgba(255,255,255,.72)">16.2 · POST /imports/inspect → POST /imports</span>
+            <span style="font-size:12.5px;font-family:'SUIT Variable',SUIT,sans-serif;color:rgba(26,32,52,.7);padding:2px 7px;border-radius:6px;background:rgba(255,255,255,.72)">16.2 · POST /imports/inspect → POST /imports</span>
           </div>
           <div style="flex:1;min-height:0;display:flex;gap:14px">
             <div style="width:418px;flex:none;display:flex;flex-direction:column;gap:14px">
               <div style="padding:13px;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);border:1px solid rgba(255,255,255,.9);border-radius:22px;box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.55),inset 1px 0 0 rgba(255,255,255,.6),0 18px 44px rgba(58,70,135,.15),0 2px 6px rgba(58,70,135,.06);display:flex;flex-direction:column;gap:10px">
                 <div style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">입력 · SOURCE</div>
                 <div style="display:flex;gap:8px">
-                  <div style="flex:1;padding:9px;border-radius:10px;border:1px dashed rgba(48,60,120,.28);text-align:center;font-size:13.5px;color:rgba(18,22,36,.92);cursor:pointer" style-hover="border-color:rgba(74,108,247,.5)">로컬 파일 선택<div style="font-size:12px;color:rgba(28,34,56,.64);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;margin-top:2px">MP4 · MOV</div></div>
-                  <div style="flex:1;padding:9px;border-radius:10px;border:1px dashed rgba(48,60,120,.28);text-align:center;font-size:13.5px;color:rgba(18,22,36,.92);cursor:pointer" style-hover="border-color:rgba(74,108,247,.5)">GPX 선택<div style="font-size:12px;color:rgba(28,34,56,.64);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;margin-top:2px">.gpx</div></div>
+                  <div style="flex:1;padding:9px;border-radius:10px;border:1px dashed rgba(48,60,120,.28);text-align:center;font-size:13.5px;color:rgba(18,22,36,.92);cursor:pointer" style-hover="border-color:rgba(74,108,247,.5)">로컬 파일 선택<div style="font-size:12px;color:rgba(28,34,56,.64);font-family:'SUIT Variable',SUIT,sans-serif;margin-top:2px">MP4 · MOV</div></div>
+                  <div style="flex:1;padding:9px;border-radius:10px;border:1px dashed rgba(48,60,120,.28);text-align:center;font-size:13.5px;color:rgba(18,22,36,.92);cursor:pointer" style-hover="border-color:rgba(74,108,247,.5)">GPX 선택<div style="font-size:12px;color:rgba(28,34,56,.64);font-family:'SUIT Variable',SUIT,sans-serif;margin-top:2px">.gpx</div></div>
                 </div>
                 <div style="display:flex;gap:7px;align-items:center;padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.72);border:1px solid rgba(74,108,247,.28)">
-                  <span style="font-size:12.5px;color:rgba(28,34,56,.64);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">URL</span>
-                  <span style="flex:1;font-size:13px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:#1b1f2a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">https://drive.google.com/file/d/1x9K…/view</span>
+                  <span style="font-size:12.5px;color:rgba(28,34,56,.64);font-family:'SUIT Variable',SUIT,sans-serif">URL</span>
+                  <span style="flex:1;font-size:13px;font-family:'SUIT Variable',SUIT,sans-serif;color:#1b1f2a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">https://drive.google.com/file/d/1x9K…/view</span>
                   <span style="width:1.5px;height:14px;background:#4a6cf7;animation:tvpulse 1.1s steps(1) infinite"></span>
                 </div>
                 <div style="font-size:12.5px;color:rgba(26,32,52,.7);line-height:1.5">붙여넣은 링크는 공급자·유형을 판별한 뒤 파일명·용량·길이·해상도·저장 위치를 <b style="color:rgba(18,22,36,.92)">다운로드 전에</b> 표시합니다. (5.3)</div>
@@ -375,7 +372,7 @@
                 <div style="flex:1;overflow-y:auto;overflow-x:hidden">
                   <sc-for list="{{ tiers }}" as="x" hint-placeholder-count="6">
                     <div style="display:flex;gap:9px;align-items:flex-start;padding:9px 13px;border-bottom:1px solid rgba(28,36,78,.06)">
-                      <span style="font-size:11.5px;font-weight:700;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;padding:2px 6px;border-radius:5px;background:{{ x.bg }};color:{{ x.fg }};flex:none;min-width:46px;text-align:center">{{ x.tier }}</span>
+                      <span style="font-size:11.5px;font-weight:700;font-family:'SUIT Variable',SUIT,sans-serif;padding:2px 6px;border-radius:5px;background:{{ x.bg }};color:{{ x.fg }};flex:none;min-width:46px;text-align:center">{{ x.tier }}</span>
                       <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:1px">
                         <span style="font-size:13.5px">{{ x.label }}</span>
                         <span style="font-size:12px;color:rgba(26,32,52,.7)">{{ x.policy }}</span>
@@ -390,15 +387,15 @@
               <div style="padding:14px;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);border:1px solid rgba(255,255,255,.9);border-radius:22px;box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.55),inset 1px 0 0 rgba(255,255,255,.6),0 18px 44px rgba(58,70,135,.15),0 2px 6px rgba(58,70,135,.06);display:flex;flex-direction:column;gap:11px">
                 <div style="display:flex;align-items:center;gap:9px">
                   <span style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">검사 결과 · INSPECT</span>
-                  <span style="font-size:11.5px;font-weight:700;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;padding:2px 7px;border-radius:5px;background:oklch(0.46 0.14 158);color:#ffffff">공식 · Drive 공유 링크</span>
+                  <span style="font-size:11.5px;font-weight:700;font-family:'SUIT Variable',SUIT,sans-serif;padding:2px 7px;border-radius:5px;background:oklch(0.46 0.14 158);color:#ffffff">공식 · Drive 공유 링크</span>
                   <div style="flex:1"></div>
-                  <span style="font-size:12.5px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">provider=google_drive · resumable</span>
+                  <span style="font-size:12.5px;color:rgba(26,32,52,.7);font-family:'SUIT Variable',SUIT,sans-serif">provider=google_drive · resumable</span>
                 </div>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px 18px">
                   <sc-for list="{{ inspect }}" as="r" hint-placeholder-count="8">
                     <div style="display:flex;gap:9px;padding:5px 0;border-bottom:1px solid rgba(28,36,78,.07)">
-                      <span style="width:120px;flex:none;font-size:12.5px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">{{ r.k }}</span>
-                      <span style="flex:1;font-size:13.5px;color:{{ r.color }};font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;word-break:break-all">{{ r.v }}</span>
+                      <span style="width:120px;flex:none;font-size:12.5px;color:rgba(26,32,52,.7);font-family:'SUIT Variable',SUIT,sans-serif">{{ r.k }}</span>
+                      <span style="flex:1;font-size:13.5px;color:{{ r.color }};font-family:'SUIT Variable',SUIT,sans-serif;word-break:break-all">{{ r.v }}</span>
                     </div>
                   </sc-for>
                 </div>
@@ -406,10 +403,10 @@
                   <span style="width:15px;height:15px;border-radius:4px;border:1.5px solid oklch(0.52 0.12 72);display:grid;place-items:center;font-size:12px;color:oklch(0.52 0.12 72)">✓</span>
                   <span style="font-size:13.5px;color:oklch(0.38 0.1 68)">이 영상을 다운로드·분석할 권리가 있음을 확인합니다.</span>
                   <div style="flex:1"></div>
-                  <span style="font-size:12px;color:oklch(0.43 0.08 68);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">필수 · 5.3-4</span>
+                  <span style="font-size:12px;color:oklch(0.43 0.08 68);font-family:'SUIT Variable',SUIT,sans-serif">필수 · 5.3-4</span>
                 </div>
                 <div style="display:flex;flex-direction:column;gap:6px">
-                  <div style="display:flex;align-items:center;gap:9px;font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(22,28,44,.82)">
+                  <div style="display:flex;align-items:center;gap:9px;font-size:12.5px;font-family:'SUIT Variable',SUIT,sans-serif;color:rgba(22,28,44,.82)">
                     <span>다운로드 68% · 1.42 / 2.08 GB · 18.4 MB/s</span><div style="flex:1"></div><span>이어받기 지원 · Range</span>
                   </div>
                   <div style="height:6px;border-radius:4px;background:rgba(36,48,96,.09);overflow:hidden"><div style="width:68%;height:100%;background:linear-gradient(90deg,oklch(0.49 0.19 262),oklch(0.66 0.16 230))"></div></div>
@@ -425,14 +422,14 @@
                 <div style="padding:10px 13px;border-bottom:1px solid rgba(28,36,78,.08);display:flex;align-items:center;gap:8px">
                   <span style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">보안 검사 · 19.2</span>
                   <div style="flex:1"></div>
-                  <span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">확장자 대신 파일 시그니처 기준</span>
+                  <span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'SUIT Variable',SUIT,sans-serif">확장자 대신 파일 시그니처 기준</span>
                 </div>
                 <div style="flex:1;overflow-y:auto;overflow-x:hidden;padding:4px 0">
                   <sc-for list="{{ secChecks }}" as="s" hint-placeholder-count="6">
                     <div style="display:flex;align-items:center;gap:9px;padding:7px 13px;border-bottom:1px solid rgba(28,36,78,.06)">
                       <span style="width:14px;height:14px;border-radius:4px;background:{{ s.bg }};color:#ffffff;display:grid;place-items:center;font-size:11px;font-weight:700;flex:none">{{ s.mark }}</span>
                       <span style="font-size:13.5px;flex:1">{{ s.label }}</span>
-                      <span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">{{ s.detail }}</span>
+                      <span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'SUIT Variable',SUIT,sans-serif">{{ s.detail }}</span>
                     </div>
                   </sc-for>
                 </div>
@@ -442,21 +439,21 @@
             <div style="width:360px;flex:none;display:flex;flex-direction:column;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);border:1px solid rgba(255,255,255,.9);border-radius:22px;box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.55),inset 1px 0 0 rgba(255,255,255,.6),0 18px 44px rgba(58,70,135,.15),0 2px 6px rgba(58,70,135,.06);overflow:hidden">
               <div style="padding:10px 13px;border-bottom:1px solid rgba(28,36,78,.08);font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">GPS 시간 동기화 · 7.3</div>
               <div style="padding:12px;display:flex;flex-direction:column;gap:11px">
-                <div style="height:140px;border-radius:10px;background:rgba(255,255,255,.42);background-image:repeating-linear-gradient(135deg,rgba(60,74,130,.1) 0 9px,transparent 9px 18px);display:grid;place-items:center;font-size:12px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(28,34,56,.62);text-align:center">[ 영상 첫 프레임 ]<br/>사용자가 지도 위치와 비교</div>
+                <div style="height:140px;border-radius:10px;background:rgba(255,255,255,.42);background-image:repeating-linear-gradient(135deg,rgba(60,74,130,.1) 0 9px,transparent 9px 18px);display:grid;place-items:center;font-size:12px;font-family:'SUIT Variable',SUIT,sans-serif;color:rgba(28,34,56,.62);text-align:center">[ 영상 첫 프레임 ]<br/>사용자가 지도 위치와 비교</div>
                 <div style="height:104px;border-radius:10px;background:rgba(255,255,255,.4);backdrop-filter:blur(26px);border:1px solid rgba(255,255,255,.82);position:relative;overflow:hidden">
                   <svg viewBox="0 0 320 96" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%">
                     <path d="M12 78 C60 66 78 34 128 30 C176 26 208 52 258 40 C286 33 300 22 308 16" fill="none" stroke="rgba(46,60,116,.16)" stroke-width="6" stroke-linecap="round"></path>
                     <circle cx="128" cy="30" r="5" fill="#4a6cf7" stroke="#ffffff" stroke-width="2.5"></circle>
                   </svg>
-                  <div style="position:absolute;left:9px;bottom:7px;font-size:11.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(26,32,52,.7)">GPX 시작 14:22:03+09:00</div>
+                  <div style="position:absolute;left:9px;bottom:7px;font-size:11.5px;font-family:'SUIT Variable',SUIT,sans-serif;color:rgba(26,32,52,.7)">GPX 시작 14:22:03+09:00</div>
                 </div>
                 <div style="display:flex;flex-direction:column;gap:7px">
-                  <div style="display:flex;align-items:center;justify-content:space-between;font-size:13px"><span style="color:rgba(22,28,44,.82)">오프셋 보정</span><span style="font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:#1b1f2a">−1.8 s</span></div>
+                  <div style="display:flex;align-items:center;justify-content:space-between;font-size:13px"><span style="color:rgba(22,28,44,.82)">오프셋 보정</span><span style="font-family:'SUIT Variable',SUIT,sans-serif;color:#1b1f2a">−1.8 s</span></div>
                   <div style="position:relative;height:5px;border-radius:3px;background:rgba(36,48,96,.11)">
                     <div style="position:absolute;left:0;top:0;bottom:0;width:42%;border-radius:3px;background:{{ accentColor }}"></div>
                     <div style="position:absolute;left:42%;top:-4px;width:13px;height:13px;margin-left:-6.5px;border-radius:50%;background:#fff;box-shadow:0 1px 5px rgba(58,70,135,.4)"></div>
                   </div>
-                  <div style="display:flex;justify-content:space-between;font-size:11.5px;color:rgba(28,34,56,.64);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace"><span>−10s</span><span>0</span><span>+10s</span></div>
+                  <div style="display:flex;justify-content:space-between;font-size:11.5px;color:rgba(28,34,56,.64);font-family:'SUIT Variable',SUIT,sans-serif"><span>−10s</span><span>0</span><span>+10s</span></div>
                 </div>
                 <div style="padding:10px 13px;border-radius:16px;background:rgba(206,142,32,.12);border:1px solid rgba(206,142,32,.3);display:flex;flex-direction:column;gap:3px">
                   <span style="font-size:13px;color:oklch(0.38 0.1 68);font-weight:600">GPS_MISSING 1구간</span>
@@ -473,33 +470,33 @@
         <div data-screen-label="16.3 질문형 라벨링" style="flex:1;min-height:0;display:flex;flex-direction:column;gap:12px;padding:0">
           <div style="display:flex;align-items:center;gap:12px">
             <div style="font-size:25px;font-weight:640;letter-spacing:-0.03em;line-height:1.12">질문형 라벨링</div>
-            <span style="font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(26,32,52,.7);padding:2px 7px;border-radius:6px;background:rgba(255,255,255,.72)">16.3 · POST /questions/{question_id}/answer</span>
+            <span style="font-size:12.5px;font-family:'SUIT Variable',SUIT,sans-serif;color:rgba(26,32,52,.7);padding:2px 7px;border-radius:6px;background:rgba(255,255,255,.72)">16.3 · POST /questions/{question_id}/answer</span>
             <div style="flex:1"></div>
             <div style="display:flex;gap:4px;padding:3px;border-radius:999px;background:rgba(255,255,255,.72);backdrop-filter:blur(18px) saturate(200%);-webkit-backdrop-filter:blur(18px) saturate(200%);border:1px solid rgba(255,255,255,.95);box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 1px 3px rgba(58,70,135,.07)">
               <sc-for list="{{ modes }}" as="m" hint-placeholder-count="3"><div onClick="{{ m.set }}" style="padding:5px 14px;border-radius:999px;cursor:pointer;font-size:13px;background:{{ m.bg }};color:{{ m.fg }}">{{ m.label }}</div></sc-for>
             </div>
-            <span style="font-size:12.5px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">policy_mode</span>
+            <span style="font-size:12.5px;color:rgba(26,32,52,.7);font-family:'SUIT Variable',SUIT,sans-serif">policy_mode</span>
           </div>
 
           <div style="flex:1;min-height:0;display:flex;gap:14px">
             <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:10px;padding:12px;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);border:1px solid rgba(255,255,255,.9);border-radius:22px;box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.55),inset 1px 0 0 rgba(255,255,255,.6),0 18px 44px rgba(58,70,135,.15),0 2px 6px rgba(58,70,135,.06)">
               <div style="flex:1;min-height:0;position:relative;border-radius:16px;overflow:hidden;background:rgba(255,255,255,.42);background-image:repeating-linear-gradient(135deg,rgba(60,74,130,.1) 0 10px,transparent 10px 20px)">
-                <div style="position:absolute;inset:0;display:grid;place-items:center"><span style="font-size:13px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(28,34,56,.62);text-align:center">[ 대표 프레임 · 1920×1080 ]<br/>analysis/frames/trip_002/f_00418.jpg</span></div>
+                <div style="position:absolute;inset:0;display:grid;place-items:center"><span style="font-size:13px;font-family:'SUIT Variable',SUIT,sans-serif;color:rgba(28,34,56,.62);text-align:center">[ 대표 프레임 · 1920×1080 ]<br/>analysis/frames/trip_002/f_00418.jpg</span></div>
                 <div style="position:absolute;left:31%;top:56%;width:22%;height:22%;border:2px solid oklch(0.52 0.12 72);border-radius:5px;box-shadow:0 0 22px rgba(206,142,32,.35)">
-                  <div style="position:absolute;left:-2px;top:-21px;padding:2px 7px;border-radius:5px;background:oklch(0.52 0.12 72);color:#ffffff;font-size:12px;font-weight:700;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;white-space:nowrap">AI 제안 · LANE_MARKING_FADED 0.61</div>
+                  <div style="position:absolute;left:-2px;top:-21px;padding:2px 7px;border-radius:5px;background:oklch(0.52 0.12 72);color:#ffffff;font-size:12px;font-weight:700;font-family:'SUIT Variable',SUIT,sans-serif;white-space:nowrap">AI 제안 · LANE_MARKING_FADED 0.61</div>
                   <div style="position:absolute;right:-1px;bottom:-1px;width:9px;height:9px;background:oklch(0.52 0.12 72)"></div>
                 </div>
-                <div style="position:absolute;left:12px;top:12px;padding:4px 11px;border-radius:999px;background:rgba(255,255,255,.8);backdrop-filter:blur(16px) saturate(180%);font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(18,22,36,.92)">Q-8834 · 00:07:14 · 지속 9프레임 · 5fps→10fps 재분석</div>
+                <div style="position:absolute;left:12px;top:12px;padding:4px 11px;border-radius:999px;background:rgba(255,255,255,.8);backdrop-filter:blur(16px) saturate(180%);font-size:12.5px;font-family:'SUIT Variable',SUIT,sans-serif;color:rgba(18,22,36,.92)">Q-8834 · 00:07:14 · 지속 9프레임 · 5fps→10fps 재분석</div>
               </div>
               <div style="height:92px;flex:none;display:flex;gap:8px">
                 <sc-for list="{{ strip }}" as="f" hint-placeholder-count="7">
                   <div style="flex:1;border-radius:8px;background:rgba(255,255,255,.42);background-image:repeating-linear-gradient(135deg,rgba(60,74,130,.1) 0 7px,transparent 7px 14px);border:1.5px solid {{ f.bd }};display:flex;flex-direction:column;justify-content:flex-end;padding:5px">
-                    <span style="font-size:11px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:{{ f.fg }}">{{ f.label }}</span>
+                    <span style="font-size:11px;font-family:'SUIT Variable',SUIT,sans-serif;color:{{ f.fg }}">{{ f.label }}</span>
                   </div>
                 </sc-for>
                 <div style="width:164px;flex:none;border-radius:8px;background:rgba(255,255,255,.5);border:1px solid rgba(28,36,78,.07);position:relative;overflow:hidden">
                   <svg viewBox="0 0 150 82" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%"><path d="M8 70 C40 58 46 30 82 26 C112 22 130 14 142 8" fill="none" stroke="rgba(46,60,116,.15)" stroke-width="5" stroke-linecap="round"></path><circle cx="82" cy="26" r="4.5" fill="oklch(0.52 0.12 72)" stroke="#ffffff" stroke-width="2.5"></circle></svg>
-                  <span style="position:absolute;left:7px;top:6px;font-size:11px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(26,32,52,.7)">GPS 위치</span>
+                  <span style="position:absolute;left:7px;top:6px;font-size:11px;font-family:'SUIT Variable',SUIT,sans-serif;color:rgba(26,32,52,.7)">GPS 위치</span>
                 </div>
               </div>
             </div>
@@ -509,31 +506,31 @@
                 <div style="display:flex;align-items:center;gap:8px">
                   <span style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">질문 카드 · LabelQuestion</span>
                   <div style="flex:1"></div>
-                  <span style="font-size:12px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(26,32,52,.7)">{{ qIndex }} / 147</span>
+                  <span style="font-size:12px;font-family:'SUIT Variable',SUIT,sans-serif;color:rgba(26,32,52,.7)">{{ qIndex }} / 147</span>
                 </div>
                 <div style="font-size:28px;font-weight:600;line-height:1.3;letter-spacing:-0.028em;text-wrap:pretty">{{ qText }}</div>
                 <div style="display:flex;gap:7px;flex-wrap:wrap">
-                  <span style="font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;padding:3px 8px;border-radius:6px;background:rgba(255,255,255,.74);color:rgba(22,28,44,.82)">{{ qCode }}</span>
-                  <span style="font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;padding:3px 8px;border-radius:6px;background:rgba(255,255,255,.74);color:rgba(22,28,44,.82)">AI 심각도 {{ qSev }}</span>
-                  <span style="font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;padding:3px 8px;border-radius:6px;background:rgba(255,255,255,.74);color:rgba(22,28,44,.82)">conf {{ qConf }}</span>
-                  <span style="font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;padding:3px 8px;border-radius:6px;background:{{ qForcedBg }};color:{{ qForcedFg }}">{{ qForcedLabel }}</span>
+                  <span style="font-size:12.5px;font-family:'SUIT Variable',SUIT,sans-serif;padding:3px 8px;border-radius:6px;background:rgba(255,255,255,.74);color:rgba(22,28,44,.82)">{{ qCode }}</span>
+                  <span style="font-size:12.5px;font-family:'SUIT Variable',SUIT,sans-serif;padding:3px 8px;border-radius:6px;background:rgba(255,255,255,.74);color:rgba(22,28,44,.82)">AI 심각도 {{ qSev }}</span>
+                  <span style="font-size:12.5px;font-family:'SUIT Variable',SUIT,sans-serif;padding:3px 8px;border-radius:6px;background:rgba(255,255,255,.74);color:rgba(22,28,44,.82)">conf {{ qConf }}</span>
+                  <span style="font-size:12.5px;font-family:'SUIT Variable',SUIT,sans-serif;padding:3px 8px;border-radius:6px;background:{{ qForcedBg }};color:{{ qForcedFg }}">{{ qForcedLabel }}</span>
                 </div>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
                   <div onClick="{{ ansYes }}" style="padding:13px;border-radius:11px;background:rgba(40,180,120,.15);border:1px solid rgba(40,180,120,.36);cursor:pointer;display:flex;flex-direction:column;gap:2px" style-hover="background:rgba(40,180,120,.22)">
                     <span style="font-size:17px;font-weight:620;letter-spacing:-0.015em;color:oklch(0.4 0.13 158)">예</span>
-                    <span style="font-size:12px;color:oklch(0.38 0.1 158);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">ANSWERED_ACCEPT → 승인 라벨</span>
+                    <span style="font-size:12px;color:oklch(0.38 0.1 158);font-family:'SUIT Variable',SUIT,sans-serif">ANSWERED_ACCEPT → 승인 라벨</span>
                   </div>
                   <div onClick="{{ ansNo }}" style="padding:13px;border-radius:11px;background:rgba(226,80,58,.11);border:1px solid rgba(226,80,58,.28);cursor:pointer;display:flex;flex-direction:column;gap:2px" style-hover="background:rgba(255,110,90,.17)">
                     <span style="font-size:17px;font-weight:620;letter-spacing:-0.015em;color:oklch(0.47 0.19 28)">아니오</span>
-                    <span style="font-size:12px;color:oklch(0.42 0.14 28);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">ANSWERED_REJECT → hard negative</span>
+                    <span style="font-size:12px;color:oklch(0.42 0.14 28);font-family:'SUIT Variable',SUIT,sans-serif">ANSWERED_REJECT → hard negative</span>
                   </div>
                   <div onClick="{{ ansUnsure }}" style="padding:13px;border-radius:11px;background:rgba(255,255,255,.72);border:1px solid rgba(255,255,255,.8);cursor:pointer;display:flex;flex-direction:column;gap:2px" style-hover="background:rgba(36,48,96,.09)">
                     <span style="font-size:17px;font-weight:620;letter-spacing:-0.015em;color:rgba(18,22,36,.92)">판단 어려움</span>
-                    <span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">UNSURE → 보류 큐 · 학습 제외</span>
+                    <span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'SUIT Variable',SUIT,sans-serif">UNSURE → 보류 큐 · 학습 제외</span>
                   </div>
                   <div onClick="{{ ansEdit }}" style="padding:13px;border-radius:11px;background:rgba(74,108,247,.13);border:1px solid rgba(74,108,247,.3);cursor:pointer;display:flex;flex-direction:column;gap:2px" style-hover="background:rgba(74,108,247,.2)">
                     <span style="font-size:17px;font-weight:620;letter-spacing:-0.015em;color:oklch(0.42 0.19 262)">영역 수정</span>
-                    <span style="font-size:12px;color:oklch(0.4 0.13 262);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">클릭 → InteractiveSegmenter 재분할</span>
+                    <span style="font-size:12px;color:oklch(0.4 0.13 262);font-family:'SUIT Variable',SUIT,sans-serif">클릭 → InteractiveSegmenter 재분할</span>
                   </div>
                 </div>
                 <div style="display:flex;gap:7px">
@@ -548,12 +545,12 @@
                 <div style="padding:10px 13px;border-bottom:1px solid rgba(28,36,78,.08);display:flex;align-items:center;gap:8px">
                   <span style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">유형별 진행률 · 초기 30건 전수</span>
                   <div style="flex:1"></div>
-                  <span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">일치율 92% · 8.4</span>
+                  <span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'SUIT Variable',SUIT,sans-serif">일치율 92% · 8.4</span>
                 </div>
                 <div style="flex:1;overflow-y:auto;overflow-x:hidden;padding:9px 13px;display:flex;flex-direction:column;gap:9px">
                   <sc-for list="{{ progress }}" as="g" hint-placeholder-count="7">
                     <div style="display:flex;flex-direction:column;gap:4px">
-                      <div style="display:flex;align-items:center;gap:8px;font-size:13px"><span style="color:rgba(18,22,36,.92);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ g.label }}</span><span style="font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(26,32,52,.7);font-size:12px">{{ g.n }}</span></div>
+                      <div style="display:flex;align-items:center;gap:8px;font-size:13px"><span style="color:rgba(18,22,36,.92);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ g.label }}</span><span style="font-family:'SUIT Variable',SUIT,sans-serif;color:rgba(26,32,52,.7);font-size:12px">{{ g.n }}</span></div>
                       <div style="height:5px;border-radius:3px;background:rgba(255,255,255,.62);overflow:hidden"><div style="width:{{ g.pct }}%;height:100%;background:{{ g.color }}"></div></div>
                     </div>
                   </sc-for>
@@ -568,7 +565,7 @@
         <div data-screen-label="16.4 분석 진행" style="flex:1;min-height:0;display:flex;flex-direction:column;gap:12px;padding:0">
           <div style="display:flex;align-items:center;gap:12px">
             <div style="font-size:25px;font-weight:640;letter-spacing:-0.03em;line-height:1.12">분석 진행</div>
-            <span style="font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(26,32,52,.7);padding:2px 7px;border-radius:6px;background:rgba(255,255,255,.72)">16.4 · POST /analysis · WS jobs/{job_id}</span>
+            <span style="font-size:12.5px;font-family:'SUIT Variable',SUIT,sans-serif;color:rgba(26,32,52,.7);padding:2px 7px;border-radius:6px;background:rgba(255,255,255,.72)">16.4 · POST /analysis · WS jobs/{job_id}</span>
             <div style="flex:1"></div>
             <div style="padding:7px 16px;border-radius:999px;background:rgba(255,255,255,.78);font-size:14px;cursor:pointer">일시정지</div>
             <div style="padding:7px 16px;border-radius:999px;background:rgba(226,80,58,.14);border:1px solid rgba(226,80,58,.32);color:oklch(0.47 0.19 28);font-size:14px;cursor:pointer">취소</div>
@@ -578,15 +575,15 @@
               <div style="padding:10px 13px;border-bottom:1px solid rgba(28,36,78,.08);display:flex;align-items:center;gap:8px">
                 <span style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">파이프라인 15단계 · 7.2</span>
                 <div style="flex:1"></div>
-                <span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">중단 시 마지막 완료 단계에서 재개</span>
+                <span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'SUIT Variable',SUIT,sans-serif">중단 시 마지막 완료 단계에서 재개</span>
               </div>
               <div style="flex:1;overflow-y:auto;overflow-x:hidden">
                 <sc-for list="{{ steps }}" as="s" hint-placeholder-count="15">
                   <div style="display:flex;align-items:center;gap:10px;padding:7px 13px;border-bottom:1px solid rgba(28,36,78,.06);background:{{ s.rowBg }}">
-                    <span style="width:19px;height:19px;flex:none;border-radius:50%;display:grid;place-items:center;font-size:11.5px;font-weight:700;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;background:{{ s.dotBg }};color:{{ s.dotFg }};border:1px solid {{ s.dotBd }}">{{ s.n }}</span>
+                    <span style="width:19px;height:19px;flex:none;border-radius:50%;display:grid;place-items:center;font-size:11.5px;font-weight:700;font-family:'SUIT Variable',SUIT,sans-serif;background:{{ s.dotBg }};color:{{ s.dotFg }};border:1px solid {{ s.dotBd }}">{{ s.n }}</span>
                     <span style="flex:1;font-size:13.5px;color:{{ s.fg }}">{{ s.label }}</span>
-                    <span style="width:150px;flex:none;font-size:12px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;text-align:right">{{ s.meta }}</span>
-                    <span style="width:62px;flex:none;font-size:11.5px;font-weight:700;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;text-align:right;color:{{ s.stFg }}">{{ s.st }}</span>
+                    <span style="width:150px;flex:none;font-size:12px;color:rgba(26,32,52,.7);font-family:'SUIT Variable',SUIT,sans-serif;text-align:right">{{ s.meta }}</span>
+                    <span style="width:62px;flex:none;font-size:11.5px;font-weight:700;font-family:'SUIT Variable',SUIT,sans-serif;text-align:right;color:{{ s.stFg }}">{{ s.st }}</span>
                   </div>
                 </sc-for>
               </div>
@@ -597,22 +594,22 @@
                   <div style="padding:12px 13px;border-radius:13px;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.5),0 14px 34px rgba(58,70,135,.13);border:1px solid rgba(255,255,255,.9);display:flex;flex-direction:column;gap:5px">
                     <span style="font-size:12.5px;color:rgba(26,32,52,.7)">{{ k.label }}</span>
                     <span style="font-size:29px;font-weight:600;letter-spacing:-0.038em;line-height:1;color:{{ k.color }}">{{ k.value }}</span>
-                    <span style="font-size:12px;color:rgba(28,34,56,.64);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">{{ k.sub }}</span>
+                    <span style="font-size:12px;color:rgba(28,34,56,.64);font-family:'SUIT Variable',SUIT,sans-serif">{{ k.sub }}</span>
                   </div>
                 </sc-for>
               </div>
               <div style="padding:13px;border-radius:14px;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.5),0 14px 34px rgba(58,70,135,.13);border:1px solid rgba(255,255,255,.9);display:flex;flex-direction:column;gap:9px">
-                <div style="display:flex;align-items:center;gap:8px"><span style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">GPU · RTX A2000 12GB</span><div style="flex:1"></div><span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">20.5 · 1시간 영상 ≤ 2시간 목표</span></div>
+                <div style="display:flex;align-items:center;gap:8px"><span style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">GPU · RTX A2000 12GB</span><div style="flex:1"></div><span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'SUIT Variable',SUIT,sans-serif">20.5 · 1시간 영상 ≤ 2시간 목표</span></div>
                 <div style="display:flex;gap:14px">
-                  <div style="flex:1;display:flex;flex-direction:column;gap:5px"><div style="display:flex;justify-content:space-between;font-size:12.5px;color:rgba(22,28,44,.82);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace"><span>VRAM</span><span>8.4 / 12.0 GB</span></div><div style="height:6px;border-radius:4px;background:rgba(36,48,96,.09);overflow:hidden"><div style="width:70%;height:100%;background:oklch(0.49 0.19 262)"></div></div></div>
-                  <div style="flex:1;display:flex;flex-direction:column;gap:5px"><div style="display:flex;justify-content:space-between;font-size:12.5px;color:rgba(22,28,44,.82);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace"><span>GPU 사용률</span><span>91%</span></div><div style="height:6px;border-radius:4px;background:rgba(36,48,96,.09);overflow:hidden"><div style="width:91%;height:100%;background:oklch(0.52 0.12 72)"></div></div></div>
-                  <div style="flex:1;display:flex;flex-direction:column;gap:5px"><div style="display:flex;justify-content:space-between;font-size:12.5px;color:rgba(22,28,44,.82);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace"><span>디스크 쓰기</span><span>142 MB/s</span></div><div style="height:6px;border-radius:4px;background:rgba(36,48,96,.09);overflow:hidden"><div style="width:44%;height:100%;background:oklch(0.46 0.14 158)"></div></div></div>
+                  <div style="flex:1;display:flex;flex-direction:column;gap:5px"><div style="display:flex;justify-content:space-between;font-size:12.5px;color:rgba(22,28,44,.82);font-family:'SUIT Variable',SUIT,sans-serif"><span>VRAM</span><span>8.4 / 12.0 GB</span></div><div style="height:6px;border-radius:4px;background:rgba(36,48,96,.09);overflow:hidden"><div style="width:70%;height:100%;background:oklch(0.49 0.19 262)"></div></div></div>
+                  <div style="flex:1;display:flex;flex-direction:column;gap:5px"><div style="display:flex;justify-content:space-between;font-size:12.5px;color:rgba(22,28,44,.82);font-family:'SUIT Variable',SUIT,sans-serif"><span>GPU 사용률</span><span>91%</span></div><div style="height:6px;border-radius:4px;background:rgba(36,48,96,.09);overflow:hidden"><div style="width:91%;height:100%;background:oklch(0.52 0.12 72)"></div></div></div>
+                  <div style="flex:1;display:flex;flex-direction:column;gap:5px"><div style="display:flex;justify-content:space-between;font-size:12.5px;color:rgba(22,28,44,.82);font-family:'SUIT Variable',SUIT,sans-serif"><span>디스크 쓰기</span><span>142 MB/s</span></div><div style="height:6px;border-radius:4px;background:rgba(36,48,96,.09);overflow:hidden"><div style="width:44%;height:100%;background:oklch(0.46 0.14 158)"></div></div></div>
                 </div>
                 <div style="font-size:12.5px;color:rgba(24,30,48,.76);line-height:1.5">VRAM 부족 시 입력 크기와 batch를 안전하게 낮추고 <b style="color:rgba(18,22,36,.92)">작업을 재개</b>합니다. 큐는 분석 / 학습 / 문서 편집으로 분리됩니다. (3.3)</div>
               </div>
               <div style="flex:1;min-height:0;display:flex;flex-direction:column;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(170%);-webkit-backdrop-filter:blur(40px) saturate(170%);border:1px solid rgba(255,255,255,.82);border-radius:22px;box-shadow:inset 0 1.5px 0 rgba(255,255,255,.9),inset 0 -1px 0 rgba(255,255,255,.5),0 18px 44px rgba(58,70,135,.14);overflow:hidden">
-                <div style="padding:9px 13px;border-bottom:1px solid rgba(28,36,78,.08);display:flex;align-items:center;gap:8px"><span style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">작업 로그 · logs/</span><div style="flex:1"></div><span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">WS jobs/j_5512</span></div>
-                <div style="flex:1;overflow-y:auto;overflow-x:hidden;padding:9px 13px;display:flex;flex-direction:column;gap:3px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;font-size:12.5px;line-height:1.6">
+                <div style="padding:9px 13px;border-bottom:1px solid rgba(28,36,78,.08);display:flex;align-items:center;gap:8px"><span style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">작업 로그 · logs/</span><div style="flex:1"></div><span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'SUIT Variable',SUIT,sans-serif">WS jobs/j_5512</span></div>
+                <div style="flex:1;overflow-y:auto;overflow-x:hidden;padding:9px 13px;display:flex;flex-direction:column;gap:3px;font-family:'SUIT Variable',SUIT,sans-serif;font-size:12.5px;line-height:1.6">
                   <sc-for list="{{ logs }}" as="l" hint-placeholder-count="10">
                     <div style="display:flex;gap:9px"><span style="color:rgba(28,34,56,.62);flex:none">{{ l.t }}</span><span style="color:{{ l.color }};flex:none;width:52px">{{ l.lvl }}</span><span style="color:rgba(22,28,44,.82);flex:1">{{ l.msg }}</span></div>
                   </sc-for>
@@ -627,7 +624,7 @@
         <div data-screen-label="16.5 사건 검토" style="flex:1;min-height:0;display:flex;flex-direction:column;gap:12px;padding:0">
           <div style="display:flex;align-items:center;gap:12px">
             <div style="font-size:25px;font-weight:640;letter-spacing:-0.03em;line-height:1.12">사건 검토</div>
-            <span style="font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(26,32,52,.7);padding:2px 7px;border-radius:6px;background:rgba(255,255,255,.72)">16.5 · 11장 · ReviewAction 감사 이력</span>
+            <span style="font-size:12.5px;font-family:'SUIT Variable',SUIT,sans-serif;color:rgba(26,32,52,.7);padding:2px 7px;border-radius:6px;background:rgba(255,255,255,.72)">16.5 · 11장 · ReviewAction 감사 이력</span>
             <div style="flex:1"></div>
             <span style="font-size:13px;color:rgba(26,32,52,.7)">INC-0423 · 3 / 9</span>
             <div style="display:flex;gap:5px"><div style="padding:7px 15px;border-radius:999px;background:rgba(255,255,255,.78);font-size:14px;cursor:pointer">← 이전</div><div style="padding:7px 15px;border-radius:999px;background:rgba(255,255,255,.78);font-size:14px;cursor:pointer">다음 →</div></div>
@@ -635,12 +632,12 @@
           <div style="flex:1;min-height:0;display:flex;gap:14px">
             <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:12px">
               <div style="flex:1;min-height:0;position:relative;border-radius:18px;overflow:hidden;background:rgba(255,255,255,.42);background-image:repeating-linear-gradient(135deg,rgba(60,74,130,.1) 0 10px,transparent 10px 20px);border:1px solid rgba(28,36,78,.08)">
-                <div style="position:absolute;inset:0;display:grid;place-items:center"><span style="font-size:13px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(28,34,56,.62);text-align:center">[ 영상 오버레이 · 대표 프레임 00:06:28 ]<br/>낙하물 (타이어 파편) · 주행 영역 내부</span></div>
+                <div style="position:absolute;inset:0;display:grid;place-items:center"><span style="font-size:13px;font-family:'SUIT Variable',SUIT,sans-serif;color:rgba(28,34,56,.62);text-align:center">[ 영상 오버레이 · 대표 프레임 00:06:28 ]<br/>낙하물 (타이어 파편) · 주행 영역 내부</span></div>
                 <div style="position:absolute;left:46%;top:54%;width:13%;height:12%;border:2px solid oklch(0.49 0.2 26);border-radius:5px;box-shadow:0 0 26px rgba(214,70,48,.35)">
-                  <div style="position:absolute;left:-2px;top:-21px;padding:2px 7px;border-radius:5px;background:oklch(0.49 0.2 26);color:#ffffff;font-size:12px;font-weight:700;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;white-space:nowrap">ROAD_DEBRIS 0.84 · 긴급</div>
+                  <div style="position:absolute;left:-2px;top:-21px;padding:2px 7px;border-radius:5px;background:oklch(0.49 0.2 26);color:#ffffff;font-size:12px;font-weight:700;font-family:'SUIT Variable',SUIT,sans-serif;white-space:nowrap">ROAD_DEBRIS 0.84 · 긴급</div>
                 </div>
                 <div style="position:absolute;left:18%;top:66%;width:64%;height:30%;border:1.5px dashed rgba(74,108,247,.55);border-radius:6px">
-                  <div style="position:absolute;left:0;bottom:-19px;font-size:11.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(140,180,255,.85)">drivable_area mask · 주행 영역 분할</div>
+                  <div style="position:absolute;left:0;bottom:-19px;font-size:11.5px;font-family:'SUIT Variable',SUIT,sans-serif;color:rgba(140,180,255,.85)">drivable_area mask · 주행 영역 분할</div>
                 </div>
                 <div style="position:absolute;right:12px;top:12px;display:flex;gap:6px">
                   <div style="padding:4px 11px;border-radius:999px;background:rgba(255,255,255,.76);backdrop-filter:blur(20px) saturate(200%);-webkit-backdrop-filter:blur(20px) saturate(200%);border:1px solid rgba(255,255,255,.92);box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 2px 8px rgba(58,70,135,.12);font-size:12.5px;cursor:pointer;color:rgba(18,22,36,.92)">AI 원본</div>
@@ -653,7 +650,7 @@
                   <div style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">병합 · MERGE (7.5)</div>
                   <div style="font-size:13px;color:rgba(22,28,44,.82);line-height:1.55">같은 유형 · 3초 이내 · GPS 20m 이내 검지 <b style="color:#1b1f2a">7건</b>을 사건 1건으로 병합. 추적 ID track_881 유지.</div>
                   <div style="display:flex;gap:5px;flex-wrap:wrap">
-                    <sc-for list="{{ mergeChips }}" as="c" hint-placeholder-count="7"><span style="font-size:11.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;padding:2px 6px;border-radius:5px;background:rgba(255,255,255,.74);color:rgba(22,28,44,.82)">{{ c.label }}</span></sc-for>
+                    <sc-for list="{{ mergeChips }}" as="c" hint-placeholder-count="7"><span style="font-size:11.5px;font-family:'SUIT Variable',SUIT,sans-serif;padding:2px 6px;border-radius:5px;background:rgba(255,255,255,.74);color:rgba(22,28,44,.82)">{{ c.label }}</span></sc-for>
                   </div>
                   <div style="flex:1"></div>
                   <div style="display:flex;gap:6px"><div style="flex:1;padding:7px;border-radius:999px;background:rgba(255,255,255,.74);font-size:13px;text-align:center;cursor:pointer">사건 분리</div><div style="flex:1;padding:7px;border-radius:999px;background:rgba(255,255,255,.74);font-size:13px;text-align:center;cursor:pointer">대표 캡처 변경</div></div>
@@ -661,12 +658,12 @@
                 <div style="flex:1;padding:12px;border-radius:14px;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.5),0 14px 34px rgba(58,70,135,.13);border:1px solid rgba(255,255,255,.9);display:flex;flex-direction:column;gap:8px">
                   <div style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">OCR · 위치 검증 (7.4)</div>
                   <div style="display:flex;flex-direction:column;gap:5px">
-                    <div style="display:flex;gap:8px;font-size:13px"><span style="width:74px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">ocr_text</span><span style="flex:1;color:#1b1f2a">해당 없음 (낙하물 사건)</span></div>
-                    <div style="display:flex;gap:8px;font-size:13px"><span style="width:74px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">인접 사건</span><span style="flex:1;color:#1b1f2a">INC-0438 「죽령터널」 VERIFIED</span></div>
-                    <div style="display:flex;gap:8px;font-size:13px"><span style="width:74px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">기준 자료</span><span style="flex:1;color:#1b1f2a">ReferenceAsset · 터널 인덱스 v3</span></div>
+                    <div style="display:flex;gap:8px;font-size:13px"><span style="width:74px;color:rgba(26,32,52,.7);font-family:'SUIT Variable',SUIT,sans-serif">ocr_text</span><span style="flex:1;color:#1b1f2a">해당 없음 (낙하물 사건)</span></div>
+                    <div style="display:flex;gap:8px;font-size:13px"><span style="width:74px;color:rgba(26,32,52,.7);font-family:'SUIT Variable',SUIT,sans-serif">인접 사건</span><span style="flex:1;color:#1b1f2a">INC-0438 「죽령터널」 VERIFIED</span></div>
+                    <div style="display:flex;gap:8px;font-size:13px"><span style="width:74px;color:rgba(26,32,52,.7);font-family:'SUIT Variable',SUIT,sans-serif">기준 자료</span><span style="flex:1;color:#1b1f2a">ReferenceAsset · 터널 인덱스 v3</span></div>
                   </div>
                   <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:2px">
-                    <sc-for list="{{ verifyStates }}" as="v" hint-placeholder-count="5"><span style="font-size:11.5px;font-weight:700;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;padding:2px 7px;border-radius:5px;background:{{ v.bg }};color:{{ v.fg }}">{{ v.label }}</span></sc-for>
+                    <sc-for list="{{ verifyStates }}" as="v" hint-placeholder-count="5"><span style="font-size:11.5px;font-weight:700;font-family:'SUIT Variable',SUIT,sans-serif;padding:2px 7px;border-radius:5px;background:{{ v.bg }};color:{{ v.fg }}">{{ v.label }}</span></sc-for>
                   </div>
                   <div style="flex:1"></div>
                   <div style="font-size:12px;color:rgba(28,34,56,.64);line-height:1.5">명판이 가려지면 보이지 않는 글자를 복원하지 않고 OCR 사건 + 가림 사건을 동시에 생성합니다.</div>
@@ -678,15 +675,15 @@
               <div style="padding:10px 13px;border-bottom:1px solid rgba(28,36,78,.08);display:flex;align-items:center;gap:8px">
                 <span style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">AI 원본 · 사용자 답변 · 최종값</span>
                 <div style="flex:1"></div>
-                <span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">덮어쓰지 않고 함께 보존 (2.1)</span>
+                <span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'SUIT Variable',SUIT,sans-serif">덮어쓰지 않고 함께 보존 (2.1)</span>
               </div>
-              <div style="display:grid;grid-template-columns:134px 1fr 1fr 1fr;padding:7px 13px;gap:8px;border-bottom:1px solid rgba(28,36,78,.07);font-size:12px;color:rgba(28,34,56,.64);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">
+              <div style="display:grid;grid-template-columns:134px 1fr 1fr 1fr;padding:7px 13px;gap:8px;border-bottom:1px solid rgba(28,36,78,.07);font-size:12px;color:rgba(28,34,56,.64);font-family:'SUIT Variable',SUIT,sans-serif">
                 <div>field</div><div>ai_*</div><div>answer</div><div>final_*</div>
               </div>
               <div style="flex:1;overflow-y:auto;overflow-x:hidden">
                 <sc-for list="{{ compare }}" as="c" hint-placeholder-count="9">
                   <div style="display:grid;grid-template-columns:134px 1fr 1fr 1fr;gap:8px;padding:9px 13px;border-bottom:1px solid rgba(28,36,78,.06);align-items:center">
-                    <div style="font-size:12.5px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">{{ c.field }}</div>
+                    <div style="font-size:12.5px;color:rgba(26,32,52,.7);font-family:'SUIT Variable',SUIT,sans-serif">{{ c.field }}</div>
                     <div style="font-size:13px;color:rgba(24,30,48,.76)">{{ c.ai }}</div>
                     <div style="font-size:13px;color:rgba(18,22,36,.92)">{{ c.answer }}</div>
                     <div style="font-size:13px;font-weight:600;color:{{ c.finalColor }}">{{ c.final }}</div>
@@ -700,7 +697,7 @@
                   <div style="padding:9px 13px;border-radius:9px;background:rgba(255,255,255,.74);font-size:14px;text-align:center;cursor:pointer;color:rgba(18,22,36,.92)">학습 제외</div>
                   <div style="padding:9px 13px;border-radius:9px;background:rgba(255,255,255,.74);font-size:14px;text-align:center;cursor:pointer;color:rgba(18,22,36,.92)">추가 흐림</div>
                 </div>
-                <div style="font-size:12px;color:rgba(28,34,56,.64);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">ReviewAction 기록: user=kim · 2026-07-22T09:41+09:00 · from ANSWERED_ACCEPT → CONFIRMED</div>
+                <div style="font-size:12px;color:rgba(28,34,56,.64);font-family:'SUIT Variable',SUIT,sans-serif">ReviewAction 기록: user=kim · 2026-07-22T09:41+09:00 · from ANSWERED_ACCEPT → CONFIRMED</div>
               </div>
             </div>
           </div>
@@ -711,7 +708,7 @@
         <div data-screen-label="16.6 모델 관리" style="flex:1;min-height:0;display:flex;flex-direction:column;gap:12px;padding:0">
           <div style="display:flex;align-items:center;gap:12px">
             <div style="font-size:25px;font-weight:640;letter-spacing:-0.03em;line-height:1.12">모델 관리</div>
-            <span style="font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(26,32,52,.7);padding:2px 7px;border-radius:6px;background:rgba(255,255,255,.72)">16.6 · 9장 · project_id 격리</span>
+            <span style="font-size:12.5px;font-family:'SUIT Variable',SUIT,sans-serif;color:rgba(26,32,52,.7);padding:2px 7px;border-radius:6px;background:rgba(255,255,255,.72)">16.6 · 9장 · project_id 격리</span>
             <div style="flex:1"></div>
             <div style="padding:7px 16px;border-radius:999px;background:rgba(255,255,255,.78);font-size:14px;cursor:pointer">데이터셋 생성</div>
             <div style="padding:7px 16px;border-radius:999px;background:linear-gradient(180deg,#2b2f3a,#0d1016);color:#ffffff;box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 8px 20px rgba(16,20,44,.3);font-size:14px;font-weight:600;cursor:pointer">새 모델 학습</div>
@@ -719,22 +716,22 @@
           <div style="flex:1;min-height:0;display:flex;gap:14px">
             <div style="width:452px;flex:none;display:flex;flex-direction:column;gap:14px">
               <div style="padding:13px;border-radius:14px;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.5),0 14px 34px rgba(58,70,135,.13);border:1px solid rgba(255,255,255,.9);display:flex;flex-direction:column;gap:10px">
-                <div style="display:flex;align-items:center;gap:8px"><span style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">학습 가능 조건 · 9.4</span><div style="flex:1"></div><span style="font-size:12px;font-weight:700;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;padding:2px 7px;border-radius:5px;background:oklch(0.46 0.14 158);color:#ffffff">충족</span></div>
+                <div style="display:flex;align-items:center;gap:8px"><span style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">학습 가능 조건 · 9.4</span><div style="flex:1"></div><span style="font-size:12px;font-weight:700;font-family:'SUIT Variable',SUIT,sans-serif;padding:2px 7px;border-radius:5px;background:oklch(0.46 0.14 158);color:#ffffff">충족</span></div>
                 <sc-for list="{{ gates }}" as="g" hint-placeholder-count="4">
                   <div style="display:flex;align-items:center;gap:9px;padding:6px 0;border-bottom:1px solid rgba(28,36,78,.07)">
                     <span style="width:15px;height:15px;border-radius:4px;background:{{ g.bg }};color:#ffffff;display:grid;place-items:center;font-size:11px;font-weight:700;flex:none">{{ g.mark }}</span>
                     <span style="flex:1;font-size:13.5px;color:rgba(18,22,36,.92)">{{ g.label }}</span>
-                    <span style="font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:{{ g.color }}">{{ g.value }}</span>
+                    <span style="font-size:12.5px;font-family:'SUIT Variable',SUIT,sans-serif;color:{{ g.color }}">{{ g.value }}</span>
                   </div>
                 </sc-for>
                 <div style="font-size:12.5px;color:rgba(24,30,48,.76);line-height:1.5">조건이 부족하면 학습 대신 <b style="color:rgba(18,22,36,.92)">추가 질문 수집</b>을 제안합니다. 예상 시간 1시간 42분 · VRAM 10.2GB · 디스크 24GB.</div>
               </div>
               <div style="flex:1;min-height:0;display:flex;flex-direction:column;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);border:1px solid rgba(255,255,255,.9);border-radius:22px;box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.55),inset 1px 0 0 rgba(255,255,255,.6),0 18px 44px rgba(58,70,135,.15),0 2px 6px rgba(58,70,135,.06);overflow:hidden">
-                <div style="padding:10px 13px;border-bottom:1px solid rgba(28,36,78,.08);display:flex;align-items:center;gap:8px"><span style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">클래스 분포 · ds_014</span><div style="flex:1"></div><span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">60/20/20 · 촬영일·노선 분리</span></div>
+                <div style="padding:10px 13px;border-bottom:1px solid rgba(28,36,78,.08);display:flex;align-items:center;gap:8px"><span style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">클래스 분포 · ds_014</span><div style="flex:1"></div><span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'SUIT Variable',SUIT,sans-serif">60/20/20 · 촬영일·노선 분리</span></div>
                 <div style="flex:1;overflow-y:auto;overflow-x:hidden;padding:10px 13px;display:flex;flex-direction:column;gap:9px">
                   <sc-for list="{{ dist }}" as="d" hint-placeholder-count="8">
                     <div style="display:flex;flex-direction:column;gap:4px">
-                      <div style="display:flex;align-items:center;gap:8px;font-size:13px"><span style="flex:1;color:rgba(18,22,36,.92);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ d.code }}</span><span style="font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:{{ d.color }};font-size:12px">{{ d.n }}</span></div>
+                      <div style="display:flex;align-items:center;gap:8px;font-size:13px"><span style="flex:1;color:rgba(18,22,36,.92);font-family:'SUIT Variable',SUIT,sans-serif;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ d.code }}</span><span style="font-family:'SUIT Variable',SUIT,sans-serif;color:{{ d.color }};font-size:12px">{{ d.n }}</span></div>
                       <div style="height:5px;border-radius:3px;background:rgba(255,255,255,.62);overflow:hidden"><div style="width:{{ d.pct }}%;height:100%;background:{{ d.color }}"></div></div>
                     </div>
                   </sc-for>
@@ -746,21 +743,21 @@
                 <div style="padding:10px 13px;border-bottom:1px solid rgba(28,36,78,.08);display:flex;align-items:center;gap:9px">
                   <span style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">성능 비교 · 같은 검증 세트 (9.5)</span>
                   <div style="flex:1"></div>
-                  <span style="font-size:11.5px;font-weight:700;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;padding:2px 7px;border-radius:5px;background:rgba(40,180,120,.18);color:oklch(0.4 0.13 158)">v7 ACTIVE</span>
-                  <span style="font-size:11.5px;font-weight:700;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;padding:2px 7px;border-radius:5px;background:rgba(74,108,247,.18);color:oklch(0.42 0.19 262)">v8 CANDIDATE</span>
+                  <span style="font-size:11.5px;font-weight:700;font-family:'SUIT Variable',SUIT,sans-serif;padding:2px 7px;border-radius:5px;background:rgba(40,180,120,.18);color:oklch(0.4 0.13 158)">v7 ACTIVE</span>
+                  <span style="font-size:11.5px;font-weight:700;font-family:'SUIT Variable',SUIT,sans-serif;padding:2px 7px;border-radius:5px;background:rgba(74,108,247,.18);color:oklch(0.42 0.19 262)">v8 CANDIDATE</span>
                 </div>
-                <div style="display:grid;grid-template-columns:1.6fr 94px 94px 94px 94px 100px;padding:7px 13px;gap:8px;border-bottom:1px solid rgba(28,36,78,.07);font-size:12px;color:rgba(28,34,56,.64);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">
+                <div style="display:grid;grid-template-columns:1.6fr 94px 94px 94px 94px 100px;padding:7px 13px;gap:8px;border-bottom:1px solid rgba(28,36,78,.07);font-size:12px;color:rgba(28,34,56,.64);font-family:'SUIT Variable',SUIT,sans-serif">
                   <div>class</div><div style="text-align:right">v7 recall</div><div style="text-align:right">v8 recall</div><div style="text-align:right">Δ</div><div style="text-align:right">v8 prec</div><div style="text-align:right">중복률</div>
                 </div>
                 <div style="flex:1;overflow-y:auto;overflow-x:hidden">
                   <sc-for list="{{ perf }}" as="p" hint-placeholder-count="8">
                     <div style="display:grid;grid-template-columns:1.6fr 94px 94px 94px 94px 100px;gap:8px;padding:8px 13px;border-bottom:1px solid rgba(28,36,78,.06);align-items:center;background:{{ p.rowBg }}">
-                      <div style="font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(18,22,36,.92);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ p.code }}</div>
-                      <div style="font-size:13px;text-align:right;color:rgba(24,30,48,.76);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">{{ p.v7 }}</div>
-                      <div style="font-size:13px;text-align:right;color:#1b1f2a;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">{{ p.v8 }}</div>
-                      <div style="font-size:13px;text-align:right;font-weight:700;color:{{ p.dColor }};font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">{{ p.delta }}</div>
-                      <div style="font-size:13px;text-align:right;color:rgba(22,28,44,.82);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">{{ p.prec }}</div>
-                      <div style="font-size:13px;text-align:right;color:{{ p.dupColor }};font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">{{ p.dup }}</div>
+                      <div style="font-size:12.5px;font-family:'SUIT Variable',SUIT,sans-serif;color:rgba(18,22,36,.92);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ p.code }}</div>
+                      <div style="font-size:13px;text-align:right;color:rgba(24,30,48,.76);font-family:'SUIT Variable',SUIT,sans-serif">{{ p.v7 }}</div>
+                      <div style="font-size:13px;text-align:right;color:#1b1f2a;font-family:'SUIT Variable',SUIT,sans-serif">{{ p.v8 }}</div>
+                      <div style="font-size:13px;text-align:right;font-weight:700;color:{{ p.dColor }};font-family:'SUIT Variable',SUIT,sans-serif">{{ p.delta }}</div>
+                      <div style="font-size:13px;text-align:right;color:rgba(22,28,44,.82);font-family:'SUIT Variable',SUIT,sans-serif">{{ p.prec }}</div>
+                      <div style="font-size:13px;text-align:right;color:{{ p.dupColor }};font-family:'SUIT Variable',SUIT,sans-serif">{{ p.dup }}</div>
                     </div>
                   </sc-for>
                 </div>
@@ -778,11 +775,11 @@
               <div style="height:136px;flex:none;display:flex;gap:12px">
                 <sc-for list="{{ modelCards }}" as="m" hint-placeholder-count="4">
                   <div style="flex:1;padding:11px 12px;border-radius:13px;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.5),0 14px 34px rgba(58,70,135,.13);border:1px solid {{ m.bd }};display:flex;flex-direction:column;gap:4px">
-                    <div style="display:flex;align-items:center;gap:6px"><span style="font-size:17px;font-weight:620;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">{{ m.ver }}</span><span style="font-size:11px;font-weight:700;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;padding:1px 6px;border-radius:4px;background:{{ m.bg }};color:{{ m.fg }}">{{ m.state }}</span></div>
-                    <span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">{{ m.ds }}</span>
-                    <span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">{{ m.date }}</span>
+                    <div style="display:flex;align-items:center;gap:6px"><span style="font-size:17px;font-weight:620;font-family:'SUIT Variable',SUIT,sans-serif">{{ m.ver }}</span><span style="font-size:11px;font-weight:700;font-family:'SUIT Variable',SUIT,sans-serif;padding:1px 6px;border-radius:4px;background:{{ m.bg }};color:{{ m.fg }}">{{ m.state }}</span></div>
+                    <span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'SUIT Variable',SUIT,sans-serif">{{ m.ds }}</span>
+                    <span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'SUIT Variable',SUIT,sans-serif">{{ m.date }}</span>
                     <div style="flex:1"></div>
-                    <span style="font-size:12px;color:rgba(24,30,48,.76);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;word-break:break-all">{{ m.hash }}</span>
+                    <span style="font-size:12px;color:rgba(24,30,48,.76);font-family:'SUIT Variable',SUIT,sans-serif;word-break:break-all">{{ m.hash }}</span>
                   </div>
                 </sc-for>
               </div>
@@ -795,12 +792,12 @@
         <div data-screen-label="16.8 보고서" style="flex:1;min-height:0;display:flex;flex-direction:column;gap:12px;padding:0">
           <div style="display:flex;align-items:center;gap:12px">
             <div style="font-size:25px;font-weight:640;letter-spacing:-0.03em;line-height:1.12">HWP/HWPX 보고서 편집 미리보기</div>
-            <span style="font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(26,32,52,.7);padding:2px 7px;border-radius:6px;background:rgba(255,255,255,.72)">16.8 · 14장 · DocumentEditPlan</span>
+            <span style="font-size:12.5px;font-family:'SUIT Variable',SUIT,sans-serif;color:rgba(26,32,52,.7);padding:2px 7px;border-radius:6px;background:rgba(255,255,255,.72)">16.8 · 14장 · DocumentEditPlan</span>
             <div style="flex:1"></div>
             <div style="display:flex;gap:6px">
-              <div style="display:flex;align-items:center;gap:6px;padding:6px 13px;border-radius:999px;background:rgba(255,255,255,.72);backdrop-filter:blur(18px) saturate(200%);-webkit-backdrop-filter:blur(18px) saturate(200%);border:1px solid rgba(255,255,255,.95);box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 1px 3px rgba(58,70,135,.07);font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace"><span style="width:5px;height:5px;border-radius:50%;background:oklch(0.46 0.14 158)"></span>한/글 COM · STA worker</div>
-              <div style="display:flex;align-items:center;gap:6px;padding:6px 13px;border-radius:999px;background:rgba(255,255,255,.72);backdrop-filter:blur(18px) saturate(200%);-webkit-backdrop-filter:blur(18px) saturate(200%);border:1px solid rgba(255,255,255,.95);box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 1px 3px rgba(58,70,135,.07);font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace"><span style="width:5px;height:5px;border-radius:50%;background:oklch(0.52 0.12 72)"></span>Codex CLI · 재로그인 필요</div>
-              <div style="display:flex;align-items:center;gap:6px;padding:6px 13px;border-radius:999px;background:rgba(255,255,255,.72);backdrop-filter:blur(18px) saturate(200%);-webkit-backdrop-filter:blur(18px) saturate(200%);border:1px solid rgba(255,255,255,.95);box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 1px 3px rgba(58,70,135,.07);font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace"><span style="width:5px;height:5px;border-radius:50%;background:oklch(0.46 0.14 158)"></span>Claude Code · 연결됨</div>
+              <div style="display:flex;align-items:center;gap:6px;padding:6px 13px;border-radius:999px;background:rgba(255,255,255,.72);backdrop-filter:blur(18px) saturate(200%);-webkit-backdrop-filter:blur(18px) saturate(200%);border:1px solid rgba(255,255,255,.95);box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 1px 3px rgba(58,70,135,.07);font-size:12.5px;font-family:'SUIT Variable',SUIT,sans-serif"><span style="width:5px;height:5px;border-radius:50%;background:oklch(0.46 0.14 158)"></span>한/글 COM · STA worker</div>
+              <div style="display:flex;align-items:center;gap:6px;padding:6px 13px;border-radius:999px;background:rgba(255,255,255,.72);backdrop-filter:blur(18px) saturate(200%);-webkit-backdrop-filter:blur(18px) saturate(200%);border:1px solid rgba(255,255,255,.95);box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 1px 3px rgba(58,70,135,.07);font-size:12.5px;font-family:'SUIT Variable',SUIT,sans-serif"><span style="width:5px;height:5px;border-radius:50%;background:oklch(0.52 0.12 72)"></span>Codex CLI · 재로그인 필요</div>
+              <div style="display:flex;align-items:center;gap:6px;padding:6px 13px;border-radius:999px;background:rgba(255,255,255,.72);backdrop-filter:blur(18px) saturate(200%);-webkit-backdrop-filter:blur(18px) saturate(200%);border:1px solid rgba(255,255,255,.95);box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 1px 3px rgba(58,70,135,.07);font-size:12.5px;font-family:'SUIT Variable',SUIT,sans-serif"><span style="width:5px;height:5px;border-radius:50%;background:oklch(0.46 0.14 158)"></span>Claude Code · 연결됨</div>
             </div>
           </div>
           <div style="flex:1;min-height:0;display:flex;gap:14px">
@@ -808,7 +805,7 @@
               <div style="padding:12px 13px;border-radius:14px;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.5),0 14px 34px rgba(58,70,135,.13);border:1px solid rgba(255,255,255,.9);display:flex;flex-direction:column;gap:8px">
                 <div style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">전송 데이터 확인 · 15.3</div>
                 <div style="display:flex;gap:5px;flex-wrap:wrap">
-                  <sc-for list="{{ sendData }}" as="s" hint-placeholder-count="5"><span style="font-size:12px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;padding:3px 7px;border-radius:6px;background:{{ s.bg }};color:{{ s.fg }}">{{ s.label }}</span></sc-for>
+                  <sc-for list="{{ sendData }}" as="s" hint-placeholder-count="5"><span style="font-size:12px;font-family:'SUIT Variable',SUIT,sans-serif;padding:3px 7px;border-radius:6px;background:{{ s.bg }};color:{{ s.fg }}">{{ s.label }}</span></sc-for>
                 </div>
                 <div style="font-size:12.5px;color:rgba(24,30,48,.76);line-height:1.5">원본 영상과 불필요한 개인정보는 전송하지 않습니다. CLI는 제한된 임시 경로에서 실행되고, 출력은 스키마 검증 후에만 사용합니다.</div>
               </div>
@@ -816,19 +813,19 @@
                 <div style="padding:10px 13px;border-bottom:1px solid rgba(28,36,78,.08);display:flex;align-items:center;gap:8px">
                   <span style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">편집 계획 · 24 ops</span>
                   <div style="flex:1"></div>
-                  <span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">{{ planCount }}</span>
+                  <span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'SUIT Variable',SUIT,sans-serif">{{ planCount }}</span>
                 </div>
                 <div style="flex:1;overflow-y:auto;overflow-x:hidden">
                   <sc-for list="{{ plan }}" as="o" hint-placeholder-count="8">
                     <div style="padding:9px 13px;border-bottom:1px solid rgba(28,36,78,.06);display:flex;flex-direction:column;gap:6px;background:{{ o.rowBg }}">
                       <div style="display:flex;align-items:center;gap:8px">
-                        <span style="font-size:11.5px;font-weight:700;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;padding:2px 6px;border-radius:5px;background:rgba(255,255,255,.78);color:rgba(22,28,44,.82)">{{ o.op }}</span>
-                        <span style="font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(26,32,52,.7);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ o.target }}</span>
-                        <span style="font-size:11.5px;font-weight:700;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;padding:2px 6px;border-radius:5px;background:{{ o.stBg }};color:{{ o.stFg }}">{{ o.st }}</span>
+                        <span style="font-size:11.5px;font-weight:700;font-family:'SUIT Variable',SUIT,sans-serif;padding:2px 6px;border-radius:5px;background:rgba(255,255,255,.78);color:rgba(22,28,44,.82)">{{ o.op }}</span>
+                        <span style="font-size:12.5px;font-family:'SUIT Variable',SUIT,sans-serif;color:rgba(26,32,52,.7);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ o.target }}</span>
+                        <span style="font-size:11.5px;font-weight:700;font-family:'SUIT Variable',SUIT,sans-serif;padding:2px 6px;border-radius:5px;background:{{ o.stBg }};color:{{ o.stFg }}">{{ o.st }}</span>
                       </div>
                       <div style="font-size:13.5px;color:#1b1f2a;line-height:1.5">{{ o.value }}</div>
                       <div style="display:flex;align-items:center;gap:6px">
-                        <span style="font-size:12px;color:rgba(28,34,56,.64);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;flex:1">{{ o.src }}</span>
+                        <span style="font-size:12px;color:rgba(28,34,56,.64);font-family:'SUIT Variable',SUIT,sans-serif;flex:1">{{ o.src }}</span>
                         <div onClick="{{ o.accept }}" style="padding:3px 10px;border-radius:6px;background:rgba(40,180,120,.16);color:oklch(0.4 0.13 158);font-size:12.5px;cursor:pointer">수락</div>
                         <div onClick="{{ o.reject }}" style="padding:3px 10px;border-radius:6px;background:rgba(226,80,58,.12);color:oklch(0.47 0.19 28);font-size:12.5px;cursor:pointer">거절</div>
                       </div>
@@ -844,9 +841,9 @@
             <div style="flex:1;min-width:0;display:flex;flex-direction:column;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);border:1px solid rgba(255,255,255,.9);border-radius:22px;box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.55),inset 1px 0 0 rgba(255,255,255,.6),0 18px 44px rgba(58,70,135,.15),0 2px 6px rgba(58,70,135,.06);overflow:hidden">
               <div style="padding:10px 13px;border-bottom:1px solid rgba(28,36,78,.08);display:flex;align-items:center;gap:8px">
                 <span style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">문서 미리보기 · 작업본</span>
-                <span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">reports/hwpx/점검보고서_2026-07.hwpx · snapshot #a19f</span>
+                <span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'SUIT Variable',SUIT,sans-serif">reports/hwpx/점검보고서_2026-07.hwpx · snapshot #a19f</span>
                 <div style="flex:1"></div>
-                <span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">1 / 12 페이지</span>
+                <span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'SUIT Variable',SUIT,sans-serif">1 / 12 페이지</span>
               </div>
               <div style="flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;padding:16px;display:flex;justify-content:center;background:rgba(224,229,243,.5)">
                 <div style="width:520px;flex:none;background:#f4f4f2;border-radius:3px;box-shadow:0 16px 40px rgba(58,70,135,.2);padding:34px 38px;display:flex;flex-direction:column;gap:13px;color:#1a1b1e;font-size:13px">
@@ -896,7 +893,7 @@
                 </div>
               </div>
               <div style="padding:10px 13px;border-top:1px solid rgba(28,36,78,.08);display:flex;align-items:center;gap:9px">
-                <span style="font-size:12.5px;color:rgba(24,30,48,.76);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">저장 후 재읽기 · 전 페이지 렌더 검증 · 표 잘림/사진 누락/페이지 넘침 검사</span>
+                <span style="font-size:12.5px;color:rgba(24,30,48,.76);font-family:'SUIT Variable',SUIT,sans-serif">저장 후 재읽기 · 전 페이지 렌더 검증 · 표 잘림/사진 누락/페이지 넘침 검사</span>
                 <div style="flex:1"></div>
                 <div style="padding:7px 15px;border-radius:999px;background:rgba(255,255,255,.74);font-size:13.5px;cursor:pointer;color:rgba(18,22,36,.92)">HWPX 저장</div>
                 <div style="padding:7px 15px;border-radius:999px;background:rgba(255,255,255,.74);font-size:13.5px;cursor:pointer;color:rgba(18,22,36,.92)">HWP 저장</div>
@@ -910,14 +907,14 @@
         <div data-screen-label="16.9 내보내기" style="flex:1;min-height:0;display:flex;flex-direction:column;gap:12px;padding:0">
           <div style="display:flex;align-items:center;gap:12px">
             <div style="font-size:25px;font-weight:640;letter-spacing:-0.03em;line-height:1.12">내보내기</div>
-            <span style="font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(26,32,52,.7);padding:2px 7px;border-radius:6px;background:rgba(255,255,255,.72)">16.9 · 13장 · POST /exports</span>
+            <span style="font-size:12.5px;font-family:'SUIT Variable',SUIT,sans-serif;color:rgba(26,32,52,.7);padding:2px 7px;border-radius:6px;background:rgba(255,255,255,.72)">16.9 · 13장 · POST /exports</span>
             <div style="flex:1"></div>
             <div style="padding:7px 16px;border-radius:999px;background:linear-gradient(180deg,#2b2f3a,#0d1016);color:#ffffff;box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 8px 20px rgba(16,20,44,.3);font-size:14px;font-weight:600;cursor:pointer">선택 항목 내보내기</div>
           </div>
           <div style="flex:1;min-height:0;display:flex;gap:14px">
             <div style="width:440px;flex:none;display:flex;flex-direction:column;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(170%);-webkit-backdrop-filter:blur(40px) saturate(170%);border:1px solid rgba(255,255,255,.82);border-radius:22px;box-shadow:inset 0 1.5px 0 rgba(255,255,255,.9),inset 0 -1px 0 rgba(255,255,255,.5),0 18px 44px rgba(58,70,135,.14);overflow:hidden">
               <div style="padding:10px 13px;border-bottom:1px solid rgba(28,36,78,.08);font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">프로젝트 구조 · 13장</div>
-              <div style="flex:1;overflow-y:auto;overflow-x:hidden;padding:10px 13px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;font-size:12.5px;line-height:1.85">
+              <div style="flex:1;overflow-y:auto;overflow-x:hidden;padding:10px 13px;font-family:'SUIT Variable',SUIT,sans-serif;font-size:12.5px;line-height:1.85">
                 <sc-for list="{{ tree }}" as="t" hint-placeholder-count="20">
                   <div style="display:flex;gap:7px;color:{{ t.color }};padding-left:{{ t.indent }}px"><span>{{ t.name }}</span><div style="flex:1"></div><span style="color:rgba(28,34,56,.62)">{{ t.note }}</span></div>
                 </sc-for>
@@ -934,16 +931,16 @@
                 <div style="flex:1;padding:13px;border-radius:14px;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.5),0 14px 34px rgba(58,70,135,.13);border:1px solid rgba(255,255,255,.9);display:flex;flex-direction:column;gap:9px">
                   <div style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">Trip Package · 13.2</div>
                   <sc-for list="{{ pkg }}" as="p" hint-placeholder-count="6">
-                    <div style="display:flex;align-items:center;gap:8px;font-size:13px"><span style="width:14px;height:14px;border-radius:4px;background:{{ p.bg }};color:#ffffff;display:grid;place-items:center;font-size:11px;font-weight:700;flex:none">{{ p.mark }}</span><span style="color:rgba(18,22,36,.92);flex:1">{{ p.label }}</span><span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">{{ p.size }}</span></div>
+                    <div style="display:flex;align-items:center;gap:8px;font-size:13px"><span style="width:14px;height:14px;border-radius:4px;background:{{ p.bg }};color:#ffffff;display:grid;place-items:center;font-size:11px;font-weight:700;flex:none">{{ p.mark }}</span><span style="color:rgba(18,22,36,.92);flex:1">{{ p.label }}</span><span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'SUIT Variable',SUIT,sans-serif">{{ p.size }}</span></div>
                   </sc-for>
                 </div>
               </div>
               <div style="flex:1;min-height:0;display:flex;flex-direction:column;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);border:1px solid rgba(255,255,255,.9);border-radius:22px;box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.55),inset 1px 0 0 rgba(255,255,255,.6),0 18px 44px rgba(58,70,135,.15),0 2px 6px rgba(58,70,135,.06);overflow:hidden">
-                <div style="padding:10px 13px;border-bottom:1px solid rgba(28,36,78,.08);display:flex;align-items:center;gap:8px"><span style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">산출물 · SHA-256 provenance</span><div style="flex:1"></div><span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">모든 주요 파일에 해시와 생성 주체 기록 (3.4)</span></div>
-                <div style="display:grid;grid-template-columns:1.5fr 84px 108px 1fr;padding:7px 13px;gap:8px;border-bottom:1px solid rgba(28,36,78,.07);font-size:12px;color:rgba(28,34,56,.64);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace"><div>file</div><div style="text-align:right">rows</div><div style="text-align:right">size</div><div>sha-256 / 생성 주체</div></div>
+                <div style="padding:10px 13px;border-bottom:1px solid rgba(28,36,78,.08);display:flex;align-items:center;gap:8px"><span style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">산출물 · SHA-256 provenance</span><div style="flex:1"></div><span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'SUIT Variable',SUIT,sans-serif">모든 주요 파일에 해시와 생성 주체 기록 (3.4)</span></div>
+                <div style="display:grid;grid-template-columns:1.5fr 84px 108px 1fr;padding:7px 13px;gap:8px;border-bottom:1px solid rgba(28,36,78,.07);font-size:12px;color:rgba(28,34,56,.64);font-family:'SUIT Variable',SUIT,sans-serif"><div>file</div><div style="text-align:right">rows</div><div style="text-align:right">size</div><div>sha-256 / 생성 주체</div></div>
                 <div style="flex:1;overflow-y:auto;overflow-x:hidden">
                   <sc-for list="{{ artifacts }}" as="f" hint-placeholder-count="9">
-                    <div style="display:grid;grid-template-columns:1.5fr 84px 108px 1fr;gap:8px;padding:8px 13px;border-bottom:1px solid rgba(28,36,78,.06);align-items:center;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">
+                    <div style="display:grid;grid-template-columns:1.5fr 84px 108px 1fr;gap:8px;padding:8px 13px;border-bottom:1px solid rgba(28,36,78,.06);align-items:center;font-family:'SUIT Variable',SUIT,sans-serif">
                       <div style="font-size:12.5px;color:#1b1f2a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ f.name }}</div>
                       <div style="font-size:12.5px;text-align:right;color:rgba(22,28,44,.82)">{{ f.rows }}</div>
                       <div style="font-size:12.5px;text-align:right;color:rgba(22,28,44,.82)">{{ f.size }}</div>
@@ -955,7 +952,7 @@
                   <span style="width:15px;height:15px;border-radius:4px;border:1.5px solid rgba(28,36,78,.28);flex:none"></span>
                   <span style="font-size:13.5px;color:rgba(18,22,36,.92)">원본 영상 포함 (2.08 GB) — 기본 제외, 사용자 선택</span>
                   <div style="flex:1"></div>
-                  <span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">공유 자료는 얼굴·번호판 비식별화 후 생성</span>
+                  <span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'SUIT Variable',SUIT,sans-serif">공유 자료는 얼굴·번호판 비식별화 후 생성</span>
                 </div>
               </div>
             </div>
@@ -979,8 +976,8 @@
               <div style="font-size:13.5px;letter-spacing:.06em;color:rgba(234,240,252,.6);font-weight:640">{{ s.title }}</div>
               <sc-for list="{{ s.rows }}" as="r" hint-placeholder-count="3">
                 <div style="display:flex;flex-direction:column;gap:2px;padding:6px 8px;border-radius:8px;background:rgba(255,255,255,.62);border:1px solid rgba(255,255,255,.85)">
-                  <span style="font-size:11.5px;color:#7a7d86;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">{{ r.k }}</span>
-                  <span style="font-size:13px;color:rgba(18,22,36,.92);line-height:1.45;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;word-break:break-all">{{ r.v }}</span>
+                  <span style="font-size:11.5px;color:#7a7d86;font-family:'SUIT Variable',SUIT,sans-serif">{{ r.k }}</span>
+                  <span style="font-size:13px;color:rgba(18,22,36,.92);line-height:1.45;font-family:'SUIT Variable',SUIT,sans-serif;word-break:break-all">{{ r.v }}</span>
                 </div>
               </sc-for>
             </div>
@@ -991,7 +988,7 @@
 
   </div>
 
-  <div style="height:42px;flex:none;display:flex;align-items:center;gap:14px;padding:0 18px;background:linear-gradient(180deg,rgba(255,255,255,.52),rgba(255,255,255,.74));backdrop-filter:blur(34px) saturate(210%);-webkit-backdrop-filter:blur(34px) saturate(210%);border-top:1px solid rgba(28,36,78,.09);box-shadow:inset 0 1px 0 rgba(255,255,255,.9);font-size:12.5px;color:rgba(24,30,48,.76);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">
+  <div style="height:42px;flex:none;display:flex;align-items:center;gap:14px;padding:0 18px;background:linear-gradient(180deg,rgba(255,255,255,.52),rgba(255,255,255,.74));backdrop-filter:blur(34px) saturate(210%);-webkit-backdrop-filter:blur(34px) saturate(210%);border-top:1px solid rgba(28,36,78,.09);box-shadow:inset 0 1px 0 rgba(255,255,255,.9);font-size:12.5px;color:rgba(24,30,48,.76);font-family:'SUIT Variable',SUIT,sans-serif">
     <span style="width:6px;height:6px;border-radius:50%;background:oklch(0.49 0.19 262);animation:tvpulse 1.8s ease-in-out infinite"></span>
     <span>JOB analysis · trip_003 · 62%</span>
     <div style="width:120px;height:4px;border-radius:3px;background:rgba(36,48,96,.11);overflow:hidden"><div style="width:62%;height:100%;background:oklch(0.49 0.19 262)"></div></div>

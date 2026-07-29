@@ -57,7 +57,7 @@ if (!trustSource.includes(`"${manifestSha256}"`)) {
 const manifest = JSON.parse(manifestBytes.toString("utf8"));
 const executablePath = path.join(
   runnerRoot,
-  "trafficvisson-command-proposal-runner.exe",
+  "trafficsupervision-command-proposal-runner.exe",
 );
 requiredFile(executablePath);
 if (sha256File(executablePath) !== manifest.executable_sha256) {
@@ -74,7 +74,27 @@ if (
 const modelManifest = JSON.parse(modelManifestBytes.toString("utf8"));
 if (
   modelManifest.schema_version !==
-    "trafficvisson.command-proposal-model-pack.v1" ||
+    "trafficvisson.command-proposal-model-pack.v2" ||
+  modelManifest.model?.selected_artifact !== "onnx/model_q4.onnx" ||
+  typeof modelManifest.model?.name !== "string" ||
+  typeof modelManifest.model?.version !== "string" ||
+  typeof modelManifest.source?.repository_url !== "string" ||
+  !/^[a-f0-9]{40,64}$/.test(
+    modelManifest.source?.resolved_revision ?? "",
+  ) ||
+  modelManifest.license?.commercial_use_confirmed !== true ||
+  typeof modelManifest.license?.redistribution_allowed !== "boolean" ||
+  !/^[A-Za-z0-9][A-Za-z0-9.+-]{0,63}$/.test(
+    modelManifest.license?.weights_spdx ?? "",
+  ) ||
+  !/^[A-Za-z0-9][A-Za-z0-9.+-]{0,63}$/.test(
+    modelManifest.license?.runtime_spdx ?? "",
+  ) ||
+  typeof modelManifest.gpu_requirements?.required !== "boolean" ||
+  typeof modelManifest.gpu_requirements?.cpu_fallback !== "boolean" ||
+  !Number.isSafeInteger(
+    modelManifest.gpu_requirements?.recommended_min_vram_mb,
+  ) ||
   !Array.isArray(modelManifest.artifacts) ||
   modelManifest.review_policy?.bridge_review_proposal_import_allowed !== true ||
   modelManifest.review_policy?.automatic_labeling_allowed !== false

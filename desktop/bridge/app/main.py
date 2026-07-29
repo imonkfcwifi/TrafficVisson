@@ -3,18 +3,20 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import math
 import os
 import shutil
 import subprocess
 import tempfile
 import threading
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 from uuid import UUID
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from starlette.concurrency import run_in_threadpool
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
@@ -22,6 +24,7 @@ from .contracts import (
     AnalysisJobListResponse,
     AnalysisJobResponse,
     AnalysisJobStartRequest,
+    ApprovedReportIncident,
     AutoLabelCompileRequest,
     AutoLabelCompileResponse,
     AutoLabelRunRequest,
@@ -32,6 +35,9 @@ from .contracts import (
     DatasetVersionCreateRequest,
     DatasetVersionListResponse,
     DatasetVersionResponse,
+    DenseIndexJobListResponse,
+    DenseIndexJobResponse,
+    DenseIndexJobStartRequest,
     EmptyRequest,
     ExportCreateRequest,
     ExportCreateResponse,
@@ -40,12 +46,14 @@ from .contracts import (
     GpxTrackResponse,
     HealthResponse,
     HistoryResponse,
+    HwpApplyDocumentRequest,
     HwpApplyResponse,
     HwpDocumentRequest,
     HwpPreflightResponse,
     HwpPreviewResponse,
     HwpRollbackRequest,
     HwpRollbackResponse,
+    HwpSampleLayoutPreviewResponse,
     ImportCreateRequest,
     ImportCreateResponse,
     ImportInspectRequest,
@@ -59,11 +67,22 @@ from .contracts import (
     MediaSnapshotResponse,
     MediaStabilityRequest,
     MediaStabilityResponse,
+    MaskRefinementCapabilityResponse,
+    MaskRefinementIdentityRequest,
+    MaskRefinementRequest,
+    MaskRefinementResponse,
     ModelPromotionReviewRequest,
     ModelPromotionReviewResponse,
     ModelValidationReviewRequest,
     ModelValidationReviewResponse,
     PolicyMode,
+    PipelineJobListResponse,
+    PipelineJobResponse,
+    PipelineJobStartRequest,
+    PipelineJobStartResponse,
+    PipelineProfileConfigureRequest,
+    PipelineProfileResponse,
+    PipelineReviewCompleteRequest,
     ProjectCreateRequest,
     ProjectIncidentListResponse,
     ProjectListResponse,
@@ -71,6 +90,7 @@ from .contracts import (
     ProjectResponse,
     ProviderListResponse,
     ProviderLoginResponse,
+    RuntimeReadinessResponse,
     QuestionAnswerRequest,
     QuestionAnswerResponse,
     QuestionListResponse,
@@ -88,6 +108,9 @@ from .contracts import (
     SourceCandidateCatalogResponse,
     TemporalIncidentReviewRequest,
     TemporalIncidentReviewResponse,
+    WeakCaseSearchRequest,
+    WeakCaseSearchResponse,
+    WeakCaseSourceListResponse,
 )
 from .analysis_jobs import AnalysisJobService
 from .auto_labeling import (
@@ -120,6 +143,15 @@ from .command_proposal_generation import (
     FixedManifestCommandProposalGenerator,
 )
 from .dataset_versions import DatasetVersionError, LabelProjectionError
+from .dense_index_jobs import (
+    DenseIndexJobConflict,
+    DenseIndexJobNotFound,
+    DenseIndexJobService,
+    DenseIndexJobSourceRejected,
+    DenseIndexJobUnavailable,
+    ResolvedDenseIndexSource,
+)
+from .derived_outputs import DerivedOutputsService
 from .experimental_proposals import (
     ExperimentalProposalError,
     ExperimentalProposalStore,
@@ -130,19 +162,47 @@ from .hwp_com import (
     PLAN_VERSION,
     registry_preflight,
 )
+from .hwp_approval import (
+    HwpApprovalError,
+    HwpApprovalRegistry,
+)
+from .hwpx_sample_layout import (
+    HwpxSampleLayoutError,
+    identify_sample_layout,
+    preview_sample_layout_plan,
+)
+from .hwpx_structure import HwpxStructureError
 from .gpx_tracks import (
     GPX_EXPORT_PROVENANCE_SCHEMA,
     GpxTrackError,
     GpxTrackStore,
 )
 from .media_intake import MediaIntakeService
+from .pipeline_jobs import (
+    BridgePipelineRuntime,
+    PipelineJobConflict,
+    PipelineJobNotFound,
+    PipelineJobService,
+    PipelineJobUnavailable,
+    PipelineProfileMissing,
+    PipelineRuntime,
+)
 from .provider_status import ProviderStatusService
 from .report_generation import (
     InvalidModelOutput,
     InvalidRedactedPayload,
+    ProviderAuthenticationExpiredError,
+    ProviderNetworkError,
     ProviderNotReadyError,
     ReportGenerationError,
     ReportGenerationService,
+)
+from .runtime_readiness import RuntimeReadinessService
+from .sam2_refinement import (
+    Sam2MaskRefinementService,
+    Sam2RefinementAdapter,
+    Sam2RefinementError,
+    Sam2RefinementNotFound,
 )
 from .vision_inference import LocalVisionInferenceService
 from .security import (
@@ -153,7 +213,7 @@ from .security import (
 )
 from .source_candidate_probe import SourceCandidateProbe
 from .source_registry import build_source_candidate_catalog
-from .store import TrafficVissonStore
+from .store import TrafficSuperVisionStore
 from .temporal_incidents import (
     TemporalGroupingPolicy,
     TemporalIncidentProposalError,
@@ -163,6 +223,11 @@ from .validation_metrics import (
     ValidationMetricsError,
     compare_candidate_to_active,
     evaluate_model,
+)
+from .weak_case_catalog import (
+    WeakCaseCatalog,
+    WeakCaseCatalogError,
+    default_sample_root,
 )
 
 
@@ -178,6 +243,137 @@ def _canonical_export_provenance_hash(value) -> str:
             separators=(",", ":"),
         ).encode("utf-8")
     ).hexdigest()
+
+
+def _report_location_summary(
+    track: object,
+    representative_time_ms: int,
+) -> Optional[str]:
+    """Return a bounded server-derived GPS summary for one video timestamp."""
+
+    if not isinstance(track, dict):
+        return None
+    raw_points = track.get("route_points")
+    if not isinstance(raw_points, list) or len(raw_points) < 2:
+        return None
+    target_seconds = representative_time_ms / 1_000
+    points = []
+    for raw in raw_points:
+        if not isinstance(raw, dict):
+            return None
+        video_time = raw.get("video_time_seconds")
+        latitude = raw.get("latitude")
+        longitude = raw.get("longitude")
+        if (
+            isinstance(video_time, bool)
+            or not isinstance(video_time, (int, float))
+            or isinstance(latitude, bool)
+            or not isinstance(latitude, (int, float))
+            or isinstance(longitude, bool)
+            or not isinstance(longitude, (int, float))
+            or not math.isfinite(float(video_time))
+            or not math.isfinite(float(latitude))
+            or not math.isfinite(float(longitude))
+            or not -90 <= float(latitude) <= 90
+            or not -180 <= float(longitude) <= 180
+            or not isinstance(raw.get("gap_from_previous"), bool)
+        ):
+            return None
+        points.append(
+            (
+                float(video_time),
+                float(latitude),
+                float(longitude),
+                raw["gap_from_previous"],
+            )
+        )
+    if any(
+        points[index][0] <= points[index - 1][0]
+        for index in range(1, len(points))
+    ):
+        return None
+    if target_seconds < points[0][0] or target_seconds > points[-1][0]:
+        return None
+    lower = 0
+    upper = len(points) - 1
+    while lower <= upper:
+        middle = (lower + upper) // 2
+        point = points[middle]
+        if point[0] == target_seconds:
+            latitude, longitude = point[1], point[2]
+            break
+        if point[0] < target_seconds:
+            lower = middle + 1
+        else:
+            upper = middle - 1
+    else:
+        after = points[min(len(points) - 1, lower)]
+        before = points[max(0, lower - 1)]
+        if (
+            after == before
+            or after[3]
+            or after[0] <= before[0]
+        ):
+            return None
+        ratio = (target_seconds - before[0]) / (after[0] - before[0])
+        latitude = before[1] + (after[1] - before[1]) * ratio
+        longitude = before[2] + (after[2] - before[2]) * ratio
+    total_seconds = max(0, target_seconds)
+    hours = int(total_seconds // 3_600)
+    minutes = int((total_seconds % 3_600) // 60)
+    seconds = total_seconds % 60
+    return (
+        f"GPS {latitude:.6f}, {longitude:.6f} · "
+        f"영상 {hours:02d}:{minutes:02d}:{seconds:06.3f}"
+    )
+
+
+def _dense_index_job_response(
+    row: dict[str, object],
+) -> DenseIndexJobResponse:
+    """Project a path-free service record into the public strict contract."""
+
+    result = row.get("result")
+    result_summary = None
+    if isinstance(result, dict):
+        index = result.get("index")
+        if not isinstance(index, dict):
+            raise HTTPException(
+                status_code=500,
+                detail="The dense-index result contract is invalid",
+            )
+        result_summary = {
+            "artifact_set_id": result.get("artifact_set_id"),
+            "frame_count": result.get("frame_count"),
+            "total_frame_bytes": result.get("total_frame_bytes"),
+            "index_artifact_ref": index.get("artifact_ref"),
+        }
+    try:
+        analysis_job_id = UUID(str(row["opaque_source_identity"]))
+    except (KeyError, TypeError, ValueError) as error:
+        raise HTTPException(
+            status_code=500,
+            detail="The dense-index source identity is invalid",
+        ) from error
+    return DenseIndexJobResponse(
+        job_id=row.get("job_id"),
+        project_id=row.get("project_id"),
+        analysis_job_id=analysis_job_id,
+        source_sha256=row.get("source_sha256"),
+        sampling_fps=row.get("sampling_fps"),
+        status=row.get("status"),
+        stage=row.get("stage"),
+        progress_percent=row.get("progress_percent"),
+        progress_state=row.get("progress_state"),
+        progress_basis=row.get("progress_basis"),
+        pause_supported=row.get("pause_supported"),
+        error_code=row.get("error_code"),
+        created_at=row.get("created_at"),
+        updated_at=row.get("updated_at"),
+        record_sha256=row.get("record_sha256"),
+        safety=row.get("safety"),
+        result=result_summary,
+    )
 
 
 async def _run_export_with_disconnect_cancellation(
@@ -253,12 +449,17 @@ def create_app(
     provider_status_service: Optional[ProviderStatusService] = None,
     report_generation_service: Optional[ReportGenerationService] = None,
     hwp_service: Optional[HwpComService] = None,
+    hwp_approval_registry: Optional[HwpApprovalRegistry] = None,
     vision_inference_service: Optional[LocalVisionInferenceService] = None,
     source_candidate_probe: Optional[SourceCandidateProbe] = None,
     command_proposal_generator: Optional[CommandProposalGenerator] = None,
+    pipeline_runtime: Optional[PipelineRuntime] = None,
+    runtime_readiness_service: Optional[RuntimeReadinessService] = None,
+    weak_case_catalog: Optional[WeakCaseCatalog] = None,
+    sam2_refinement_adapter: Optional[Sam2RefinementAdapter] = None,
 ) -> FastAPI:
     app = FastAPI(
-        title="TrafficVisson Desktop Bridge",
+        title="TrafficSuperVision Desktop Bridge",
         version="1.0",
         debug=False,
         docs_url=None,
@@ -277,12 +478,25 @@ def create_app(
     if bridge_data_root is None:
         local_data = os.environ.get("LOCALAPPDATA")
         if local_data:
+            current_root = (
+                Path(local_data) / "TrafficSuperVision" / "bridge-data"
+            )
+            legacy_root = (
+                Path(local_data)
+                / ("Traffic" + "Visson")
+                / "bridge-data"
+            )
+            # Existing installations keep using their original durable store
+            # until an explicit data migration is performed. New installations
+            # start under the TrafficSuperVision identity.
             bridge_data_root = str(
-                Path(local_data) / "TrafficVisson" / "bridge-data"
+                legacy_root
+                if legacy_root.exists() and not current_root.exists()
+                else current_root
             )
         else:
             bridge_data_root = str(
-                Path(tempfile.gettempdir()) / "TrafficVisson-bridge-data"
+                Path(tempfile.gettempdir()) / "TrafficSuperVision-bridge-data"
             )
     bridge_data_path = Path(bridge_data_root).resolve()
     bridge_data_path.mkdir(parents=True, exist_ok=True)
@@ -290,7 +504,7 @@ def create_app(
     app.state.source_candidate_probe = (
         source_candidate_probe or SourceCandidateProbe.from_environment()
     )
-    app.state.store = TrafficVissonStore(
+    app.state.store = TrafficSuperVisionStore(
         fixture_mode=fixture_mode,
         data_root=(
             bridge_data_path
@@ -298,10 +512,15 @@ def create_app(
             else None
         ),
     )
+    app.state.weak_case_catalog = (
+        weak_case_catalog
+        if weak_case_catalog is not None
+        else WeakCaseCatalog(default_sample_root())
+    )
     if vision_inference_service is None:
         vision_inference_service = LocalVisionInferenceService(
             model_pack_path=os.environ.get(
-                "TRAFFICVISSON_VISION_MODEL_PACK"
+                "TRAFFICSUPERVISION_VISION_MODEL_PACK"
             )
         )
     app.state.vision_inference = vision_inference_service
@@ -312,6 +531,50 @@ def create_app(
         ffprobe_path=ffprobe_path,
         extraction_limits=candidate_extraction_limits,
         vision_inference=vision_inference_service,
+    )
+
+    def resolve_dense_index_source(
+        project_id: UUID,
+        opaque_source_identity: str,
+        source_sha256: str,
+    ) -> ResolvedDenseIndexSource:
+        try:
+            analysis_job_id = UUID(opaque_source_identity)
+        except (TypeError, ValueError) as error:
+            raise DenseIndexJobSourceRejected(
+                "The dense-index analysis identity is invalid"
+            ) from error
+        if str(analysis_job_id) != opaque_source_identity:
+            raise DenseIndexJobSourceRejected(
+                "The dense-index analysis identity is not canonical"
+            )
+        try:
+            grant = app.state.analysis_jobs.resolve_completed_source(
+                project_id,
+                analysis_job_id,
+            )
+        except HTTPException as error:
+            raise DenseIndexJobSourceRejected(
+                "source_unavailable_reselect_required"
+            ) from error
+        if grant.sha256_lower != source_sha256:
+            raise DenseIndexJobSourceRejected(
+                "The completed analysis source digest changed"
+            )
+        return ResolvedDenseIndexSource(
+            project_id=grant.project_id,
+            opaque_source_identity=opaque_source_identity,
+            source_sha256=grant.sha256_lower,
+            media_path=grant.media_path,
+            size_bytes=grant.size_bytes,
+            modified_time_ns=grant.modified_time_ns,
+        )
+
+    app.state.dense_index_jobs = DenseIndexJobService(
+        resolve_dense_index_source,
+        data_root=bridge_data_path / "dense-index",
+        ffmpeg_path=ffmpeg_path,
+        ffprobe_path=ffprobe_path,
     )
 
     def resolve_trip_for_gpx(
@@ -369,9 +632,33 @@ def create_app(
         bridge_data_path,
         resolve_completed_candidate,
     )
+    app.state.sam2_refinements = Sam2MaskRefinementService(
+        adapter=sam2_refinement_adapter,
+        artifact_resolver=lambda project_id, job_id, candidate_id: (
+            app.state.analysis_jobs.resolve_artifact(
+                project_id,
+                job_id,
+                candidate_id,
+                "image",
+            )
+        ),
+        question_resolver=app.state.candidate_labels.resolve_question,
+    )
     app.state.experimental_proposals = ExperimentalProposalStore(
         bridge_data_path,
         resolve_completed_candidate,
+    )
+    app.state.derived_outputs = DerivedOutputsService(
+        data_root=bridge_data_path,
+        candidate_labels=app.state.candidate_labels,
+        store=app.state.store,
+        analysis_jobs=app.state.analysis_jobs,
+        experimental_proposals=app.state.experimental_proposals,
+        gpx_tracks=app.state.gpx_tracks,
+        # Report consent, exact template semantic mapping and the durable
+        # preview preparer are separate approval boundaries. CSV/evidence can
+        # be generated now; report preparation remains an honest partial.
+        report_preparer=None,
     )
     app.state.auto_label_runs = AutoLabelRunStore(bridge_data_path)
     app.state.command_proposal_generator = (
@@ -379,16 +666,39 @@ def create_app(
         if command_proposal_generator is not None
         else FixedManifestCommandProposalGenerator.from_environment_or_program_data()
     )
-    # Prefer a directly executable Windows binary over an npm .cmd shim.
-    # This keeps all status, login and generation calls on shell=False while
-    # ReportGenerationService still supports a validated npm fallback.
+    if pipeline_runtime is None:
+        pipeline_runtime = BridgePipelineRuntime(
+            app.state.media_intake,
+            data_root=bridge_data_path,
+            ffmpeg_path=ffmpeg_path,
+            ffprobe_path=ffprobe_path,
+            vision_status=app.state.vision_inference.status,
+            analysis_jobs=app.state.analysis_jobs,
+            command_proposal_generator=(
+                app.state.command_proposal_generator
+            ),
+            experimental_proposals=app.state.experimental_proposals,
+            candidate_labels=app.state.candidate_labels,
+            weak_case_catalog=app.state.weak_case_catalog,
+            derived_outputs=app.state.derived_outputs,
+        )
+    app.state.pipeline_jobs = PipelineJobService(
+        pipeline_runtime,
+        data_root=bridge_data_path,
+    )
+    # Prefer the normal command lookup. Provider services safely resolve an
+    # npm shim to a fixed JavaScript entrypoint plus Node and still execute
+    # with shell=False; a WindowsApps .exe alias may be ACL-inaccessible.
     explicit_provider_paths = {}
     for provider_name in ("codex", "claude"):
         provider_path = (
-            shutil.which(f"{provider_name}.exe")
-            if os.name == "nt"
-            else None
-        ) or shutil.which(provider_name)
+            shutil.which(provider_name)
+            or (
+                shutil.which(f"{provider_name}.exe")
+                if os.name == "nt"
+                else None
+            )
+        )
         if provider_path:
             explicit_provider_paths[provider_name] = provider_path
     if provider_status_service is None:
@@ -436,10 +746,45 @@ def create_app(
         )
     )
     app.state.hwp_service = hwp_service
+    app.state.hwp_approvals = (
+        hwp_approval_registry
+        if hwp_approval_registry is not None
+        else HwpApprovalRegistry()
+    )
+    if runtime_readiness_service is None:
+        command_status = getattr(
+            app.state.command_proposal_generator,
+            "status",
+            lambda: {
+                "state": "unavailable",
+                "error_code": "model_pack_not_configured",
+            },
+        )
+
+        def runtime_hwp_preflight():
+            return (
+                app.state.hwp_service.preflight()
+                if app.state.hwp_service is not None
+                else registry_preflight()
+            )
+
+        runtime_readiness_service = RuntimeReadinessService(
+            provider_status=app.state.provider_status,
+            vision_status=app.state.vision_inference.status,
+            command_model_status=command_status,
+            hwp_preflight=runtime_hwp_preflight,
+            ffmpeg_path=ffmpeg_path,
+            electron_version=os.environ.get(
+                "TRAFFICSUPERVISION_ELECTRON_VERSION"
+            ),
+        )
+    app.state.runtime_readiness = runtime_readiness_service
 
     def shutdown_workers() -> None:
         if app.state.hwp_service is not None:
             app.state.hwp_service.close()
+        app.state.pipeline_jobs.shutdown()
+        app.state.dense_index_jobs.shutdown()
         app.state.analysis_jobs.shutdown()
         app.state.media_intake.shutdown()
 
@@ -470,6 +815,27 @@ def create_app(
             "track_record_invalid",
         }:
             status_code = 409
+        else:
+            status_code = 422
+        return HTTPException(status_code=status_code, detail=str(error))
+
+    def weak_case_http_error(error: WeakCaseCatalogError) -> HTTPException:
+        if error.code in {"source_not_found", "case_not_found"}:
+            status_code = 404
+        elif error.code in {
+            "source_sha256_mismatch",
+            "source_changed",
+            "image_integrity_mismatch",
+            "unsafe_case_state",
+        }:
+            status_code = 409
+        elif error.code in {
+            "source_missing",
+            "source_unavailable",
+            "image_unavailable",
+            "image_too_large",
+        }:
+            status_code = 503
         else:
             status_code = 422
         return HTTPException(status_code=status_code, detail=str(error))
@@ -505,6 +871,77 @@ def create_app(
     @router.get("/projects/{project_id}", response_model=ProjectResponse)
     async def get_project(project_id: UUID) -> ProjectResponse:
         return ProjectResponse(**app.state.store.get_project(project_id))
+
+    @router.get(
+        "/projects/{project_id}/reference-cases/sources",
+        response_model=WeakCaseSourceListResponse,
+    )
+    async def list_weak_case_sources(
+        project_id: UUID,
+    ) -> WeakCaseSourceListResponse:
+        app.state.store.get_project(project_id)
+        result = await run_in_threadpool(
+            app.state.weak_case_catalog.list_sources
+        )
+        return WeakCaseSourceListResponse(**result)
+
+    @router.post(
+        "/projects/{project_id}/reference-cases/search",
+        response_model=WeakCaseSearchResponse,
+    )
+    async def search_weak_cases(
+        project_id: UUID,
+        request: WeakCaseSearchRequest,
+    ) -> WeakCaseSearchResponse:
+        app.state.store.get_project(project_id)
+        if request.project_id != project_id:
+            raise HTTPException(
+                status_code=409,
+                detail="Project identity does not match the route",
+            )
+        try:
+            result = await run_in_threadpool(
+                app.state.weak_case_catalog.search,
+                issue_type=request.issue_type,
+                query_text=request.query_text,
+                limit=request.limit,
+            )
+        except WeakCaseCatalogError as error:
+            raise weak_case_http_error(error) from error
+        return WeakCaseSearchResponse(**result)
+
+    @router.get(
+        (
+            "/projects/{project_id}/reference-cases/sources/"
+            "{source_id}/cases/{case_id}/image"
+        )
+    )
+    async def weak_case_image(
+        project_id: UUID,
+        source_id: str,
+        case_id: str,
+    ) -> Response:
+        app.state.store.get_project(project_id)
+        try:
+            image = await run_in_threadpool(
+                app.state.weak_case_catalog.resolve_case_image,
+                source_id,
+                case_id,
+            )
+        except WeakCaseCatalogError as error:
+            raise weak_case_http_error(error) from error
+        return Response(
+            content=image.body,
+            media_type=image.media_type,
+            headers={
+                "Cache-Control": "no-store",
+                "Content-Length": str(image.size_bytes),
+                "Content-Security-Policy": "default-src 'none'",
+                "ETag": f'"sha256-{image.sha256}"',
+                "Referrer-Policy": "no-referrer",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
 
     @router.post(
         "/projects/{project_id}/imports/inspect",
@@ -725,7 +1162,7 @@ def create_app(
             media_type=artifact.media_type,
             headers={
                 "ETag": f'"{artifact.sha256}"',
-                "X-TrafficVisson-Artifact-SHA256": artifact.sha256,
+                "X-TrafficSuperVision-Artifact-SHA256": artifact.sha256,
             },
         )
 
@@ -751,6 +1188,394 @@ def create_app(
         app.state.store.get_project(project_id)
         app.state.analysis_jobs.pause(project_id, job_id)
         raise AssertionError("pause always returns an HTTP error")
+
+    def dense_index_http_error(
+        error: Exception,
+    ) -> HTTPException:
+        if isinstance(error, DenseIndexJobNotFound):
+            return HTTPException(status_code=404, detail=str(error))
+        if isinstance(error, DenseIndexJobConflict):
+            return HTTPException(status_code=409, detail=str(error))
+        if isinstance(error, DenseIndexJobSourceRejected):
+            return HTTPException(
+                status_code=409,
+                detail=(
+                    "source_unavailable_reselect_required: 원본 영상을 "
+                    "다시 선택하고 해시 검증을 완료해 주세요."
+                ),
+            )
+        if isinstance(error, DenseIndexJobUnavailable):
+            return HTTPException(status_code=503, detail=str(error))
+        return HTTPException(
+            status_code=422,
+            detail="The dense-index request is invalid",
+        )
+
+    @router.post(
+        "/projects/{project_id}/dense-index/jobs",
+        response_model=DenseIndexJobResponse,
+        status_code=202,
+    )
+    def start_dense_index_job(
+        project_id: UUID,
+        request: DenseIndexJobStartRequest,
+    ) -> DenseIndexJobResponse:
+        app.state.store.get_project(project_id)
+        if request.project_id != project_id:
+            raise HTTPException(
+                status_code=409,
+                detail="Project identity does not match the route",
+            )
+        analysis = app.state.analysis_jobs.get(
+            project_id,
+            request.analysis_job_id,
+        )
+        if analysis["status"] != "completed" or analysis.get("result") is None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Dense-frame indexing requires a completed analysis "
+                    "from the current runtime"
+                ),
+            )
+        try:
+            row = app.state.dense_index_jobs.start(
+                project_id,
+                str(request.analysis_job_id),
+                analysis["source_sha256"],
+                sampling_fps=request.sampling_fps,
+            )
+        except (
+            DenseIndexJobConflict,
+            DenseIndexJobNotFound,
+            DenseIndexJobSourceRejected,
+            DenseIndexJobUnavailable,
+            ValueError,
+        ) as error:
+            raise dense_index_http_error(error) from error
+        return _dense_index_job_response(row)
+
+    @router.get(
+        "/projects/{project_id}/dense-index/jobs",
+        response_model=DenseIndexJobListResponse,
+    )
+    def list_dense_index_jobs(
+        project_id: UUID,
+        limit: int = Query(default=100, ge=1, le=128),
+    ) -> DenseIndexJobListResponse:
+        app.state.store.get_project(project_id)
+        try:
+            rows = app.state.dense_index_jobs.list(
+                project_id,
+                limit=limit,
+            )
+        except (
+            DenseIndexJobUnavailable,
+            ValueError,
+        ) as error:
+            raise dense_index_http_error(error) from error
+        return DenseIndexJobListResponse(
+            jobs=[_dense_index_job_response(row) for row in rows]
+        )
+
+    @router.get(
+        "/projects/{project_id}/dense-index/jobs/{job_id}",
+        response_model=DenseIndexJobResponse,
+    )
+    def get_dense_index_job(
+        project_id: UUID,
+        job_id: UUID,
+    ) -> DenseIndexJobResponse:
+        app.state.store.get_project(project_id)
+        try:
+            row = app.state.dense_index_jobs.get(project_id, job_id)
+        except (
+            DenseIndexJobNotFound,
+            DenseIndexJobUnavailable,
+            ValueError,
+        ) as error:
+            raise dense_index_http_error(error) from error
+        return _dense_index_job_response(row)
+
+    @router.post(
+        "/projects/{project_id}/dense-index/jobs/{job_id}/cancel",
+        response_model=DenseIndexJobResponse,
+    )
+    def cancel_dense_index_job(
+        project_id: UUID,
+        job_id: UUID,
+        _request: EmptyRequest,
+    ) -> DenseIndexJobResponse:
+        app.state.store.get_project(project_id)
+        try:
+            row = app.state.dense_index_jobs.cancel(project_id, job_id)
+        except (
+            DenseIndexJobNotFound,
+            DenseIndexJobUnavailable,
+            ValueError,
+        ) as error:
+            raise dense_index_http_error(error) from error
+        return _dense_index_job_response(row)
+
+    @router.get(
+        (
+            "/projects/{project_id}/dense-index/jobs/{job_id}/"
+            "artifacts/{artifact_id}"
+        ),
+        response_class=FileResponse,
+    )
+    def get_dense_index_artifact(
+        project_id: UUID,
+        job_id: UUID,
+        artifact_id: str,
+    ) -> FileResponse:
+        app.state.store.get_project(project_id)
+        try:
+            artifact = app.state.dense_index_jobs.resolve_artifact(
+                project_id,
+                job_id,
+                artifact_id,
+            )
+        except DenseIndexJobUnavailable as error:
+            raise HTTPException(
+                status_code=410,
+                detail=str(error),
+            ) from error
+        except (
+            DenseIndexJobConflict,
+            DenseIndexJobNotFound,
+            ValueError,
+        ) as error:
+            raise dense_index_http_error(error) from error
+        return FileResponse(
+            artifact.path,
+            media_type=artifact.media_type,
+            headers={
+                "Cache-Control": "no-store",
+                "ETag": f'"{artifact.sha256}"',
+                "X-TrafficSuperVision-Artifact-SHA256": artifact.sha256,
+            },
+        )
+
+    def pipeline_http_error(error: Exception) -> HTTPException:
+        if isinstance(error, PipelineJobNotFound):
+            return HTTPException(status_code=404, detail=str(error))
+        if isinstance(error, PipelineProfileMissing):
+            return HTTPException(
+                status_code=409,
+                detail=(
+                    "blocked_configuration_required: 프로젝트의 판정 "
+                    "프로필, 질문 정책, 기본 양식, 모델팩, Provider와 "
+                    "출력 위치를 먼저 설정해 주세요."
+                ),
+            )
+        if isinstance(error, PipelineJobConflict):
+            return HTTPException(status_code=409, detail=str(error))
+        if isinstance(error, PipelineJobUnavailable):
+            return HTTPException(status_code=503, detail=str(error))
+        return HTTPException(
+            status_code=422,
+            detail="The pipeline request is invalid",
+        )
+
+    @router.put(
+        "/projects/{project_id}/pipeline/profile",
+        response_model=PipelineProfileResponse,
+    )
+    def configure_pipeline_profile(
+        project_id: UUID,
+        request: PipelineProfileConfigureRequest,
+    ) -> PipelineProfileResponse:
+        app.state.store.get_project(project_id)
+        if request.project_id != project_id:
+            raise HTTPException(
+                status_code=409,
+                detail="Project identity does not match the route",
+            )
+        try:
+            row = app.state.pipeline_jobs.configure_profile(
+                project_id,
+                question_policy=request.question_policy,
+                review_mode=request.review_mode,
+                default_template_id=request.default_template_id,
+                default_template_sha256=request.default_template_sha256,
+                detector_pack_id=request.detector_pack_id,
+                ocr_pack_id=request.ocr_pack_id,
+                sam2_pack_id=request.sam2_pack_id,
+                report_provider=request.report_provider,
+                output_location_id=request.output_location_id,
+                candidate_rescan_fps=request.candidate_rescan_fps,
+            )
+        except (
+            PipelineJobUnavailable,
+            ValueError,
+        ) as error:
+            raise pipeline_http_error(error) from error
+        return PipelineProfileResponse(**row)
+
+    @router.get(
+        "/projects/{project_id}/pipeline/profile",
+        response_model=PipelineProfileResponse,
+    )
+    def get_pipeline_profile(
+        project_id: UUID,
+    ) -> PipelineProfileResponse:
+        app.state.store.get_project(project_id)
+        try:
+            row = app.state.pipeline_jobs.get_profile(project_id)
+        except (
+            PipelineProfileMissing,
+            PipelineJobUnavailable,
+            ValueError,
+        ) as error:
+            raise pipeline_http_error(error) from error
+        return PipelineProfileResponse(**row)
+
+    @router.post(
+        "/projects/{project_id}/pipeline/jobs",
+        response_model=PipelineJobStartResponse,
+        status_code=202,
+    )
+    def start_pipeline_job(
+        project_id: UUID,
+        request: PipelineJobStartRequest,
+    ) -> PipelineJobStartResponse:
+        app.state.store.get_project(project_id)
+        if request.project_id != project_id:
+            raise HTTPException(
+                status_code=409,
+                detail="Project identity does not match the route",
+            )
+        try:
+            row, replayed = app.state.pipeline_jobs.start(
+                project_id,
+                snapshot_id=request.snapshot_id,
+                file_name=request.file_name,
+                rights_confirmed=request.rights_confirmed,
+                idempotency_key=request.idempotency_key,
+            )
+        except (
+            PipelineJobConflict,
+            PipelineJobUnavailable,
+            PipelineProfileMissing,
+            ValueError,
+        ) as error:
+            raise pipeline_http_error(error) from error
+        return PipelineJobStartResponse(
+            job=PipelineJobResponse(**row),
+            idempotent_replay=replayed,
+        )
+
+    @router.get(
+        "/projects/{project_id}/pipeline/jobs",
+        response_model=PipelineJobListResponse,
+    )
+    def list_pipeline_jobs(
+        project_id: UUID,
+        limit: int = Query(default=100, ge=1, le=128),
+    ) -> PipelineJobListResponse:
+        app.state.store.get_project(project_id)
+        try:
+            rows = app.state.pipeline_jobs.list(project_id, limit=limit)
+        except (
+            PipelineJobUnavailable,
+            ValueError,
+        ) as error:
+            raise pipeline_http_error(error) from error
+        return PipelineJobListResponse(
+            jobs=[PipelineJobResponse(**row) for row in rows]
+        )
+
+    @router.get(
+        "/projects/{project_id}/pipeline/jobs/{job_id}",
+        response_model=PipelineJobResponse,
+    )
+    def get_pipeline_job(
+        project_id: UUID,
+        job_id: UUID,
+    ) -> PipelineJobResponse:
+        app.state.store.get_project(project_id)
+        try:
+            row = app.state.pipeline_jobs.get(project_id, job_id)
+        except (
+            PipelineJobNotFound,
+            PipelineJobUnavailable,
+            ValueError,
+        ) as error:
+            raise pipeline_http_error(error) from error
+        return PipelineJobResponse(**row)
+
+    @router.post(
+        "/projects/{project_id}/pipeline/jobs/{job_id}/cancel",
+        response_model=PipelineJobResponse,
+    )
+    def cancel_pipeline_job(
+        project_id: UUID,
+        job_id: UUID,
+        _request: EmptyRequest,
+    ) -> PipelineJobResponse:
+        app.state.store.get_project(project_id)
+        try:
+            row = app.state.pipeline_jobs.cancel(project_id, job_id)
+        except (
+            PipelineJobConflict,
+            PipelineJobNotFound,
+            PipelineJobUnavailable,
+            ValueError,
+        ) as error:
+            raise pipeline_http_error(error) from error
+        return PipelineJobResponse(**row)
+
+    @router.post(
+        "/projects/{project_id}/pipeline/jobs/{job_id}/resume",
+        response_model=PipelineJobResponse,
+        status_code=202,
+    )
+    def resume_pipeline_job(
+        project_id: UUID,
+        job_id: UUID,
+        _request: EmptyRequest,
+    ) -> PipelineJobResponse:
+        app.state.store.get_project(project_id)
+        try:
+            row = app.state.pipeline_jobs.resume(project_id, job_id)
+        except (
+            PipelineJobConflict,
+            PipelineJobNotFound,
+            PipelineJobUnavailable,
+            ValueError,
+        ) as error:
+            raise pipeline_http_error(error) from error
+        return PipelineJobResponse(**row)
+
+    @router.post(
+        (
+            "/projects/{project_id}/pipeline/jobs/{job_id}/"
+            "review-complete"
+        ),
+        response_model=PipelineJobResponse,
+        status_code=202,
+    )
+    def complete_pipeline_review(
+        project_id: UUID,
+        job_id: UUID,
+        request: PipelineReviewCompleteRequest,
+    ) -> PipelineJobResponse:
+        app.state.store.get_project(project_id)
+        try:
+            row = app.state.pipeline_jobs.complete_review(
+                project_id,
+                job_id,
+                review_completion_id=request.review_completion_id,
+            )
+        except (
+            PipelineJobConflict,
+            PipelineJobNotFound,
+            PipelineJobUnavailable,
+            ValueError,
+        ) as error:
+            raise pipeline_http_error(error) from error
+        return PipelineJobResponse(**row)
 
     @router.get(
         "/projects/{project_id}/analysis/jobs/{job_id}/label-questions",
@@ -848,6 +1673,94 @@ def create_app(
         )
 
     @router.post(
+        (
+            "/projects/{project_id}/analysis/jobs/{job_id}/candidates/"
+            "{candidate_id}/mask-refinement-capability"
+        ),
+        response_model=MaskRefinementCapabilityResponse,
+    )
+    async def mask_refinement_capability(
+        project_id: UUID,
+        job_id: UUID,
+        candidate_id: str,
+        request: MaskRefinementIdentityRequest,
+    ) -> MaskRefinementCapabilityResponse:
+        app.state.store.get_project(project_id)
+        if (
+            request.project_id != project_id
+            or request.analysis_job_id != job_id
+            or request.candidate_id != candidate_id
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="Mask refinement identity does not match the route",
+            )
+        try:
+            row = await run_in_threadpool(
+                app.state.sam2_refinements.capability,
+                project_id=project_id,
+                analysis_job_id=job_id,
+                question_id=request.question_id,
+                candidate_id=candidate_id,
+            )
+        except Sam2RefinementNotFound:
+            raise HTTPException(
+                status_code=404,
+                detail="The completed candidate question was not found",
+            ) from None
+        except Sam2RefinementError:
+            raise HTTPException(
+                status_code=422,
+                detail="The mask refinement capability request is invalid",
+            ) from None
+        return MaskRefinementCapabilityResponse(**row)
+
+    @router.post(
+        (
+            "/projects/{project_id}/analysis/jobs/{job_id}/candidates/"
+            "{candidate_id}/mask-refinements"
+        ),
+        response_model=MaskRefinementResponse,
+    )
+    async def refine_candidate_mask(
+        project_id: UUID,
+        job_id: UUID,
+        candidate_id: str,
+        request: MaskRefinementRequest,
+    ) -> MaskRefinementResponse:
+        app.state.store.get_project(project_id)
+        if (
+            request.project_id != project_id
+            or request.analysis_job_id != job_id
+            or request.candidate_id != candidate_id
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="Mask refinement identity does not match the route",
+            )
+        try:
+            row = await run_in_threadpool(
+                app.state.sam2_refinements.refine,
+                project_id=project_id,
+                analysis_job_id=job_id,
+                question_id=request.question_id,
+                candidate_id=candidate_id,
+                click_x=request.click.x,
+                click_y=request.click.y,
+            )
+        except Sam2RefinementNotFound:
+            raise HTTPException(
+                status_code=404,
+                detail="The completed candidate question was not found",
+            ) from None
+        except Sam2RefinementError:
+            raise HTTPException(
+                status_code=422,
+                detail="The SAM2 mask refinement result is invalid",
+            ) from None
+        return MaskRefinementResponse(**row)
+
+    @router.post(
         "/projects/{project_id}/analysis/jobs/{job_id}/candidates/{candidate_id}/answer",
         response_model=CandidateLabelAnswerResponse,
         status_code=201,
@@ -867,6 +1780,35 @@ def create_app(
                 status_code=409,
                 detail="Candidate label identity does not match the route",
             )
+        normalized_box = (
+            request.normalized_box.model_dump()
+            if request.normalized_box is not None
+            else None
+        )
+        if request.mask_refinement_id is not None:
+            try:
+                refinement = await run_in_threadpool(
+                    app.state.sam2_refinements.resolve_for_answer,
+                    project_id=project_id,
+                    analysis_job_id=job_id,
+                    question_id=request.question_id,
+                    candidate_id=candidate_id,
+                    refinement_id=request.mask_refinement_id,
+                )
+            except Sam2RefinementNotFound:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "The confirmed SAM2 refinement is unavailable or "
+                        "belongs to another question"
+                    ),
+                ) from None
+            except Sam2RefinementError:
+                raise HTTPException(
+                    status_code=422,
+                    detail="The confirmed SAM2 refinement is invalid",
+                ) from None
+            normalized_box = refinement["normalized_box"]
         try:
             record = await run_in_threadpool(
                 app.state.candidate_labels.record_answer,
@@ -878,11 +1820,7 @@ def create_app(
                 severity=request.severity,
                 maintenance_action=request.maintenance_action,
                 ocr_text=request.ocr_text,
-                normalized_box=(
-                    request.normalized_box.model_dump()
-                    if request.normalized_box is not None
-                    else None
-                ),
+                normalized_box=normalized_box,
                 answered_by="local_user",
             )
         except CandidateResolutionError:
@@ -906,33 +1844,34 @@ def create_app(
                 detail="The candidate label answer is invalid",
             ) from None
         try:
-            await run_in_threadpool(
-                app.state.store.project_label_record,
+            # The JSONL audit is authoritative.  Reconcile the full verified
+            # project chain after every append, but promote only analyses that
+            # have crossed their pipeline review-completion boundary.
+            audit_records = await run_in_threadpool(
+                app.state.candidate_labels.audit_records,
                 project_id,
-                record,
             )
-        except LabelProjectionError:
-            # The JSONL audit is authoritative.  If a prior process stopped
-            # after its durable append but before SQLite projection, replay
-            # the verified prefix idempotently before returning success.
-            try:
-                audit_records = await run_in_threadpool(
-                    app.state.candidate_labels.audit_records,
+            materialize_job_ids = (
+                await materializable_analysis_job_ids(
                     project_id,
+                    audit_records,
                 )
+            )
+            if audit_records:
                 await run_in_threadpool(
                     app.state.store.project_label_records,
                     project_id,
                     audit_records,
+                    materialize_analysis_job_ids=materialize_job_ids,
                 )
-            except (CandidateLabelError, LabelProjectionError):
-                raise HTTPException(
-                    status_code=500,
-                    detail=(
-                        "The label audit was saved but normalized projection "
-                        "could not be reconciled"
-                    ),
-                ) from None
+        except (CandidateLabelError, LabelProjectionError):
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "The label audit was saved but normalized projection "
+                    "could not be reconciled"
+                ),
+            ) from None
         return CandidateLabelAnswerResponse(
             project_id=project_id,
             analysis_job_id=job_id,
@@ -948,17 +1887,43 @@ def create_app(
             record_hash=record["record_hash"],
         )
 
+    async def materializable_analysis_job_ids(
+        project_id: UUID,
+        audit_records: list[dict],
+    ) -> list[UUID]:
+        gated_by_analysis_job: dict[UUID, bool] = {}
+        for record in audit_records:
+            analysis_job_id = UUID(str(record["analysis_job_id"]))
+            if analysis_job_id not in gated_by_analysis_job:
+                gated_by_analysis_job[
+                    analysis_job_id
+                ] = await run_in_threadpool(
+                    app.state.pipeline_jobs.is_analysis_projection_gated,
+                    project_id,
+                    analysis_job_id,
+                )
+        return [
+            analysis_job_id
+            for analysis_job_id, gated in gated_by_analysis_job.items()
+            if not gated
+        ]
+
     async def reconcile_normalized_labels(project_id: UUID) -> None:
         try:
             audit_records = await run_in_threadpool(
                 app.state.candidate_labels.audit_records,
                 project_id,
             )
+            materialize_job_ids = await materializable_analysis_job_ids(
+                project_id,
+                audit_records,
+            )
             if audit_records:
                 await run_in_threadpool(
                     app.state.store.project_label_records,
                     project_id,
                     audit_records,
+                    materialize_analysis_job_ids=materialize_job_ids,
                 )
         except CandidateLabelCorrupt:
             raise HTTPException(
@@ -1515,6 +2480,60 @@ def create_app(
                     "Temporal review provenance does not match the project"
                 ),
             )
+        raw_analysis_job_id = request.provenance.get("analysis_job_id")
+        raw_source_sha256 = request.provenance.get("source_file_sha256")
+        try:
+            provenance_job_id = UUID(str(raw_analysis_job_id))
+        except (ValueError, TypeError, AttributeError):
+            raise HTTPException(
+                status_code=422,
+                detail="Temporal review provenance requires an analysis job UUID",
+            ) from None
+        if (
+            not isinstance(raw_source_sha256, str)
+            or len(raw_source_sha256) != 64
+            or any(
+                character not in "0123456789abcdef"
+                for character in raw_source_sha256
+            )
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="Temporal review provenance requires a source SHA-256",
+            )
+        analysis_job = app.state.analysis_jobs.get(
+            project_id,
+            provenance_job_id,
+        )
+        if (
+            str(analysis_job.get("project_id")) != str(project_id)
+            or str(analysis_job.get("job_id")) != str(provenance_job_id)
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Temporal review analysis job identity does not match "
+                    "the project provenance"
+                ),
+            )
+        if (
+            analysis_job["status"] != "completed"
+            or analysis_job.get("result") is None
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Temporal review requires a completed analysis job"
+                ),
+            )
+        if analysis_job.get("source_sha256") != raw_source_sha256:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Temporal review source SHA-256 does not match "
+                    "the completed analysis job"
+                ),
+            )
         detections = [
             item.model_dump(mode="json", exclude_none=True)
             for item in request.detections
@@ -1762,6 +2781,16 @@ def create_app(
             raise gpx_http_error(error) from error
         return GpxTrackResponse(**result)
 
+    @router.get(
+        "/runtime/readiness",
+        response_model=RuntimeReadinessResponse,
+    )
+    async def runtime_readiness() -> RuntimeReadinessResponse:
+        snapshot = await run_in_threadpool(
+            app.state.runtime_readiness.snapshot
+        )
+        return RuntimeReadinessResponse(**snapshot)
+
     @router.get("/providers", response_model=ProviderListResponse)
     async def providers() -> ProviderListResponse:
         if fixture_mode:
@@ -1793,6 +2822,10 @@ def create_app(
                         else "official_cli"
                     ),
                     "capabilities": {
+                        "structured_judgment": (
+                            "structured_judgment" in capabilities
+                        ),
+                        "bulk_frame_detection": False,
                         "report_draft": "report_draft" in capabilities,
                         "document_edit_plan": (
                             "document_edit_plan" in capabilities
@@ -1800,6 +2833,11 @@ def create_app(
                         "usage_information": False,
                     },
                     "message": status.message,
+                    "diagnostic_state": status.state,
+                    "installation_state": status.installation_state,
+                    "authentication_state": status.authentication_state,
+                    "network_state": status.network_state,
+                    "version": status.version,
                 }
             )
         return ProviderListResponse(providers=provider_rows)
@@ -1820,7 +2858,7 @@ def create_app(
             message = result.message
         else:
             message = (
-                "공식 CLI가 로그인 흐름을 소유합니다. TrafficVisson은 인증 "
+                "공식 CLI가 로그인 흐름을 소유합니다. TrafficSuperVision은 인증 "
                 "파일이나 토큰을 읽지 않습니다."
             )
         return ProviderLoginResponse(
@@ -1849,6 +2887,147 @@ def create_app(
                 detail="Explicit AI transmission consent is required",
             )
 
+        analysis = await run_in_threadpool(
+            app.state.analysis_jobs.get,
+            project_id,
+            request.analysis_job_id,
+        )
+        if (
+            analysis.get("status") != "completed"
+            or not isinstance(analysis.get("result"), dict)
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="The selected analysis job is not completed",
+            )
+        if analysis.get("source_sha256") != request.source_file_sha256:
+            raise HTTPException(
+                status_code=409,
+                detail="The selected analysis provenance does not match",
+            )
+        provenance = analysis["result"].get("provenance")
+        if (
+            not isinstance(provenance, dict)
+            or provenance.get("source_sha256")
+            != request.source_file_sha256
+        ):
+            raise HTTPException(
+                status_code=500,
+                detail="The completed analysis provenance is invalid",
+            )
+
+        if request.pipeline_job_id is not None:
+            try:
+                pipeline_job = await run_in_threadpool(
+                    app.state.pipeline_jobs.get,
+                    project_id,
+                    request.pipeline_job_id,
+                )
+            except (
+                PipelineJobNotFound,
+                PipelineJobUnavailable,
+                ValueError,
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail="The selected pipeline provenance does not match",
+                ) from None
+            pipeline_provenance = pipeline_job.get("provenance")
+            pipeline_stages = pipeline_job.get("stages")
+            sha_stage = (
+                next(
+                    (
+                        stage
+                        for stage in pipeline_stages
+                        if isinstance(stage, dict)
+                        and stage.get("name") == "sha256"
+                    ),
+                    None,
+                )
+                if isinstance(pipeline_stages, list)
+                else None
+            )
+            sha_checkpoint = (
+                sha_stage.get("checkpoint")
+                if isinstance(sha_stage, dict)
+                else None
+            )
+            if (
+                pipeline_job.get("status")
+                not in {"awaiting_review", "completed"}
+                or str(pipeline_job.get("project_id")) != str(project_id)
+                or str(pipeline_job.get("snapshot_id"))
+                != str(analysis.get("snapshot_id"))
+                or pipeline_job.get("input_fingerprint")
+                != request.pipeline_input_fingerprint
+                or not isinstance(pipeline_provenance, dict)
+                or pipeline_provenance.get("profile_sha256")
+                != request.pipeline_profile_sha256
+                or not isinstance(sha_checkpoint, dict)
+                or sha_checkpoint.get("source_sha256")
+                != request.source_file_sha256
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail="The selected pipeline provenance does not match",
+                )
+
+        await reconcile_normalized_labels(project_id)
+        active_incidents = await run_in_threadpool(
+            app.state.store.list_incidents,
+            project_id,
+            include_inactive=False,
+            analysis_job_id=request.analysis_job_id,
+        )
+        active_by_id = {}
+        for incident in active_incidents:
+            incident_id = str(incident.get("incident_id", ""))
+            if incident_id in active_by_id:
+                raise HTTPException(
+                    status_code=500,
+                    detail="The active incident catalog contains duplicate IDs",
+                )
+            active_by_id[incident_id] = incident
+        selected_incidents = []
+        for incident_id in request.incident_ids:
+            incident = active_by_id.get(str(incident_id))
+            if incident is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "Every selected incident must be an active approved "
+                        "incident in the exact project and analysis job"
+                    ),
+                )
+            if (
+                incident.get("status") != "active"
+                or str(incident.get("project_id")) != str(project_id)
+                or str(incident.get("analysis_job_id"))
+                != str(request.analysis_job_id)
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "Every selected incident must be an active approved "
+                        "incident in the exact project and analysis job"
+                    ),
+                )
+            selected_incidents.append(incident)
+
+        try:
+            gpx_track = await run_in_threadpool(
+                app.state.gpx_tracks.get_track,
+                project_id,
+                request.analysis_job_id,
+            )
+        except GpxTrackError as error:
+            if error.code not in {"track_not_found", "trip_unavailable"}:
+                raise HTTPException(
+                    status_code=409,
+                    detail="The attached GPS track failed verification",
+                ) from error
+            gpx_track = None
+
         provider_status = app.state.provider_status.get_status(request.provider)
         provider_capabilities = set(provider_status.capabilities)
         if (
@@ -1862,9 +3041,49 @@ def create_app(
             )
 
         approved_incidents = []
-        for incident in request.approved_incidents:
-            incident_payload = incident.model_dump(mode="json", exclude_none=True)
-            incident_payload.pop("review_state", None)
+        expected_evidence_prefix = (
+            f"analysis:{request.analysis_job_id}:"
+        )
+        for incident in selected_incidents:
+            server_evidence_refs = [
+                incident.get("evidence_image_ref"),
+                incident.get("preview_clip_ref"),
+            ]
+            if (
+                any(
+                    not isinstance(reference, str)
+                    or not reference.startswith(expected_evidence_prefix)
+                    for reference in server_evidence_refs
+                )
+                or len(set(server_evidence_refs))
+                != len(server_evidence_refs)
+            ):
+                raise HTTPException(
+                    status_code=500,
+                    detail="The approved incident evidence provenance is invalid",
+                )
+            # The language model receives only the still-image reference.
+            # Preview video stays local and is never placed in the CLI prompt.
+            evidence_refs = [server_evidence_refs[0]]
+            try:
+                incident_payload = ApprovedReportIncident(
+                    incident_id=incident["incident_id"],
+                    incident_type=incident["issue_type"],
+                    severity=incident.get("severity") or "unassessed",
+                    maintenance_action=incident.get("maintenance_action"),
+                    ocr_text=incident.get("ocr_text"),
+                    location_summary=_report_location_summary(
+                        gpx_track,
+                        incident["representative_time_ms"],
+                    ),
+                    time_ms=incident["representative_time_ms"],
+                    evidence_refs=evidence_refs,
+                ).model_dump(mode="json", exclude_none=True)
+            except (KeyError, TypeError, ValueError):
+                raise HTTPException(
+                    status_code=500,
+                    detail="The approved incident catalog entry is invalid",
+                ) from None
             approved_incidents.append(incident_payload)
 
         redacted_payload = {
@@ -1898,6 +3117,22 @@ def create_app(
             raise HTTPException(
                 status_code=409,
                 detail="The selected official CLI provider is not ready",
+            ) from None
+        except ProviderAuthenticationExpiredError:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "The selected official CLI login has expired; "
+                    "sign in again with the official CLI"
+                ),
+            ) from None
+        except ProviderNetworkError:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "The selected official CLI could not reach its "
+                    "network service"
+                ),
             ) from None
         except InvalidModelOutput:
             raise HTTPException(
@@ -2056,6 +3291,45 @@ def create_app(
         return HwpPreflightResponse(**result.__dict__)
 
     @router.post(
+        "/projects/{project_id}/hwp/sample-layout-preview",
+        response_model=HwpSampleLayoutPreviewResponse,
+    )
+    def preview_sample_hwp_layout(
+        project_id: UUID, request: HwpDocumentRequest
+    ) -> HwpSampleLayoutPreviewResponse:
+        app.state.store.get_project(project_id)
+        if request.project_id != project_id:
+            raise HTTPException(
+                status_code=409,
+                detail="Project identity does not match the route",
+            )
+        try:
+            result = preview_sample_layout_plan(
+                Path(request.template_path),
+                request.plan,
+            )
+        except HwpxSampleLayoutError as error:
+            status_code = (
+                409
+                if error.code
+                in {
+                    "sample_template_not_recognized",
+                    "document_snapshot_mismatch",
+                    "sample_layout_baseline_mismatch",
+                }
+                else 422
+            )
+            raise HTTPException(
+                status_code=status_code, detail=str(error)
+            ) from error
+        except HwpxStructureError as error:
+            raise HTTPException(
+                status_code=422,
+                detail="HWPX 양식 구조를 안전하게 검증하지 못했습니다.",
+            ) from error
+        return HwpSampleLayoutPreviewResponse(**result.to_dict())
+
+    @router.post(
         "/projects/{project_id}/hwp/preview",
         response_model=HwpPreviewResponse,
     )
@@ -2068,14 +3342,50 @@ def create_app(
                 status_code=409,
                 detail="Project identity does not match the route",
             )
+        template = Path(request.template_path)
+        if template.suffix.casefold() == ".hwpx":
+            try:
+                protected_sample = identify_sample_layout(template)
+            except HwpxSampleLayoutError as error:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "감사된 3·4분기 표본 SHA는 확인되었지만 "
+                        "현재 구조가 고정 48쪽 layout contract를 "
+                        "통과하지 못해 COM 미리보기를 차단했습니다."
+                    ),
+                ) from error
+            except HwpxStructureError:
+                # Legacy field/bookmark HWPX files are still handled by the
+                # conservative COM preview path. Exact audited samples are
+                # intercepted below before any COM call.
+                protected_sample = None
+            if protected_sample is not None:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "3·4분기 표본 양식은 sample-layout-preview에서 "
+                        "정확한 HWPML 표·셀·사진 슬롯을 먼저 검증해야 "
+                        "하며, 48쪽 출력 렌더 검증이 구현되기 전에는 "
+                        "COM 적용 승인을 발급하지 않습니다."
+                    ),
+                )
         try:
             result = get_hwp_service().execute(
-                Path(request.template_path),
+                template,
                 convert_hwp_plan(request),
                 accept=False,
             )
         except HwpAutomationError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
+        try:
+            approval = app.state.hwp_approvals.issue(
+                project_id,
+                result.document_fingerprint,
+                request.plan,
+            )
+        except (HwpApprovalError, HwpAutomationError) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
         return HwpPreviewResponse(
             mode=result.mode,
             operation_count=result.operation_count,
@@ -2086,6 +3396,19 @@ def create_app(
                 "bookmark_names": list(result.structure.bookmark_names),
             },
             message=result.message,
+            approval_token=approval.token,
+            approval_expires_at=datetime.fromtimestamp(
+                approval.expires_at_unix, tz=timezone.utc
+            ),
+            document_sha256=approval.document_sha256,
+            plan_sha256=approval.plan_sha256,
+            target_summary={
+                "operation_count": approval.target_summary.operation_count,
+                "operation_types": dict(
+                    approval.target_summary.operation_types
+                ),
+                "targets": list(approval.target_summary.targets),
+            },
         )
 
     @router.post(
@@ -2093,7 +3416,7 @@ def create_app(
         response_model=HwpApplyResponse,
     )
     def apply_hwp(
-        project_id: UUID, request: HwpDocumentRequest
+        project_id: UUID, request: HwpApplyDocumentRequest
     ) -> HwpApplyResponse:
         app.state.store.get_project(project_id)
         if request.project_id != project_id:
@@ -2102,8 +3425,17 @@ def create_app(
                 detail="Project identity does not match the route",
             )
         template = Path(request.template_path)
+        try:
+            expected_fingerprint = app.state.hwp_approvals.consume(
+                request.approval_token,
+                project_id,
+                template,
+                request.plan,
+            )
+        except (HwpApprovalError, HwpAutomationError) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
         output_path = template.with_name(
-            f"{template.stem}_TrafficVisson_{uuid4().hex[:8]}{template.suffix}"
+            f"{template.stem}_TrafficSuperVision_{uuid4().hex[:8]}{template.suffix}"
         )
         try:
             result = get_hwp_service().execute(
@@ -2111,6 +3443,7 @@ def create_app(
                 convert_hwp_plan(request),
                 accept=True,
                 output_path=output_path,
+                expected_fingerprint=expected_fingerprint,
             )
         except HwpAutomationError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error

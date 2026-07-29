@@ -7,6 +7,10 @@ export const EVIDENCE_HOST = "artifact";
 const UUID_PATTERN =
   /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const CANDIDATE_ID_PATTERN = /^[a-f0-9]{20}$/;
+const WEAK_CASE_SOURCE_ID_PATTERN =
+  /^sample-hwpx-[34]q-[a-f0-9]{16}$/;
+const WEAK_CASE_ID_PATTERN =
+  /^hwpx-weak-case-[a-f0-9]{32}$/;
 const EVIDENCE_KINDS = new Set(["image", "clip"]);
 export const CONTENT_SECURITY_POLICY = [
   "default-src 'none'",
@@ -113,6 +117,91 @@ export function evidenceBridgePath(value) {
   return (
     `/projects/${projectId}/analysis/jobs/${jobId}/` +
     `candidates/${candidateId}/${kind}`
+  );
+}
+
+/**
+ * Build a path-free renderer URL for one bounded historical case image.
+ *
+ * The source and case ids are issued by the authenticated bridge after it
+ * verifies the exact sample document name, SHA-256 and read-only purpose.
+ */
+export function buildWeakCaseImageUrl({ projectId, sourceId, caseId }) {
+  const project = evidenceIdentity(projectId, UUID_PATTERN, "projectId");
+  const source = evidenceIdentity(
+    sourceId,
+    WEAK_CASE_SOURCE_ID_PATTERN,
+    "sourceId",
+  );
+  const caseIdentity = evidenceIdentity(
+    caseId,
+    WEAK_CASE_ID_PATTERN,
+    "caseId",
+  );
+  return (
+    `${EVIDENCE_SCHEME}://${EVIDENCE_HOST}/projects/${project}/` +
+    `reference-sources/${source}/cases/${caseIdentity}/image`
+  );
+}
+
+export function parseWeakCaseImageUrl(candidate) {
+  let parsed;
+  try {
+    parsed = new URL(candidate);
+  } catch {
+    throw new TypeError("Weak-case image URL is malformed");
+  }
+  if (
+    parsed.protocol !== `${EVIDENCE_SCHEME}:` ||
+    parsed.hostname !== EVIDENCE_HOST ||
+    parsed.username ||
+    parsed.password ||
+    parsed.port ||
+    parsed.search ||
+    parsed.hash
+  ) {
+    throw new TypeError(
+      "Weak-case image URL origin or components are invalid",
+    );
+  }
+  const segments = parsed.pathname.split("/");
+  if (
+    segments.length !== 8 ||
+    segments[0] !== "" ||
+    segments[1] !== "projects" ||
+    segments[3] !== "reference-sources" ||
+    segments[5] !== "cases" ||
+    segments[7] !== "image"
+  ) {
+    throw new TypeError("Weak-case image URL path is invalid");
+  }
+  return Object.freeze({
+    projectId: evidenceIdentity(
+      segments[2],
+      UUID_PATTERN,
+      "projectId",
+    ),
+    sourceId: evidenceIdentity(
+      segments[4],
+      WEAK_CASE_SOURCE_ID_PATTERN,
+      "sourceId",
+    ),
+    caseId: evidenceIdentity(
+      segments[6],
+      WEAK_CASE_ID_PATTERN,
+      "caseId",
+    ),
+  });
+}
+
+export function weakCaseImageBridgePath(value) {
+  const { projectId, sourceId, caseId } =
+    typeof value === "string"
+      ? parseWeakCaseImageUrl(value)
+      : parseWeakCaseImageUrl(buildWeakCaseImageUrl(value));
+  return (
+    `/projects/${projectId}/reference-cases/sources/${sourceId}/` +
+    `cases/${caseId}/image`
   );
 }
 

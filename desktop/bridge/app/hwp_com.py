@@ -1,4 +1,4 @@
-"""Conservative Windows HWP/HWPX automation for TrafficVisson.
+"""Conservative Windows HWP/HWPX automation for TrafficSuperVision.
 
 The module is intentionally independent from the HTTP bridge and from any
 other product.  Trusted bridge code resolves user selections before calling
@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import os
 import queue
 import re
@@ -255,7 +256,7 @@ class HwpStaWorker:
         self._closed = False
         self._startup_error: Optional[BaseException] = None
         self._thread = threading.Thread(
-            target=self._run, name="TrafficVisson-HWP-STA", daemon=True
+            target=self._run, name="TrafficSuperVision-HWP-STA", daemon=True
         )
         self._thread.start()
         if not self._ready.wait(timeout=5.0):
@@ -517,14 +518,36 @@ class HwpComService:
     ) -> HwpPreviewResult:
         _assert_identity(template, initial_identity)
         _validate_operation_files(operations)
-        adapter = self._adapter_factory()
+        working = template.with_name(
+            ".%s.trafficvisson-preview-%s%s"
+            % (template.stem, uuid4().hex, template.suffix)
+        )
+        adapter: Optional[HwpAdapter] = None
         try:
+            # Hangul never receives the user-owned template path.  Even a
+            # read-only preview is performed against an owned disposable copy
+            # because third-party COM automation may update document metadata.
+            _exclusive_copy(template, working)
+            _assert_identity(template, initial_identity)
+            if not hmac.compare_digest(
+                _sha256(template, initial_identity), initial_sha256
+            ):
+                raise HwpAutomationError(
+                    "미리보기 중 문서 양식이 변경되어 승인을 발급하지 않았습니다."
+                )
+            adapter = self._adapter_factory()
             adapter.register_security_module()
-            adapter.open_document(template)
+            adapter.open_document(working)
             hwpml, truncated = adapter.read_hwpml(MAX_HWPML_CHARS)
             summary = _summarize_hwpml(hwpml, truncated)
         finally:
-            adapter.close()
+            if adapter is not None:
+                try:
+                    adapter.close()
+                finally:
+                    _unlink_owned_unverified(working)
+            else:
+                _unlink_owned_unverified(working)
         _assert_identity(template, initial_identity)
         final_sha256 = _sha256(template, initial_identity)
         if not hmac.compare_digest(final_sha256, initial_sha256):
@@ -559,6 +582,10 @@ class HwpComService:
             )
         _assert_output_absent(output)
         _validate_operation_files(operations)
+        working = template.with_name(
+            ".%s.trafficvisson-working-%s%s"
+            % (template.stem, uuid4().hex, template.suffix)
+        )
         backup = template.with_name(
             ".%s.trafficvisson-backup-%s%s"
             % (template.stem, uuid4().hex, template.suffix)
@@ -567,11 +594,20 @@ class HwpComService:
             ".%s.trafficvisson-output-%s%s"
             % (output.stem, uuid4().hex, output.suffix)
         )
+        recovery_journal = template.with_name(
+            ".%s.trafficvisson-recovery-%s.json"
+            % (template.stem, uuid4().hex)
+        )
         adapter: Optional[HwpAdapter] = None
         published_output = False
         published_identity: Optional[_FileIdentity] = None
+        phase = "copy_working"
         try:
-            _exclusive_copy(template, backup)
+            # COM is allowed to touch only this owned working copy.  The
+            # pristine rollback copy is created later, after the working copy
+            # is released, so large templates do not require three full
+            # transient copies at once.
+            _exclusive_copy(template, working)
             _assert_identity(template, initial_identity)
             if not hmac.compare_digest(
                 _sha256(template, initial_identity), initial_sha256
@@ -579,14 +615,17 @@ class HwpComService:
                 raise HwpAutomationError(
                     "미리보기 이후 문서 양식이 변경되어 적용을 중단했습니다."
                 )
+            phase = "edit_working"
             adapter = self._adapter_factory()
             adapter.register_security_module()
-            adapter.open_document(template)
+            adapter.open_document(working)
             for operation in operations:
                 _apply_operation(adapter, operation)
+            phase = "save_staging"
             adapter.save_as(staging)
             adapter.close_document()
 
+            phase = "readback_staging"
             staging_identity = _identity(staging)
             if staging_identity.size <= 0:
                 raise RuntimeError("empty output")
@@ -596,7 +635,28 @@ class HwpComService:
             adapter.close_document()
             staging_identity = _identity(staging)
             digest = _sha256(staging, staging_identity)
+            _assert_identity(template, initial_identity)
+            if not hmac.compare_digest(
+                _sha256(template, initial_identity), initial_sha256
+            ):
+                raise HwpAutomationError(
+                    "적용 중 원본 문서가 변경되어 출력을 게시하지 않았습니다."
+                )
+            # Release COM before removing its working copy or creating the
+            # rollback snapshot.  This keeps peak disk use bounded to two
+            # document-sized owned files.
+            adapter.close()
+            adapter = None
+            phase = "prepare_rollback"
+            _unlink_owned_unverified(working)
+            if _regular_file_exists(working):
+                raise RuntimeError("working copy cleanup failed")
+            _exclusive_copy(template, backup)
             backup_identity = _identity(backup)
+            if not hmac.compare_digest(
+                _sha256(backup, backup_identity), initial_sha256
+            ):
+                raise RuntimeError("rollback copy verification failed")
             _assert_identity(template, initial_identity)
             if not hmac.compare_digest(
                 _sha256(template, initial_identity), initial_sha256
@@ -607,6 +667,7 @@ class HwpComService:
             _assert_output_absent(output)
             # os.rename is intentionally used instead of os.replace: it must
             # fail rather than overwrite if another actor won the destination.
+            phase = "publish_output"
             os.rename(staging, output)
             published_output = True
             output_identity = _identity(output)
@@ -633,10 +694,34 @@ class HwpComService:
                 message="새 문서를 저장하고 다시 열어 검증했습니다.",
             )
         except BaseException:
+            if adapter is not None:
+                try:
+                    adapter.close()
+                except BaseException:
+                    pass
+                adapter = None
+            published_output_removed = False
             if published_output and published_identity is not None:
-                _unlink_if_identity(output, published_identity)
-            _unlink_owned_unverified(backup)
-            _unlink_owned_unverified(staging)
+                published_output_removed = _unlink_if_identity(
+                    output, published_identity
+                )
+            # Retain exactly one useful owned document plus a tiny journal.
+            # This avoids deleting the only recovery evidence while bounding
+            # failure-time disk growth for very large HWP/HWPX templates.
+            retained = _first_regular_file((backup, working, staging))
+            for candidate in (backup, working, staging):
+                if retained is None or candidate != retained:
+                    _unlink_owned_unverified(candidate)
+            if retained is not None:
+                _write_recovery_journal(
+                    recovery_journal,
+                    template=template,
+                    output=output,
+                    retained=retained,
+                    source_sha256=initial_sha256,
+                    phase=phase,
+                    published_output_removed=published_output_removed,
+                )
             raise
         finally:
             if adapter is not None:
@@ -673,7 +758,7 @@ class HwpComService:
                 output_path=record.output_path,
                 size_bytes=restored_identity.size,
                 sha256=digest,
-                message="TrafficVisson이 만든 출력 문서를 원본 양식 상태로 되돌렸습니다.",
+                message="TrafficSuperVision이 만든 출력 문서를 원본 양식 상태로 되돌렸습니다.",
             )
         finally:
             _unlink_owned_unverified(temporary)
@@ -1014,12 +1099,61 @@ def _unlink_owned_unverified(path: Path) -> None:
         pass
 
 
-def _unlink_if_identity(path: Path, expected: _FileIdentity) -> None:
+def _unlink_if_identity(path: Path, expected: _FileIdentity) -> bool:
     try:
         if _identity(path) == expected:
             path.unlink()
+            return True
     except (OSError, HwpAutomationError):
         pass
+    return False
+
+
+def _regular_file_exists(path: Path) -> bool:
+    try:
+        value = os.lstat(path)
+    except OSError:
+        return False
+    return stat_module.S_ISREG(value.st_mode) and not _is_reparse(value)
+
+
+def _first_regular_file(paths: Sequence[Path]) -> Optional[Path]:
+    for path in paths:
+        if _regular_file_exists(path):
+            return path
+    return None
+
+
+def _write_recovery_journal(
+    journal: Path,
+    *,
+    template: Path,
+    output: Path,
+    retained: Path,
+    source_sha256: str,
+    phase: str,
+    published_output_removed: bool,
+) -> None:
+    payload = {
+        "schema_version": "trafficvisson-hwp-recovery-v1",
+        "phase": phase,
+        "source_file_name": template.name,
+        "intended_output_file_name": output.name,
+        "retained_artifact_file_name": retained.name,
+        "source_sha256": source_sha256,
+        "published_output_removed": published_output_removed,
+    }
+    encoded = (
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        + "\n"
+    ).encode("utf-8")
+    try:
+        with journal.open("xb") as destination:
+            destination.write(encoded)
+            destination.flush()
+            os.fsync(destination.fileno())
+    except BaseException:
+        _unlink_owned_unverified(journal)
 
 
 __all__ = [

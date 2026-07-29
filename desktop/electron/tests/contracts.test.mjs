@@ -366,6 +366,32 @@ test("document plans allow only deterministic operations and opaque references",
     hwpPayload.documentSelectionId,
     "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
   );
+  const approvalToken = "a".repeat(64);
+  const hwpApplyPayload = validateIpcPayload(IPC_CHANNELS.HWP_APPLY, {
+    projectId: PROJECT_ID,
+    documentSelectionId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+    plan: base.plan,
+    approvalToken,
+  });
+  assert.equal(hwpApplyPayload.approvalToken, approvalToken);
+  assert.equal(
+    toBridgePayload(IPC_CHANNELS.HWP_APPLY, {
+      projectId: PROJECT_ID,
+      documentSelectionId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+      plan: base.plan,
+      approvalToken,
+    }).approval_token,
+    approvalToken,
+  );
+  assert.throws(
+    () =>
+      validateIpcPayload(IPC_CHANNELS.HWP_APPLY, {
+        projectId: PROJECT_ID,
+        documentSelectionId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+        plan: base.plan,
+      }),
+    IpcValidationError,
+  );
   assert.throws(
     () =>
       validateIpcPayload(IPC_CHANNELS.HWP_ROLLBACK, {
@@ -383,23 +409,17 @@ test("document plans allow only deterministic operations and opaque references",
   );
 });
 
-test("report generation accepts only reviewed redacted incident data", () => {
+test("report generation sends only scoped incident IDs and analysis provenance", () => {
+  const analysisJobId = "66666666-6666-4666-8666-666666666666";
+  const incidentId = "77777777-7777-4777-8777-777777777777";
   const payload = {
     projectId: PROJECT_ID,
+    analysisJobId,
+    sourceFileSha256: "a".repeat(64),
     provider: "codex",
     consent: true,
     projectLabel: "천안논산 점검",
-    approvedIncidents: [
-      {
-        incidentId: "77777777-7777-4777-8777-777777777777",
-        reviewState: "approved",
-        incidentType: "ROAD_DEBRIS",
-        severity: "urgent",
-        maintenanceAction: "긴급 제거 및 안전 확인",
-        timeMs: 42_000,
-        evidenceRefs: ["analysis:job-1:candidate-1"],
-      },
-    ],
+    incidentIds: [incidentId],
     documentStructureSummary: {
       documentSnapshotId: "selection:document-1",
       fieldTargets: ["field:inspection_date"],
@@ -415,26 +435,79 @@ test("report generation accepts only reviewed redacted incident data", () => {
     IPC_CHANNELS.REPORT_GENERATE,
     payload,
   );
-  assert.equal(validated.approvedIncidents[0].reviewState, "approved");
+  assert.deepEqual(validated.incidentIds, [incidentId]);
+  assert.equal(validated.analysisJobId, analysisJobId);
+  assert.equal(validated.sourceFileSha256, "a".repeat(64));
   assert.equal(
     toBridgePayload(IPC_CHANNELS.REPORT_GENERATE, payload)
       .document_structure_summary.document_snapshot_id,
     "selection:document-1",
   );
+  assert.deepEqual(
+    toBridgePayload(IPC_CHANNELS.REPORT_GENERATE, payload).incident_ids,
+    [incidentId],
+  );
 
-  const unreviewed = structuredClone(payload);
-  unreviewed.approvedIncidents[0].reviewState = "pending";
+  const pipelineBound = {
+    ...payload,
+    pipelineJobId: "88888888-8888-4888-8888-888888888888",
+    pipelineInputFingerprint: "b".repeat(64),
+    pipelineProfileSha256: "c".repeat(64),
+  };
+  const pipelineBridgePayload = toBridgePayload(
+    IPC_CHANNELS.REPORT_GENERATE,
+    pipelineBound,
+  );
+  assert.equal(
+    pipelineBridgePayload.pipeline_job_id,
+    pipelineBound.pipelineJobId,
+  );
+  assert.equal(
+    pipelineBridgePayload.pipeline_input_fingerprint,
+    "b".repeat(64),
+  );
+
+  const duplicate = structuredClone(payload);
+  duplicate.incidentIds.push(incidentId);
   assert.throws(
-    () => validateIpcPayload(IPC_CHANNELS.REPORT_GENERATE, unreviewed),
+    () => validateIpcPayload(IPC_CHANNELS.REPORT_GENERATE, duplicate),
     IpcValidationError,
   );
 
-  const leakedPath = structuredClone(payload);
-  leakedPath.approvedIncidents[0].evidenceRefs = [
-    "analysis:C:\\secret\\frame.jpg",
+  const clientIncidentContent = structuredClone(payload);
+  clientIncidentContent.approvedIncidents = [
+    {
+      incidentId,
+      severity: "urgent",
+      evidenceRefs: ["analysis:C:\\secret\\frame.jpg"],
+    },
   ];
   assert.throws(
-    () => validateIpcPayload(IPC_CHANNELS.REPORT_GENERATE, leakedPath),
+    () =>
+      validateIpcPayload(
+        IPC_CHANNELS.REPORT_GENERATE,
+        clientIncidentContent,
+      ),
+    IpcValidationError,
+  );
+
+  const badDigest = structuredClone(payload);
+  badDigest.sourceFileSha256 = "A".repeat(64);
+  assert.throws(
+    () => validateIpcPayload(IPC_CHANNELS.REPORT_GENERATE, badDigest),
+    IpcValidationError,
+  );
+
+  const partialPipelineBinding = {
+    ...payload,
+    pipelineJobId: pipelineBound.pipelineJobId,
+  };
+  assert.throws(
+    () =>
+      validateIpcPayload(
+        IPC_CHANNELS.REPORT_GENERATE,
+        partialPipelineBinding,
+      ),
     IpcValidationError,
   );
 });
@@ -527,6 +600,64 @@ test("auto-label commands are bounded and runs require explicit confirmation", (
       }),
     IpcValidationError,
   );
+});
+
+test("answer and auto-label IPC share the complete canonical twelve-type contract", () => {
+  const issueTypes = [
+    "pothole",
+    "road_surface_damage",
+    "road_debris",
+    "median_barrier_damage",
+    "sign_damage",
+    "sign_vegetation_occlusion",
+    "roadside_mowing_required",
+    "guide_sign_identity",
+    "tunnel_identity",
+    "tunnel_name_occlusion",
+    "lane_marking_faded",
+    "colored_guidance_faded",
+  ];
+  for (const issueType of issueTypes) {
+    const answer = toBridgePayload(IPC_CHANNELS.CANDIDATE_ANSWER, {
+      projectId: PROJECT_ID,
+      jobId: "88888888-8888-4888-8888-888888888888",
+      candidateId: "0123456789abcdefabcd",
+      answer: "yes",
+      selectedIssueType: issueType,
+    });
+    assert.equal(answer.selected_issue_type, issueType);
+
+    const compile = toBridgePayload(IPC_CHANNELS.AUTO_LABEL_COMPILE, {
+      projectId: PROJECT_ID,
+      command: "도로 유지관리 검토 후보를 찾아줘",
+      issueType,
+    });
+    assert.equal(compile.issue_type, issueType);
+
+    const run = toBridgePayload(IPC_CHANNELS.AUTO_LABEL_RUN, {
+      projectId: PROJECT_ID,
+      recipeId: "a".repeat(64),
+      command: "도로 유지관리 검토 후보를 찾아줘",
+      issueType,
+      scope: "project",
+      mode: "proposal_only",
+      userConfirmed: true,
+    });
+    assert.equal(run.issue_type, issueType);
+  }
+
+  for (const [legacy, canonical] of [
+    ["sign_identity", "guide_sign_identity"],
+    ["color_guidance_line_faded", "colored_guidance_faded"],
+  ]) {
+    const compile = toBridgePayload(IPC_CHANNELS.AUTO_LABEL_COMPILE, {
+      projectId: PROJECT_ID,
+      command: "호환 입력을 정규화해줘",
+      issueType: legacy,
+    });
+    assert.equal(compile.issue_type, canonical);
+    assert.notEqual(compile.issue_type, legacy);
+  }
 });
 
 test("normalized label stats and dataset snapshots remain project scoped", () => {

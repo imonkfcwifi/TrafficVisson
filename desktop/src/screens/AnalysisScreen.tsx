@@ -15,6 +15,12 @@ import {
   toRestoredRuntime,
   type AnalysisJobResponse,
 } from "../analysisJobs";
+import {
+  denseIndexStatusLabel,
+  parseDenseIndexJob,
+  parseDenseIndexJobList,
+  type DenseIndexJobResponse,
+} from "../denseIndexJobs";
 import { requireActiveProjectId } from "../projectCatalog";
 import {
   candidateExtractionSteps,
@@ -179,10 +185,21 @@ export function AnalysisScreen({
   const [savedJobsLoading, setSavedJobsLoading] = useState(false);
   const [jobError, setJobError] = useState<string | null>(null);
   const [requesting, setRequesting] = useState(false);
+  const [denseJob, setDenseJob] =
+    useState<DenseIndexJobResponse | null>(null);
+  const [denseError, setDenseError] = useState<string | null>(null);
+  const [denseRequesting, setDenseRequesting] = useState(false);
+  const [denseSamplingFps, setDenseSamplingFps] =
+    useState<1 | 2 | 3 | 4 | 5>(2);
   const pollGeneration = useRef(0);
+  const densePollGeneration = useRef(0);
   const running = runtime.status === "running" || runtime.status === "queued";
   const cancelled = runtime.status === "cancelled";
   const progress = runtime.progress;
+  const denseActive = Boolean(
+    denseJob &&
+      ["queued", "running", "cancelling"].includes(denseJob.status),
+  );
 
   function syncJob(next: AnalysisJobResponse) {
     setJob(next);
@@ -220,7 +237,7 @@ export function AnalysisScreen({
   }
 
   useEffect(() => {
-    if (!window.trafficVisson) return;
+    if (!window.trafficSuperVision) return;
     let active = true;
     setSavedJobsLoading(true);
     void (async () => {
@@ -232,7 +249,7 @@ export function AnalysisScreen({
         if (active) setSavedJobs([]);
         return;
       }
-      const response = await window.trafficVisson!.analysis.list({
+      const response = await window.trafficSuperVision!.analysis.list({
         projectId,
       });
       if (active) setSavedJobs(parseAnalysisJobList(response));
@@ -259,7 +276,47 @@ export function AnalysisScreen({
 
   useEffect(() => {
     if (
-      !window.trafficVisson ||
+      !window.trafficSuperVision ||
+      !runtime.activeImport ||
+      !runtime.analysisSummary
+    ) {
+      setDenseJob(null);
+      return;
+    }
+    let active = true;
+    void window.trafficSuperVision.denseIndex
+      .list({ projectId: runtime.activeImport.projectId })
+      .then(parseDenseIndexJobList)
+      .then((jobs) => {
+        if (!active) return;
+        const matching =
+          jobs.find(
+            (item) =>
+              item.analysis_job_id === runtime.analysisSummary?.jobId,
+          ) ?? null;
+        setDenseJob(matching);
+        setDenseSamplingFps(matching?.sampling_fps ?? 2);
+        setDenseError(null);
+      })
+      .catch((error) => {
+        if (!active) return;
+        setDenseError(
+          error instanceof Error
+            ? error.message
+            : "밀집 프레임 작업 기록을 읽지 못했습니다.",
+        );
+      });
+    return () => {
+      active = false;
+    };
+  }, [
+    runtime.activeImport?.projectId,
+    runtime.analysisSummary?.jobId,
+  ]);
+
+  useEffect(() => {
+    if (
+      !window.trafficSuperVision ||
       !runtime.activeImport ||
       !runtime.jobId ||
       !["queued", "running"].includes(runtime.status)
@@ -274,7 +331,7 @@ export function AnalysisScreen({
     const poll = async () => {
       try {
         const next = parseAnalysisJob(
-          await window.trafficVisson!.analysis.get({
+          await window.trafficSuperVision!.analysis.get({
             projectId: runtime.activeImport!.projectId,
             jobId: runtime.jobId!,
           }),
@@ -299,9 +356,59 @@ export function AnalysisScreen({
     };
   }, [runtime.activeImport, runtime.jobId, runtime.status]);
 
+  useEffect(() => {
+    if (
+      !window.trafficSuperVision ||
+      !runtime.activeImport ||
+      !denseJob ||
+      !["queued", "running", "cancelling"].includes(denseJob.status)
+    ) {
+      return;
+    }
+    const generation = densePollGeneration.current + 1;
+    densePollGeneration.current = generation;
+    let timer: number | undefined;
+    let disposed = false;
+    const projectId = runtime.activeImport.projectId;
+    const denseJobId = denseJob.job_id;
+
+    const poll = async () => {
+      try {
+        const next = parseDenseIndexJob(
+          await window.trafficSuperVision!.denseIndex.get({
+            projectId,
+            jobId: denseJobId,
+          }),
+        );
+        if (disposed || generation !== densePollGeneration.current) return;
+        setDenseJob(next);
+        if (["queued", "running", "cancelling"].includes(next.status)) {
+          timer = window.setTimeout(poll, 900);
+        }
+      } catch (error) {
+        if (!disposed) {
+          setDenseError(
+            error instanceof Error
+              ? error.message
+              : "밀집 프레임 작업 상태를 읽지 못했습니다.",
+          );
+        }
+      }
+    };
+    void poll();
+    return () => {
+      disposed = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [
+    denseJob?.job_id,
+    denseJob?.status,
+    runtime.activeImport?.projectId,
+  ]);
+
   async function startActualAnalysis() {
     if (!runtime.activeImport) return;
-    if (!window.trafficVisson) {
+    if (!window.trafficSuperVision) {
       setJobError("실제 후보 추출은 설치형 Electron 앱에서 실행할 수 있습니다.");
       return;
     }
@@ -313,7 +420,7 @@ export function AnalysisScreen({
     setJobError(null);
     try {
       const next = parseAnalysisJob(
-        await window.trafficVisson.analysis.start({
+        await window.trafficSuperVision.analysis.start({
           projectId: runtime.activeImport.projectId,
           snapshotId: runtime.activeImport.snapshotId,
           hashJobId: runtime.activeImport.hashJobId,
@@ -330,12 +437,12 @@ export function AnalysisScreen({
   }
 
   async function cancelActualAnalysis() {
-    if (!window.trafficVisson || !runtime.activeImport || !runtime.jobId) return;
+    if (!window.trafficSuperVision || !runtime.activeImport || !runtime.jobId) return;
     setRequesting(true);
     setJobError(null);
     try {
       const next = parseAnalysisJob(
-        await window.trafficVisson.analysis.cancel({
+        await window.trafficSuperVision.analysis.cancel({
           projectId: runtime.activeImport.projectId,
           jobId: runtime.jobId,
         }),
@@ -345,6 +452,75 @@ export function AnalysisScreen({
       setJobError(error instanceof Error ? error.message : "후보 추출을 취소하지 못했습니다.");
     } finally {
       setRequesting(false);
+    }
+  }
+
+  async function startDenseIndex() {
+    if (
+      !window.trafficSuperVision ||
+      !runtime.activeImport ||
+      !runtime.analysisSummary ||
+      runtime.status !== "complete"
+    ) {
+      setDenseError(
+        "현재 런타임에서 완료된 영상 분석을 먼저 열어야 합니다.",
+      );
+      return;
+    }
+    setDenseRequesting(true);
+    setDenseError(null);
+    try {
+      const next = parseDenseIndexJob(
+        await window.trafficSuperVision.denseIndex.start({
+          projectId: runtime.activeImport.projectId,
+          analysisJobId: runtime.analysisSummary.jobId,
+          samplingFps: denseSamplingFps,
+          confirmReviewOnly: true,
+        }),
+      );
+      setDenseJob(next);
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "밀집 프레임 준비를 시작하지 못했습니다.";
+      setDenseError(
+        message.includes("source_unavailable_reselect_required")
+          ? "재시작 후 원본 경로를 보존하지 않습니다. 영상을 다시 선택하고 해시 검증을 완료해 주세요."
+          : message,
+      );
+    } finally {
+      setDenseRequesting(false);
+    }
+  }
+
+  async function cancelDenseIndex() {
+    if (
+      !window.trafficSuperVision ||
+      !runtime.activeImport ||
+      !denseJob
+    ) {
+      return;
+    }
+    setDenseRequesting(true);
+    setDenseError(null);
+    try {
+      setDenseJob(
+        parseDenseIndexJob(
+          await window.trafficSuperVision.denseIndex.cancel({
+            projectId: runtime.activeImport.projectId,
+            jobId: denseJob.job_id,
+          }),
+        ),
+      );
+    } catch (error) {
+      setDenseError(
+        error instanceof Error
+          ? error.message
+          : "밀집 프레임 준비를 취소하지 못했습니다.",
+      );
+    } finally {
+      setDenseRequesting(false);
     }
   }
 
@@ -567,6 +743,98 @@ export function AnalysisScreen({
               <p>장면과 선명도를 기준으로 검토할 구간과 근거를 만들며, 사용자 검토 전에는 도로 문제로 확정하지 않습니다.</p>
             </div>
           </div>
+
+          <section
+            className="dense-index-control"
+            aria-labelledby="dense-index-title"
+          >
+            <div className="dense-index-control__head">
+              <div>
+                <span className="eyebrow">REVIEW FRAME INDEX</span>
+                <strong id="dense-index-title">
+                  밀집 프레임 준비
+                </strong>
+              </div>
+              <Badge
+                tone={
+                  denseJob?.status === "completed"
+                    ? "success"
+                    : denseJob?.status === "failed"
+                      ? "danger"
+                      : denseActive
+                        ? "accent"
+                        : "neutral"
+                }
+              >
+                {denseIndexStatusLabel(denseJob)}
+              </Badge>
+            </div>
+            <div className="dense-index-control__actions">
+              <label>
+                <span>샘플링</span>
+                <select
+                  value={denseSamplingFps}
+                  disabled={denseActive || denseRequesting}
+                  onChange={(event) =>
+                    setDenseSamplingFps(
+                      Number(event.target.value) as 1 | 2 | 3 | 4 | 5,
+                    )
+                  }
+                >
+                  {[1, 2, 3, 4, 5].map((fps) => (
+                    <option key={fps} value={fps}>
+                      {fps} FPS
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {denseActive ? (
+                <Button
+                  variant="danger"
+                  onClick={cancelDenseIndex}
+                  disabled={denseRequesting}
+                >
+                  <Square size={14} /> 준비 취소
+                </Button>
+              ) : (
+                <Button
+                  onClick={startDenseIndex}
+                  disabled={
+                    denseRequesting ||
+                    runtime.status !== "complete" ||
+                    !runtime.analysisSummary ||
+                    (denseJob?.status === "completed" &&
+                      denseJob.sampling_fps === denseSamplingFps)
+                  }
+                >
+                  <Play size={14} />
+                  {denseJob?.status === "completed" &&
+                  denseJob.sampling_fps === denseSamplingFps
+                    ? "준비 완료"
+                    : "밀집 프레임 준비"}
+                </Button>
+              )}
+            </div>
+            {denseJob?.progress_state === "indeterminate" ? (
+              <div
+                className="dense-index-control__progress"
+                role="status"
+                aria-live="polite"
+              >
+                <Activity className="spin" size={14} />
+                프레임 수는 완료 후 확정됩니다 · 임의 진행률 표시 안 함
+              </div>
+            ) : null}
+            {denseError ? (
+              <p className="dense-index-control__error" role="alert">
+                {denseError}
+              </p>
+            ) : null}
+            <p className="dense-index-control__note">
+              검토용 프레임 인덱스만 만듭니다. 검지·라벨·Incident·학습
+              데이터는 자동 생성하지 않습니다.
+            </p>
+          </section>
 
           <button
             type="button"

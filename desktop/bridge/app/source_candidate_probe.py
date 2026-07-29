@@ -51,7 +51,7 @@ SOURCE_EVIDENCE_SPECS: Mapping[str, Mapping[str, Any]] = {
             (
                 "ModelPacks/"
                 "trafficvisson-laion-clip-b32-road-baseline-0.1.0/"
-                "trafficvisson-model-pack.json",
+                "trafficsupervision-model-pack.json",
                 "c73aa8c341d8b6276140a4cfbd088009f2a2ec49270aa36320be3c1c09ca72c9",
             ),
             (
@@ -80,7 +80,7 @@ SOURCE_EVIDENCE_SPECS: Mapping[str, Mapping[str, Any]] = {
             (
                 "ModelPacks/"
                 "trafficvisson-peterhdd-yolov8s-pothole-research-0.1.1/"
-                "trafficvisson-model-pack.json",
+                "trafficsupervision-model-pack.json",
                 "8eab0b0baa353866e42ef7866d911a23e7e77ade67c2ed3ac081aef17174c0a4",
             ),
             (
@@ -125,7 +125,7 @@ class SourceCandidateProbe:
         root = Path(program_data)
         if not root.is_absolute():
             return cls(None)
-        return cls(root / "TrafficVisson")
+        return cls(root / "TrafficSuperVision")
 
     def _read_exact(
         self,

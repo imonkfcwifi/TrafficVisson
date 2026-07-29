@@ -313,6 +313,15 @@ def test_extraction_is_deterministic_grouped_and_path_safe(tmp_path):
     ]
     assert source_arguments
     assert all(isinstance(argv, list) for argv, _, _, _ in runner.calls)
+    evidence_filters = [
+        argv[argv.index("-vf") + 1]
+        for argv, _, _, _ in runner.calls
+        if "-vf" in argv and argv[-1] != "-"
+    ]
+    assert evidence_filters
+    assert set(evidence_filters) == {
+        "scale=w=min(iw\\,320):h=-2:flags=lanczos"
+    }
 
 
 def test_source_location_parser_accepts_real_iso6709_and_rejects_zero_or_noise():
@@ -409,7 +418,9 @@ def test_tiny_generated_video_integration(tmp_path):
             "-f",
             "lavfi",
             "-i",
-            "testsrc2=size=160x90:rate=10:duration=4",
+            # This 6:5 source used to be enlarged to 160x133 by the old
+            # force_original_aspect_ratio filter, which libx264 rejects.
+            "testsrc2=size=144x120:rate=10:duration=4",
             "-c:v",
             "mpeg4",
             "-q:v",
@@ -469,7 +480,7 @@ def test_tiny_generated_video_integration(tmp_path):
                 "-select_streams",
                 "v:0",
                 "-show_entries",
-                "stream=codec_name",
+                "stream=codec_name,width,height",
                 "-of",
                 "json",
                 str(clip),
@@ -481,6 +492,9 @@ def test_tiny_generated_video_integration(tmp_path):
             timeout=10,
             check=True,
         )
-        assert json.loads(clip_probe.stdout)["streams"][0]["codec_name"] == "h264"
+        clip_stream = json.loads(clip_probe.stdout)["streams"][0]
+        assert clip_stream["codec_name"] == "h264"
+        assert clip_stream["width"] <= limits.max_frame_width
+        assert clip_stream["height"] % 2 == 0
         assert 0.0 <= candidate.scene_score <= 1.0
         assert 0.0 <= candidate.sharpness_score <= 1.0

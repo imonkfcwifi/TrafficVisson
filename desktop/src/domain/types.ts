@@ -581,7 +581,7 @@ export interface ManifestInput {
   sourceKind: MediaAsset["source"]["kind"];
 }
 
-export interface TrafficVissonManifest extends ProjectScoped {
+export interface TrafficSuperVisionManifest extends ProjectScoped {
   schemaVersion: number;
   generatedAt: IsoTimestamp;
   appVersion: string;

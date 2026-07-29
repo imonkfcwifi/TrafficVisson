@@ -68,7 +68,7 @@ export function ExportScreen() {
     useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [destination, setDestination] =
-    useState<TrafficVissonDirectorySelection | null>(null);
+    useState<TrafficSuperVisionDirectorySelection | null>(null);
   const stateBelongsToCurrentScope = stateScopeKey === exportScopeKey;
   const currentExportState = stateBelongsToCurrentScope ? exportState : "idle";
   const currentCompletedExport = stateBelongsToCurrentScope
@@ -92,7 +92,7 @@ export function ExportScreen() {
   }, [exportScopeKey]);
 
   async function selectDestination() {
-    if (!window.trafficVisson) {
+    if (!window.trafficSuperVision) {
       setExportState("error");
       setErrorMessage("저장 폴더 선택은 설치형 Electron 앱에서 사용할 수 있습니다.");
       return;
@@ -100,7 +100,7 @@ export function ExportScreen() {
     const requestScopeKey = exportScopeKey;
     try {
       const selection =
-        await window.trafficVisson.dialogs.selectExportDirectory();
+        await window.trafficSuperVision.dialogs.selectExportDirectory();
       if (latestScopeKeyRef.current !== requestScopeKey) return;
       if (selection.selectionId && selection.directory) {
         setStateScopeKey(requestScopeKey);
@@ -127,7 +127,7 @@ export function ExportScreen() {
       setErrorMessage("먼저 검증된 영상을 등록하고 실제 후보 분석을 완료하세요.");
       return;
     }
-    if (!window.trafficVisson) {
+    if (!window.trafficSuperVision) {
       setExportState("error");
       setErrorMessage("실파일 내보내기는 설치형 Electron 앱에서 실행할 수 있습니다.");
       return;
@@ -155,7 +155,7 @@ export function ExportScreen() {
     );
     try {
       const response = parseCompletedExport(
-        await window.trafficVisson.exports.create({
+        await window.trafficSuperVision.exports.create({
           projectId: runtime.activeImport.projectId,
           analysisJobId: runtime.analysisSummary.jobId,
           artifacts: [...selected],

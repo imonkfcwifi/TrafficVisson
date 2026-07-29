@@ -1,0 +1,68 @@
+---
+config:
+  theme: base
+  themeVariables:
+    fontFamily: "SUIT Variable, Malgun Gothic, sans-serif"
+    primaryColor: "#EAF1FF"
+    primaryTextColor: "#162033"
+    primaryBorderColor: "#6F8FEF"
+    secondaryColor: "#EFF7F4"
+    secondaryTextColor: "#162033"
+    secondaryBorderColor: "#6DAA94"
+    tertiaryColor: "#F5F7FB"
+    tertiaryTextColor: "#162033"
+    tertiaryBorderColor: "#B8C2D6"
+    lineColor: "#65748B"
+    clusterBkg: "#F8FAFE"
+    clusterBorder: "#CBD5E6"
+    edgeLabelBackground: "#FFFFFF"
+  flowchart:
+    curve: linear
+    nodeSpacing: 36
+    rankSpacing: 54
+---
+flowchart TB
+    subgraph INPUT["1. 점검 기준과 영상 증거 준비"]
+        direction LR
+        A1["3·4분기 HWPX·PDF"] --> A2["사진·점검 문구·표 위치 추출"]
+        A2 --> A3["LLM 유형·조치 표준화"]
+        A3 --> A4[("승인 사례 DB")]
+
+        B1["주행 영상·GPS"] --> B2["기본 2fps<br/>후보 구간 5~10fps"]
+        B2 --> B3["DINO·도로 전용 모델·OCR"]
+        B3 --> B4["SAM 2 분할·추적<br/>동일 사건 병합"]
+    end
+
+    A4 --> C1
+    B4 --> C1
+
+    subgraph REVIEW["2. 사례 비교와 사용자 확정"]
+        direction LR
+        C1["유사 사례 3~5건 검색"] --> C2["비전 LLM<br/>유형·조치·심각도 제안"]
+        C2 --> C3{"질문 카드"}
+        C3 -->|"예"| C4{"판정 프로필"}
+        C4 -->|"빠른 판정"| C5["즉시 확정"]
+        C4 -->|"정밀 판정"| C6["낮음·보통·높음<br/>1·2·3 키"]
+        C6 --> C5
+        C3 -->|"아니오"| C7[("어려운 음성")]
+        C3 -->|"판단 어려움"| C8[("보류 큐")]
+        C3 -->|"영역 수정"| C9["한 번 클릭<br/>SAM 2 재분할"]
+        C9 --> C3
+    end
+
+    C5 --> D1[("확정 Annotation<br/>승인 Incident")]
+
+    subgraph OUTPUT["3. 학습·증거·보고서"]
+        direction LR
+        D1 --> E1["프로젝트 모델<br/>사용자 시작 학습·검증"]
+        D1 --> E2["GPS 지도·영상·타임라인<br/>동일 사건 동기화"]
+        D1 --> E3["Raw·확정 CSV<br/>근거 이미지·클립"]
+        D1 --> E4["LLM DocumentEditPlan"]
+        E4 --> E5["한/글 COM 부분 편집<br/>네모·사진·점검 의견"]
+        E5 --> E6["재열기·48쪽 렌더 검증<br/>수락·거절·롤백"]
+    end
+
+    classDef human fill:#FFF4DD,stroke:#B9862C,color:#162033,stroke-width:2px;
+    classDef store fill:#EDF7F2,stroke:#4C9277,color:#162033,stroke-width:2px;
+    class C3,C4,C5,C6,C9 human;
+    class A4,C7,C8,D1 store;

@@ -3,8 +3,8 @@
   "version": "0.1.0-alpha.10",
   "private": true,
   "main": "electron/main.mjs",
-  "description": "TrafficVisson 도로 점검 영상 분석 데스크톱",
-  "author": "TrafficVisson",
+  "description": "TrafficSuperVision 도로 점검 영상 분석 데스크톱",
+  "author": "TrafficSuperVision",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -21,7 +21,7 @@
     "test": "npm run test:all",
     "test:all": "npm run typecheck && npm run test:domain && npm run test:renderer-state && npm run test:electron && npm run test:bridge && npm run test:vision-runner && npm run test:release-manifest && npm run test:sites",
     "test:domain": "node --test src/domain/domain.test.mjs",
-    "test:renderer-state": "node --test src/analysisJobs.test.mjs src/projectCatalog.test.mjs src/gpsTracks.test.mjs src/honestyScreens.test.mjs src/accessibilityShell.test.mjs src/productShell.test.mjs src/compactSecondaryWorkbench.test.mjs src/compactAnalysisLabeling.test.mjs src/visualPolish.test.mjs src/reportExportState.test.mjs src/autoLabeling.test.mjs src/modelRegistry.test.mjs src/reviewComputations.test.mjs",
+    "test:renderer-state": "node --test src/analysisJobs.test.mjs src/denseIndexJobs.test.mjs src/pipelineJobs.test.mjs src/pipelineReviewCompletion.test.mjs src/projectCatalog.test.mjs src/gpsTracks.test.mjs src/honestyScreens.test.mjs src/accessibilityShell.test.mjs src/productShell.test.mjs src/runtimeReadinessDrawer.test.mjs src/compactSecondaryWorkbench.test.mjs src/compactAnalysisLabeling.test.mjs src/visualPolish.test.mjs src/reportExportState.test.mjs src/autoLabeling.test.mjs src/modelRegistry.test.mjs src/reviewComputations.test.mjs src/reviewModePreference.test.mjs src/labelingDecision.test.mjs src/weakCases.test.mjs src/maskRefinement.test.mjs src/maskRefinementScreen.test.mjs",
     "test:electron": "npm --prefix electron test",
     "test:bridge": "cd bridge && python -m pytest -q -p no:cacheprovider tests",
     "test:vision-runner": "python -m pytest -q -p no:cacheprovider vision-runner/test_command_proposal_runner.py",
@@ -30,7 +30,6 @@
     "test:sites": "node --test tests/sites-worker.test.mjs"
   },
   "dependencies": {
-    "@fontsource-variable/jetbrains-mono": "^5.3.0",
     "@sun-typeface/suit": "^2.0.5",
     "@vitejs/plugin-react": "5.0.4",
     "lucide-react": "^1.27.0",
@@ -52,9 +51,9 @@
     "esbuild@0.25.12": true
   },
   "build": {
-    "appId": "kr.co.trafficvisson.desktop",
-    "productName": "TrafficVisson",
-    "executableName": "TrafficVisson",
+    "appId": "kr.co.trafficsupervision.desktop",
+    "productName": "TrafficSuperVision",
+    "executableName": "TrafficSuperVision",
     "electronDist": "node_modules/electron/dist",
     "asar": true,
     "files": [
@@ -67,7 +66,7 @@
     ],
     "extraResources": [
       {
-        "from": "build/bridge/TrafficVissonBridge",
+        "from": "build/bridge/TrafficSuperVisionBridge",
         "to": "bridge",
         "filter": [
           "**/*"
@@ -84,7 +83,7 @@
     "directories": {
       "output": "release"
     },
-    "artifactName": "TrafficVisson-Setup-${version}-${arch}.${ext}",
+    "artifactName": "TrafficSuperVision-Setup-${version}-${arch}.${ext}",
     "win": {
       "icon": "build/icon.ico",
       "target": [
@@ -103,6 +102,9 @@
       "createStartMenuShortcut": true,
       "installerIcon": "build/icon.ico",
       "uninstallerIcon": "build/icon.ico",
-      "shortcutName": "TrafficVisson",
-      "uninstallDisplayName": "TrafficVisson",
-      "deleteAppData
+      "shortcutName": "TrafficSuperVision",
+      "uninstallDisplayName": "TrafficSuperVision",
+      "deleteAppDataOnUninstall": false
+    }
+  }
+}

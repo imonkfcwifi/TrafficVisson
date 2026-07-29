@@ -1,4 +1,4 @@
-# TrafficVisson command proposal runner notices
+# TrafficSuperVision command proposal runner notices
 
 The bundled review-only command proposal runner uses the following components.
 
@@ -12,6 +12,6 @@ The bundled review-only command proposal runner uses the following components.
 - ONNX Runtime, NumPy, Pillow, and Tokenizers are frozen into the runner
   executable. Their package licenses remain applicable.
 
-TrafficVisson treats every output as a model score and a review-only object
+TrafficSuperVision treats every output as a model score and a review-only object
 proposal. It is not a defect probability, a maintenance decision, an approved
 label, or an incident.

@@ -1,4 +1,4 @@
-"""Run TrafficVisson's real intake -> hash -> candidate path on one video.
+"""Run TrafficSuperVision's real intake -> hash -> candidate path on one video.
 
 This is a bounded developer acceptance harness. It never copies or modifies the
 source video and prints only path-free result metadata.

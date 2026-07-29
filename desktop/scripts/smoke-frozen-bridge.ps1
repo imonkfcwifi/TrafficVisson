@@ -5,17 +5,17 @@ param(
 $ErrorActionPreference = "Stop"
 
 if (-not $BundlePath) {
-    $BundlePath = Join-Path $PSScriptRoot "..\build\bridge\TrafficVissonBridge"
+    $BundlePath = Join-Path $PSScriptRoot "..\build\bridge\TrafficSuperVisionBridge"
 }
 $bundle = (Resolve-Path -LiteralPath $BundlePath).Path
-$executable = Join-Path $bundle "TrafficVissonBridge.exe"
+$executable = Join-Path $bundle "TrafficSuperVisionBridge.exe"
 if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
     throw "Frozen bridge executable is missing"
 }
 
 $temporaryParent = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
 $smokeRoot = Join-Path $temporaryParent (
-    "TrafficVissonFrozenSmoke-" + [Guid]::NewGuid().ToString("N")
+    "TrafficSuperVisionFrozenSmoke-" + [Guid]::NewGuid().ToString("N")
 )
 New-Item -ItemType Directory -Path $smokeRoot | Out-Null
 
@@ -27,12 +27,12 @@ $startInfo.UseShellExecute = $false
 $startInfo.CreateNoWindow = $true
 $startInfo.RedirectStandardOutput = $true
 $startInfo.RedirectStandardError = $true
-$startInfo.Environment["TRAFFICVISSON_BRIDGE_TOKEN"] = $token
+$startInfo.Environment["TRAFFICSUPERVISION_BRIDGE_TOKEN"] = $token
 $startInfo.Environment["LOCALAPPDATA"] = $smokeRoot
 $startInfo.Environment["PATH"] = (
     $bundle + [IO.Path]::PathSeparator + $startInfo.Environment["PATH"]
 )
-$null = $startInfo.Environment.Remove("TRAFFICVISSON_VISION_MODEL_PACK")
+$null = $startInfo.Environment.Remove("TRAFFICSUPERVISION_VISION_MODEL_PACK")
 
 $process = [Diagnostics.Process]::new()
 $process.StartInfo = $startInfo
@@ -45,7 +45,7 @@ try {
         throw "Frozen bridge readiness timed out"
     }
     $readinessLine = $readinessTask.Result
-    $prefix = "TRAFFICVISSON_BRIDGE_READY "
+    $prefix = "TRAFFICSUPERVISION_BRIDGE_READY "
     if (-not $readinessLine.StartsWith($prefix)) {
         $safeError = $process.StandardError.ReadToEnd()
         if ($safeError.Length -gt 500) {
@@ -264,7 +264,7 @@ finally {
             [StringComparison]::OrdinalIgnoreCase
         ) -and
         [IO.Path]::GetFileName($resolvedSmokeRoot).StartsWith(
-            "TrafficVissonFrozenSmoke-"
+            "TrafficSuperVisionFrozenSmoke-"
         )
     ) {
         Remove-Item -LiteralPath $resolvedSmokeRoot -Recurse -Force

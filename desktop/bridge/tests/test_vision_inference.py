@@ -73,7 +73,7 @@ def _write_pack(
             "execution_provider": "auto",
         },
     }
-    manifest_path = root / "trafficvisson-model-pack.json"
+    manifest_path = root / "trafficsupervision-model-pack.json"
     manifest_path.write_text(
         json.dumps(manifest, ensure_ascii=False),
         encoding="utf-8",

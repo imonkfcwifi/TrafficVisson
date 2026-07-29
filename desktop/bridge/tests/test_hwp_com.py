@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 from pathlib import Path
 import threading
 
 import pytest
 
+import app.hwp_com as hwp_com
 from app.hwp_com import (
     HWP_PROG_ID,
     PLAN_VERSION,
@@ -243,9 +245,39 @@ def test_preview_is_default_and_does_not_write(document_files, sta_worker):
     assert result.structure.table_count == 1
     assert result.structure.field_names == ("보고서_제목",)
     assert result.structure.bookmark_names == ("현장사진",)
+    assert result.document_fingerprint.sha256 == hashlib.sha256(original).hexdigest()
     assert template.read_bytes() == original
     assert {entry[1] for entry in log} == {pythoncom.initialized_thread}
     assert [entry[0] for entry in log] == ["register", "open", "read", "close"]
+    opened_name = next(entry[2] for entry in log if entry[0] == "open")
+    assert opened_name != template.name
+    assert ".trafficvisson-preview-" in opened_name
+    assert not list(template.parent.glob(".*.trafficvisson-preview-*"))
+
+
+def test_apply_rejects_document_changed_after_preview_before_adapter(
+    document_files, sta_worker
+):
+    template, image, map_image = document_files
+    log = []
+    service = HwpComService(
+        worker=sta_worker[0], adapter_factory=lambda: FakeAdapter(log)
+    )
+    preview = service.execute(template, edit_plan(image, map_image))
+    calls_after_preview = list(log)
+    template.write_bytes(b"changed-after-preview")
+
+    with pytest.raises(HwpAutomationError, match="미리보기 이후"):
+        service.execute(
+            template,
+            edit_plan(image, map_image),
+            accept=True,
+            output_path=template.with_name("must-not-exist.hwpx"),
+            expected_fingerprint=preview.document_fingerprint,
+        )
+
+    assert log == calls_after_preview
+    assert not template.with_name("must-not-exist.hwpx").exists()
 
 
 def test_apply_requires_accept_and_new_output(document_files, sta_worker):
@@ -308,6 +340,11 @@ def test_apply_allowlist_backup_readback_and_rollback(document_files, sta_worker
         "close",
     ]
     assert {entry[1] for entry in log} == {pythoncom.initialized_thread}
+    opened_names = [entry[2] for entry in log if entry[0] == "open"]
+    assert template.name not in opened_names
+    assert ".trafficvisson-working-" in opened_names[0]
+    assert ".trafficvisson-output-" in opened_names[1]
+    assert not list(template.parent.glob(".*.trafficvisson-working-*"))
 
     rollback = service.rollback(result.rollback_token)
     assert rollback.rolled_back is True
@@ -387,15 +424,53 @@ def test_rejects_symlink_template_when_supported(document_files, tmp_path, sta_w
         service.execute(link, edit_plan(image, map_image))
 
 
-def test_detects_template_change_during_apply_and_scrubs_detail(
+def test_apply_mutates_only_owned_working_copy_and_never_original(
     document_files, sta_worker
 ):
     template, image, map_image = document_files
+    original = template.read_bytes()
+    original_sha256 = hashlib.sha256(original).hexdigest()
     output = template.with_name("result.hwpx")
+    log = []
     service = HwpComService(
         worker=sta_worker[0],
-        adapter_factory=lambda: FakeAdapter([], mutate_template=True),
+        adapter_factory=lambda: FakeAdapter(log, mutate_template=True),
     )
+    result = service.execute(
+        template,
+        edit_plan(image, map_image),
+        accept=True,
+        output_path=output,
+    )
+
+    assert template.read_bytes() == original
+    assert hashlib.sha256(template.read_bytes()).hexdigest() == original_sha256
+    assert template.name not in [
+        entry[2] for entry in log if entry[0] == "open"
+    ]
+    assert output.read_bytes() == b"edited-hwp-output"
+    service.rollback(result.rollback_token)
+
+
+def test_apply_failure_keeps_original_hash_and_one_recovery_artifact(
+    document_files, sta_worker
+):
+    template, image, map_image = document_files
+    original = template.read_bytes()
+    original_sha256 = hashlib.sha256(original).hexdigest()
+    output = template.with_name("failed-result.hwpx")
+    log = []
+
+    class FailingAdapter(FakeAdapter):
+        def fill_text(self, target, text):
+            super().fill_text(target, text)
+            raise RuntimeError("simulated HRESULT with private path")
+
+    service = HwpComService(
+        worker=sta_worker[0],
+        adapter_factory=lambda: FailingAdapter(log, mutate_template=True),
+    )
+
     with pytest.raises(HwpAutomationError) as captured:
         service.execute(
             template,
@@ -403,10 +478,70 @@ def test_detects_template_change_during_apply_and_scrubs_detail(
             accept=True,
             output_path=output,
         )
-    message = str(captured.value)
-    assert str(template) not in message
-    assert "COM" not in message
+
+    assert "private path" not in str(captured.value)
+    assert template.read_bytes() == original
+    assert hashlib.sha256(template.read_bytes()).hexdigest() == original_sha256
     assert not output.exists()
+    retained = list(template.parent.glob(".*.trafficvisson-working-*"))
+    journals = list(template.parent.glob(".*.trafficvisson-recovery-*.json"))
+    assert len(retained) == 1
+    assert len(journals) == 1
+    journal = json.loads(journals[0].read_text(encoding="utf-8"))
+    assert journal["schema_version"] == "trafficvisson-hwp-recovery-v1"
+    assert journal["phase"] == "edit_working"
+    assert journal["source_file_name"] == template.name
+    assert journal["intended_output_file_name"] == output.name
+    assert journal["retained_artifact_file_name"] == retained[0].name
+    assert journal["source_sha256"] == original_sha256
+    assert journal["published_output_removed"] is False
+    assert retained[0].read_bytes().startswith(original)
+    assert template.name not in [
+        entry[2] for entry in log if entry[0] == "open"
+    ]
+
+
+def test_post_publish_failure_removes_owned_output_and_retains_pristine_backup(
+    document_files, sta_worker, monkeypatch
+):
+    template, image, map_image = document_files
+    original = template.read_bytes()
+    original_sha256 = hashlib.sha256(original).hexdigest()
+    output = template.with_name("post-publish-failure.hwpx")
+    service = HwpComService(
+        worker=sta_worker[0],
+        adapter_factory=lambda: FakeAdapter([]),
+    )
+    real_sha256 = hwp_com._sha256
+
+    def reject_published_output(path, identity):
+        digest = real_sha256(path, identity)
+        if path == output:
+            return "0" * 64
+        return digest
+
+    monkeypatch.setattr(hwp_com, "_sha256", reject_published_output)
+
+    with pytest.raises(HwpAutomationError):
+        service.execute(
+            template,
+            edit_plan(image, map_image),
+            accept=True,
+            output_path=output,
+        )
+
+    assert template.read_bytes() == original
+    assert hashlib.sha256(template.read_bytes()).hexdigest() == original_sha256
+    assert not output.exists()
+    backups = list(template.parent.glob(".*.trafficvisson-backup-*"))
+    journals = list(template.parent.glob(".*.trafficvisson-recovery-*.json"))
+    assert len(backups) == 1
+    assert backups[0].read_bytes() == original
+    assert len(journals) == 1
+    journal = json.loads(journals[0].read_text(encoding="utf-8"))
+    assert journal["phase"] == "publish_output"
+    assert journal["retained_artifact_file_name"] == backups[0].name
+    assert journal["published_output_removed"] is True
 
 
 def test_adapter_failure_is_scrubbed(document_files, sta_worker):
@@ -423,7 +558,7 @@ def test_adapter_failure_is_scrubbed(document_files, sta_worker):
 
 
 @pytest.mark.skipif(
-    os.environ.get("TRAFFICVISSON_RUN_HWP_PREFLIGHT") != "1",
+    os.environ.get("TRAFFICSUPERVISION_RUN_HWP_PREFLIGHT") != "1",
     reason="opt-in registry-only Windows preflight",
 )
 def test_optional_environment_registry_preflight_does_not_open_documents():

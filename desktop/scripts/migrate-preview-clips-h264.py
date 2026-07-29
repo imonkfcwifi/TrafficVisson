@@ -1,4 +1,4 @@
-"""Migrate persisted TrafficVisson preview clips to Chromium-compatible H.264.
+"""Migrate persisted TrafficSuperVision preview clips to Chromium-compatible H.264.
 
 Run this only while the desktop bridge is stopped. The script accepts one
 project directory, verifies every source clip against its persisted digest,

@@ -1,4 +1,4 @@
-# TrafficVisson Electron shell
+# TrafficSuperVision Electron shell
 
 This directory contains the hardened Electron boundary. The Vite renderer lives
 outside this directory and can only reach the local bridge through the methods
