@@ -30,9 +30,29 @@ JOB_ID = UUID("22222222-2222-4222-8222-222222222222")
 CANDIDATE_ID = "0123456789abcdefabcd"
 QUESTION_ID = uuid5(JOB_ID, CANDIDATE_ID)
 MANIFEST = {
+    "provenance_verified": True,
+    "provider": "sam2_local",
     "pack_id": "sam2.1-hiera-small",
     "pack_version": "1.0.0",
     "manifest_sha256": "a" * 64,
+    "model_name": "SAM 2.1 Hiera Small",
+    "model_version": "1" * 40,
+    "model_artifact_sha256": "b" * 64,
+    "source_repo_id": "facebookresearch/sam2",
+    "source_revision": "2" * 40,
+    "weights_spdx": "Apache-2.0",
+    "runtime_spdx": "Apache-2.0",
+    "commercial_use_confirmed": True,
+    "redistribution_allowed": True,
+    "gpu_required": True,
+    "cpu_fallback": False,
+    "recommended_min_vram_mb": 8192,
+    "cuda_min_version": "12.1",
+    "review_only": True,
+}
+MANIFEST_IDENTITY = {
+    key: MANIFEST[key]
+    for key in ("pack_id", "pack_version", "manifest_sha256")
 }
 
 
@@ -145,7 +165,7 @@ def test_injected_adapter_returns_bounded_path_free_review_proposal(tmp_path):
 
     assert result["status"] == "refined"
     assert result["refinement_id"].startswith("smr_")
-    assert result["model_manifest"] == MANIFEST
+    assert result["model_manifest"] == MANIFEST_IDENTITY
     assert result["input_sha256"] != result["output_sha256"]
     assert result["normalized_box"] == pytest.approx(
         {"x": 0.18, "y": 0.30, "width": 0.54, "height": 0.45}
@@ -162,12 +182,41 @@ def test_injected_adapter_returns_bounded_path_free_review_proposal(tmp_path):
         "incidents": 0,
         "training_members": 0,
     }
+    status = service.runtime_status()
+    assert status["state"] == "ready"
+    assert status["model_pack"] == MANIFEST
+    assert str(image_path) not in repr(status)
 
     resolved = service.resolve_for_answer(
         **identity(),
         refinement_id=result["refinement_id"],
     )
     assert resolved["output_sha256"] == result["output_sha256"]
+
+
+def test_identity_only_adapter_cannot_claim_sam2_ready(tmp_path):
+    class LegacyIdentityOnlyAdapter(FakeSam2Adapter):
+        def status(self):
+            return {
+                "state": "ready",
+                "model_manifest": MANIFEST_IDENTITY,
+            }
+
+    service, _, _ = build_service(
+        tmp_path,
+        adapter=LegacyIdentityOnlyAdapter(),
+    )
+
+    capability = service.capability(**identity())
+    status = service.runtime_status()
+
+    assert capability["state"] == "model_unavailable"
+    assert capability["click_prompt_enabled"] is False
+    assert status == {
+        "state": "failed",
+        "error_code": "model_pack_invalid",
+    }
+    assert service.record_count() == 0
 
 
 @pytest.mark.parametrize(

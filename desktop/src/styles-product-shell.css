@@ -79,6 +79,18 @@ body {
   display: none;
 }
 
+.nav-section-label {
+  min-height: 22px;
+  display: flex;
+  align-items: flex-end;
+  padding: 4px 10px 2px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 760;
+  letter-spacing: 0.055em;
+  white-space: nowrap;
+}
+
 .shell-diagnostics-button {
   width: auto;
   min-width: 92px;
@@ -107,7 +119,7 @@ body {
 
 .shell-screen-context > span {
   color: var(--text-muted);
-  font-size: 9.5px;
+  font-size: 11px;
   font-weight: 680;
   line-height: 1.1;
   letter-spacing: 0.035em;
@@ -116,7 +128,7 @@ body {
 .shell-screen-context > strong {
   min-width: 0;
   overflow: hidden;
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 720;
   line-height: 1.25;
   text-overflow: ellipsis;
@@ -137,7 +149,7 @@ body {
   background: rgba(255, 255, 255, 0.64);
   box-shadow: none;
   font-family: var(--font-sans);
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 760;
 }
 
@@ -215,6 +227,17 @@ body {
     gap: 2px;
   }
 
+  .nav-section-label {
+    min-height: 17px;
+    justify-content: center;
+    align-items: center;
+    padding: 3px 0 0;
+    color: rgba(68, 82, 118, 0.62);
+    font-size: 11px;
+    font-weight: 720;
+    letter-spacing: -0.01em;
+  }
+
   .nav-item {
     position: relative;
     min-height: 50px;
@@ -234,7 +257,7 @@ body {
   .nav-label-compact {
     display: block;
     color: var(--text-muted);
-    font-size: 10.5px;
+    font-size: 11px;
     font-weight: 660;
     line-height: 1.2;
     white-space: nowrap;
@@ -292,6 +315,15 @@ body {
 
   .screen-header {
     min-height: 50px;
+  }
+
+  .nav-section-label {
+    min-height: 16px;
+    padding: 2px 0 0;
+    overflow: visible;
+    border-top: 1px solid rgba(77, 91, 129, 0.1);
+    color: rgba(68, 82, 118, 0.68);
+    font-size: 11px;
   }
 
   .metric-card {

@@ -33,6 +33,11 @@ _OPAQUE_REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _PACK_ID = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 _PACK_VERSION = re.compile(r"^[0-9A-Za-z][0-9A-Za-z._+-]{0,31}$")
 _SHA256 = re.compile(r"^[a-f0-9]{64}$")
+_PROVIDER_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+_SOURCE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$")
+_REVISION = re.compile(r"^[a-f0-9]{40,64}$")
+_SPDX = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.+-]{0,63}$")
+_CUDA_VERSION = re.compile(r"^[0-9]{1,3}(?:\.[0-9]{1,3}){1,2}$")
 MAX_POLYGON_POINTS = 256
 MAX_TRACKED_FRAME_REFS = 32
 
@@ -101,18 +106,58 @@ def _candidate_id(value: object) -> str:
     return value
 
 
-def _manifest(value: object) -> dict[str, str]:
+def _bounded_text(value: object, maximum: int, label: str) -> str:
+    if (
+        not isinstance(value, str)
+        or not 1 <= len(value.strip()) <= maximum
+        or any(ord(character) < 0x20 for character in value)
+    ):
+        raise Sam2RefinementUnavailable(f"SAM2 {label} is invalid")
+    return value.strip()
+
+
+def _manifest(value: object) -> dict[str, Any]:
     if not isinstance(value, Mapping) or set(value) != {
+        "provenance_verified",
+        "provider",
         "pack_id",
         "pack_version",
         "manifest_sha256",
+        "model_name",
+        "model_version",
+        "model_artifact_sha256",
+        "source_repo_id",
+        "source_revision",
+        "weights_spdx",
+        "runtime_spdx",
+        "commercial_use_confirmed",
+        "redistribution_allowed",
+        "gpu_required",
+        "cpu_fallback",
+        "recommended_min_vram_mb",
+        "cuda_min_version",
+        "review_only",
     }:
         raise Sam2RefinementUnavailable(
-            "SAM2 model manifest identity is unavailable"
+            "SAM2 model manifest provenance is unavailable"
         )
+    provider = value.get("provider")
     pack_id = value.get("pack_id")
     pack_version = value.get("pack_version")
     manifest_sha256 = value.get("manifest_sha256")
+    model_artifact_sha256 = value.get("model_artifact_sha256")
+    source_repo_id = value.get("source_repo_id")
+    source_revision = value.get("source_revision")
+    weights_spdx = value.get("weights_spdx")
+    runtime_spdx = value.get("runtime_spdx")
+    recommended_vram = value.get("recommended_min_vram_mb")
+    cuda_min_version = value.get("cuda_min_version")
+    if (
+        value.get("provenance_verified") is not True
+        or not isinstance(provider, str)
+        or _PROVIDER_ID.fullmatch(provider) is None
+    ):
+        raise Sam2RefinementUnavailable("SAM2 provider identity is invalid")
     if not isinstance(pack_id, str) or _PACK_ID.fullmatch(pack_id) is None:
         raise Sam2RefinementUnavailable("SAM2 pack_id is invalid")
     if (
@@ -127,10 +172,69 @@ def _manifest(value: object) -> dict[str, str]:
         raise Sam2RefinementUnavailable(
             "SAM2 manifest_sha256 is invalid"
         )
+    model_name = _bounded_text(value.get("model_name"), 128, "model name")
+    model_version = _bounded_text(
+        value.get("model_version"), 128, "model version"
+    )
+    if (
+        not isinstance(model_artifact_sha256, str)
+        or _SHA256.fullmatch(model_artifact_sha256) is None
+        or not isinstance(source_repo_id, str)
+        or _SOURCE_ID.fullmatch(source_repo_id) is None
+        or not isinstance(source_revision, str)
+        or _REVISION.fullmatch(source_revision) is None
+        or not isinstance(weights_spdx, str)
+        or _SPDX.fullmatch(weights_spdx) is None
+        or not isinstance(runtime_spdx, str)
+        or _SPDX.fullmatch(runtime_spdx) is None
+        or value.get("commercial_use_confirmed") is not True
+        or not isinstance(value.get("redistribution_allowed"), bool)
+        or not isinstance(value.get("gpu_required"), bool)
+        or not isinstance(value.get("cpu_fallback"), bool)
+        or isinstance(recommended_vram, bool)
+        or not isinstance(recommended_vram, int)
+        or not 0 <= recommended_vram <= 131_072
+        or not (
+            cuda_min_version is None
+            or (
+                isinstance(cuda_min_version, str)
+                and _CUDA_VERSION.fullmatch(cuda_min_version) is not None
+            )
+        )
+        or (value["gpu_required"] and cuda_min_version is None)
+        or value.get("review_only") is not True
+    ):
+        raise Sam2RefinementUnavailable(
+            "SAM2 source, license, artifact, or GPU provenance is invalid"
+        )
     return {
+        "provenance_verified": True,
+        "provider": provider,
         "pack_id": pack_id,
         "pack_version": pack_version,
         "manifest_sha256": manifest_sha256,
+        "model_name": model_name,
+        "model_version": model_version,
+        "model_artifact_sha256": model_artifact_sha256,
+        "source_repo_id": source_repo_id,
+        "source_revision": source_revision,
+        "weights_spdx": weights_spdx,
+        "runtime_spdx": runtime_spdx,
+        "commercial_use_confirmed": True,
+        "redistribution_allowed": value["redistribution_allowed"],
+        "gpu_required": value["gpu_required"],
+        "cpu_fallback": value["cpu_fallback"],
+        "recommended_min_vram_mb": recommended_vram,
+        "cuda_min_version": cuda_min_version,
+        "review_only": True,
+    }
+
+
+def _manifest_identity(value: Mapping[str, Any]) -> dict[str, str]:
+    return {
+        "pack_id": str(value["pack_id"]),
+        "pack_version": str(value["pack_version"]),
+        "manifest_sha256": str(value["manifest_sha256"]),
     }
 
 
@@ -216,6 +320,52 @@ class Sam2MaskRefinementService:
         self._lock = threading.RLock()
         self._records: dict[str, dict[str, Any]] = {}
 
+    def runtime_status(self) -> dict[str, Any]:
+        """Return a path-free, non-executing SAM2 Model Pack readiness proof."""
+
+        if self._adapter is None:
+            return {
+                "state": "unavailable",
+                "error_code": "model_pack_not_configured",
+            }
+        try:
+            status = self._adapter.status()
+        except Exception:
+            return {
+                "state": "failed",
+                "error_code": "model_pack_status_failed",
+            }
+        if not isinstance(status, Mapping):
+            return {
+                "state": "failed",
+                "error_code": "model_pack_status_failed",
+            }
+        if status.get("state") != "ready":
+            return {
+                "state": (
+                    "failed"
+                    if status.get("state") == "failed"
+                    else "unavailable"
+                ),
+                "error_code": (
+                    "model_pack_invalid"
+                    if status.get("state") == "failed"
+                    else "model_pack_not_configured"
+                ),
+            }
+        try:
+            model_pack = _manifest(status.get("model_manifest"))
+        except Sam2RefinementUnavailable:
+            return {
+                "state": "failed",
+                "error_code": "model_pack_invalid",
+            }
+        return {
+            "state": "ready",
+            "error_code": None,
+            "model_pack": model_pack,
+        }
+
     def capability(
         self,
         *,
@@ -231,7 +381,7 @@ class Sam2MaskRefinementService:
             candidate_id=candidate_id,
         )
         try:
-            manifest = self._ready_manifest()
+            manifest = _manifest_identity(self._ready_manifest())
         except Sam2RefinementUnavailable as error:
             return {
                 "schema_version": MASK_REFINEMENT_CAPABILITY_SCHEMA,
@@ -276,7 +426,7 @@ class Sam2MaskRefinementService:
             _strict_unit(click_y, "click.y"),
         )
         try:
-            manifest = self._ready_manifest()
+            manifest = _manifest_identity(self._ready_manifest())
         except Sam2RefinementUnavailable as error:
             return {
                 "schema_version": MASK_REFINEMENT_SCHEMA,
@@ -461,7 +611,7 @@ class Sam2MaskRefinementService:
             "candidate_id": candidate,
         }
 
-    def _ready_manifest(self) -> dict[str, str]:
+    def _ready_manifest(self) -> dict[str, Any]:
         if self._adapter is None:
             raise Sam2RefinementUnavailable(
                 "검증된 SAM2 모델팩이 설치되지 않았습니다."

@@ -116,6 +116,7 @@ import {
 type Answer = ReviewAnswer;
 type ReviewMode = ReviewModePreference;
 type UserSeverity = "낮음" | "보통" | "높음";
+type LabelingMacroPhase = "analysis" | "review" | "results";
 
 const REVIEW_MODES: ReadonlyArray<{
   id: ReviewMode;
@@ -144,6 +145,67 @@ const USER_SEVERITIES: ReadonlyArray<{
   { value: "높음", key: "3", description: "우선 현장 확인" },
 ];
 
+const LABELING_MACRO_STEPS = [
+  { label: "영상", detail: "입력·권리 확인" },
+  { label: "자동 분석", detail: "후보 큐 준비" },
+  { label: "질문 검토", detail: "사용자 판정" },
+  { label: "결과 자동 갱신", detail: "지도·CSV·보고서" },
+] as const;
+
+function LabelingMacroFlow({
+  phase,
+  reviewed,
+  total,
+  resultsReady = false,
+}: {
+  phase: LabelingMacroPhase;
+  reviewed: number;
+  total: number;
+  resultsReady?: boolean;
+}) {
+  const activeIndex =
+    phase === "analysis" ? 1 : phase === "review" ? 2 : 3;
+  return (
+    <ol className="labeling-macro-flow" aria-label="자동 점검 전체 흐름">
+      {LABELING_MACRO_STEPS.map((step, index) => {
+        const state =
+          index < activeIndex
+            ? "done"
+            : index === activeIndex
+              ? resultsReady
+                ? "done"
+                : "current"
+              : "pending";
+        const detail =
+          index === 2 && phase !== "analysis"
+            ? phase === "results"
+              ? "검토 완료"
+              : `${reviewed} / ${total} 답변`
+            : index === 3 && phase === "results"
+              ? resultsReady
+                ? "자동 갱신 완료"
+                : "자동 갱신 중"
+              : step.detail;
+        return (
+          <li
+            key={step.label}
+            data-state={state}
+            aria-current={state === "current" ? "step" : undefined}
+          >
+            <span className="labeling-macro-flow__index" aria-hidden="true">
+              {state === "done" ? <Check size={13} /> : index + 1}
+            </span>
+            <span>
+              <strong>{step.label}</strong>
+              <small>{detail}</small>
+            </span>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
 type ReviewQuestion = {
   id: string;
   prompt: string;
@@ -167,6 +229,10 @@ type ReviewQuestion = {
   evidenceImage: string;
   previewVideo?: string;
   locationStatus: string;
+  gpsHeadline: string;
+  gpsDetail: string;
+  aiSeverityProposal: UserSeverity | null;
+  aiSeverityRationale: string;
   box?: { x: number; y: number; width: number; height: number };
   adjacentFrames?: string[];
   roiImage?: string;
@@ -263,6 +329,19 @@ function reviewQuestionsForSummary(
       typeof embeddedModel.packVersion === "string"
         ? `${embeddedModel.packId}@${embeddedModel.packVersion}`
         : undefined;
+    const gpsHeadline = summary.sourceLocation
+      ? "촬영 시작 좌표만 있음"
+      : "시간대별 GPS 없음";
+    const gpsDetail = summary.sourceLocation
+      ? `${summary.sourceLocation.latitude.toFixed(
+          6,
+        )}, ${summary.sourceLocation.longitude.toFixed(
+          6,
+        )} · 후보 위치나 이동 경로로 사용하지 않음`
+      : "GPX를 추가하기 전에는 실제 이동 경로를 생성하지 않음";
+    const aiSeverityRationale = proposal.experimental
+      ? `${overlay?.modelIdentity ?? embeddedIdentity ?? "현재 AI 모델"}은 유형·영역 점수만 제안하며 심각도 출력은 제공하지 않습니다.`
+      : "장면 변화 후보는 실제 문제 유형이 미확정이므로 AI 심각도를 추천하지 않습니다.";
     return {
       id: `${summary.jobId}:${candidate.candidateId}`,
       prompt: proposal.prompt,
@@ -299,9 +378,11 @@ function reviewQuestionsForSummary(
         candidate.candidateId,
         "clip",
       ),
-      locationStatus: summary.sourceLocation
-        ? `촬영 시작 ${summary.sourceLocation.latitude.toFixed(6)}, ${summary.sourceLocation.longitude.toFixed(6)} · 이 후보 위치는 수동 검증 필요`
-        : "GPS 자료가 연결되지 않음 · 수동 위치 검증 필요",
+      locationStatus: `${gpsHeadline} · ${gpsDetail}`,
+      gpsHeadline,
+      gpsDetail,
+      aiSeverityProposal: null,
+      aiSeverityRationale,
       ...(proposal.box ? { box: proposal.box } : {}),
       ...(sourcePrediction
         ? {
@@ -2002,31 +2083,38 @@ export function LabelingScreen({
           </Button>
         </div>
         <div className="label-job-status" aria-live="polite">
-          <Badge tone={proposalOverlays.ignoredCount ? "warning" : "neutral"}>
-            현재 영상 AI 제안{" "}
-            {Object.keys(proposalOverlays.byCandidateId).length}건
-          </Badge>
+          <span
+            className={
+              proposalOverlays.ignoredCount
+                ? "label-job-status__count label-job-status__count--warning"
+                : "label-job-status__count"
+            }
+          >
+            <strong>
+              AI 제안 {Object.keys(proposalOverlays.byCandidateId).length}
+            </strong>
+            {proposalOverlays.ignoredCount
+              ? ` · 제외 ${proposalOverlays.ignoredCount}`
+              : ""}
+          </span>
           {temporalReview.jobId === runtime.analysisSummary?.jobId &&
           temporalReview.status === "ready" ? (
-            <Badge tone="success">
-              사건 병합{" "}
-              {Object.keys(
-                temporalReview.groupsByRepresentativeId,
-              ).length}
-              건
-            </Badge>
+            <span className="label-job-status__count">
+              병합{" "}
+              {Object.keys(temporalReview.groupsByRepresentativeId).length}
+            </span>
           ) : temporalReview.status === "loading" ? (
-            <Badge tone="neutral">프레임 사건 병합 중</Badge>
+            <span className="label-job-status__count">병합 중</span>
           ) : null}
           {jobListError ? (
             <span className="inline-error" role="alert">
               {jobListError}
             </span>
           ) : (
-            <span>
+            <span className="label-job-status__note">
               {loadingProposalCounts
-                ? `${completedJobs.length || "저장된"}개 영상의 AI 제안 수를 확인하는 중입니다.`
-                : `AI 제안 영상 ${proposalJobCount} / ${completedJobs.length}개 · 원본 후보와 답변은 영상별로 분리 저장됩니다.`}
+                ? "제안 수 확인 중"
+                : `제안 영상 ${proposalJobCount} / ${completedJobs.length} · 영상별 기록`}
             </span>
           )}
         </div>
@@ -2459,6 +2547,11 @@ export function LabelingScreen({
             <h1>질문형 라벨링</h1>
             <p>실제 분석 작업에서 생성된 후보만 프로젝트 라벨로 저장합니다.</p>
           </div>
+          <LabelingMacroFlow
+            phase={activeAnalysisForProject ? "review" : "analysis"}
+            reviewed={completed}
+            total={questions.length}
+          />
         </header>
         {jobSwitcher}
         <GlassPanel className="label-empty-state">
@@ -2508,6 +2601,12 @@ export function LabelingScreen({
             <h1>질문형 라벨링</h1>
             <p>현재 프로젝트의 질문 큐를 모두 검토했습니다.</p>
           </div>
+          <LabelingMacroFlow
+            phase="results"
+            reviewed={completed}
+            total={questions.length}
+            resultsReady={currentPipelineJob?.status === "completed"}
+          />
         </header>
         {!currentPipelineJob ? jobSwitcher : null}
         {!currentPipelineJob ? autoLabelingPanel : null}
@@ -2592,33 +2691,56 @@ export function LabelingScreen({
         <div>
           <p className="eyebrow">HUMAN-IN-THE-LOOP</p>
           <h1>질문형 라벨링</h1>
-          <p>AI 후보를 승인·거절·보류하거나 한 번의 클릭으로 영역을 수정합니다.</p>
+          <p>
+            {currentPipelineJob
+              ? "자동 분석이 끝났습니다. 준비된 질문에만 답하면 결과가 자동 갱신됩니다."
+              : "AI 후보를 승인·거절·보류하거나 한 번의 클릭으로 영역을 수정합니다."}
+          </p>
         </div>
-        <div className="policy-toggle review-mode-toggle" role="group" aria-label="라벨링 판정 방식">
-          {REVIEW_MODES.map((mode) => (
-            <button
-              type="button"
-              key={mode.id}
-              className={reviewMode === mode.id ? "active" : ""}
-              aria-pressed={reviewMode === mode.id}
-              disabled={Boolean(currentPipelineJob)}
-              title={
-                currentPipelineJob
-                  ? "이 PipelineJob을 시작할 때 확정한 프로젝트 판정 방식입니다."
-                  : mode.description
-              }
-              onClick={() => selectReviewMode(mode.id)}
-            >
-              <strong>{mode.label}</strong>
-              <small>
-                {mode.id === "precision" ? "심각도 포함" : "심각도 없음"}
-                {currentPipelineJob && reviewMode === mode.id
-                  ? " · 프로젝트 설정"
-                  : ""}
-              </small>
-            </button>
-          ))}
-        </div>
+        <LabelingMacroFlow
+          phase="review"
+          reviewed={completed}
+          total={questions.length}
+        />
+        {currentPipelineJob ? (
+          <div
+            className="review-profile-summary"
+            role="status"
+            aria-label="현재 검토 모드"
+          >
+            <span>현재 검토 모드</span>
+            <strong>
+              {reviewMode === "precision" ? "정밀 판정" : "빠른 판정"}
+            </strong>
+            <small>
+              {reviewMode === "precision"
+                ? "심각도 포함 · 영상 시작 시 확정"
+                : "심각도 없음 · 영상 시작 시 확정"}
+            </small>
+          </div>
+        ) : (
+          <div
+            className="policy-toggle review-mode-toggle"
+            role="group"
+            aria-label="라벨링 판정 방식"
+          >
+            {REVIEW_MODES.map((mode) => (
+              <button
+                type="button"
+                key={mode.id}
+                className={reviewMode === mode.id ? "active" : ""}
+                aria-pressed={reviewMode === mode.id}
+                title={mode.description}
+                onClick={() => selectReviewMode(mode.id)}
+              >
+                <strong>{mode.label}</strong>
+                <small>
+                  {mode.id === "precision" ? "심각도 포함" : "심각도 없음"}
+                </small>
+              </button>
+            ))}
+          </div>
+        )}
       </header>
 
       {jobSwitcher}
@@ -2905,19 +3027,26 @@ export function LabelingScreen({
 
         <div className="labeling-sidebar">
           <GlassPanel className="question-card">
-            <PanelHeader
-              eyebrow="LABEL QUESTION"
-              title={`${questionIndex + 1} / ${questions.length}`}
-              action={
-                <Badge tone={mandatoryQuestion ? "danger" : "neutral"}>
-                  {mandatoryQuestion
-                    ? "강제"
-                    : question.experimental
-                      ? "사용자 확인 필요"
-                      : "표본"}
-                </Badge>
-              }
-            />
+            <header className="question-card__header">
+              <div>
+                <span>판정 질문</span>
+                <strong>
+                  {questionIndex + 1}
+                  <small> / {questions.length}</small>
+                </strong>
+              </div>
+              <span
+                className={`question-card__status${
+                  mandatoryQuestion ? " question-card__status--mandatory" : ""
+                }`}
+              >
+                {mandatoryQuestion
+                  ? "필수 확인"
+                  : question.experimental
+                    ? "확정 전"
+                    : "품질 표본"}
+              </span>
+            </header>
             <h2
               ref={questionHeadingRef}
               className="question-prompt"
@@ -2927,24 +3056,57 @@ export function LabelingScreen({
               {question.prompt}
             </h2>
             <div className="question-metadata">
-              <Badge tone="neutral">
+              <strong className="question-metadata__type">
                 {ISSUE_TYPE_OPTIONS.find(([value]) => value === typeCode)?.[1] ??
                   typeCode}
-              </Badge>
+              </strong>
               <span className="mono">{question.scoreText}</span>
               <span>
-                판정 ·{" "}
                 {reviewMode === "precision"
-                  ? "정밀·사용자 심각도"
-                  : "빠름·심각도 없음"}
+                  ? "정밀 판정 · Y 후 1/2/3"
+                  : "빠른 판정 · 즉시 저장"}
               </span>
               {question.temporalGroup ? (
-                <Badge tone="success">
+                <span className="question-metadata__frames">
                   {question.temporalGroup.detectionCount}프레임 ·{" "}
                   {question.temporalGroup.durationSeconds.toFixed(1)}초
-                </Badge>
+                </span>
               ) : null}
             </div>
+            <section
+              className="question-decision-context"
+              aria-label="위치와 심각도 판단 근거"
+            >
+              <div className="question-decision-context__row question-decision-context__row--gps">
+                <span className="question-decision-context__identity">
+                  <span>GPS</span>
+                  <strong>{question.gpsHeadline}</strong>
+                </span>
+                <small title={question.gpsDetail}>
+                  {question.gpsDetail}
+                </small>
+              </div>
+              <div className="question-decision-context__row question-decision-context__row--severity">
+                <span className="question-decision-context__identity">
+                  <span>AI 추천 심각도</span>
+                  <strong>{question.aiSeverityProposal ?? "미제안"}</strong>
+                </span>
+                <small title={question.aiSeverityRationale}>
+                  {question.aiSeverityRationale}
+                </small>
+                <span
+                  className="question-decision-context__user"
+                  aria-label="사용자 최종 심각도"
+                >
+                  사용자 최종 ·{" "}
+                  {reviewMode === "quick"
+                    ? "평가 안 함"
+                    : followup
+                      ? "1·2·3 선택 대기"
+                      : "미확정"}
+                </span>
+              </div>
+            </section>
             <section
               className={`weak-case-reference weak-case-reference--${weakCaseState.status}`}
               aria-label="3·4분기 유사 참고 사례"
@@ -2954,21 +3116,15 @@ export function LabelingScreen({
                 <span>
                   <BookOpenCheck size={15} aria-hidden="true" />
                   <strong>3·4분기 유사 참고</strong>
-                  <small>문구·표 위치 기준</small>
+                  <small>문구·표 위치 기준 · 선택해 비교</small>
                 </span>
-                <Badge
-                  tone={
-                    weakCaseState.status === "ready"
-                      ? "warning"
-                      : "neutral"
-                  }
-                >
+                <span className="weak-case-reference__count">
                   {weakCaseState.status === "loading"
                     ? "찾는 중"
                     : weakCaseState.status === "ready"
-                      ? `약한 사례 ${weakCaseState.cases.length}건`
+                      ? `유사 ${weakCaseState.cases.length}건`
                       : "사용 불가"}
-                </Badge>
+                </span>
               </div>
               {weakCaseState.status === "loading" ? (
                 <div
@@ -3070,7 +3226,17 @@ export function LabelingScreen({
                           selectedWeakCase.location ??
                           "확인 가능한 주변 문구가 없습니다."}
                       </p>
-                      <Badge tone="warning">확정 아님</Badge>
+                      <span
+                        className={`weak-case-reference__approval${
+                          selectedWeakCase.approvedReference
+                            ? " weak-case-reference__approval--approved"
+                            : ""
+                        }`}
+                      >
+                        {selectedWeakCase.approvedReference
+                          ? "사용자 승인 사례"
+                          : "확정 아님 · 참고용"}
+                      </span>
                     </div>
                   ) : null}
                 </>
@@ -3110,52 +3276,36 @@ export function LabelingScreen({
               </div>
             ) : null}
             {question.experimental ? (
-              <div className="notice notice--warning experimental-proposal" role="note">
-                <CircleHelp size={17} />
-                <div>
-                  <strong>
-                    실험적 AI 제안 · {question.displayName ?? typeCode} 가능성
-                  </strong>
-                  <p>
-                    제안만으로 라벨이 저장되지 않습니다. 사용자가 예·아니오·판단
-                    어려움·영역 수정 중 하나를 선택해야 합니다.
-                  </p>
-                  <dl className="proposal-facts">
-                    <div>
-                      <dt>AI 원본 제안</dt>
-                      <dd>
-                        {question.proposalDisplayName ??
-                          question.proposalTypeCode}{" "}
-                        <span className="mono">{question.proposalTypeCode}</span>
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>점수 해석</dt>
-                      <dd>{question.scoreText}</dd>
-                    </div>
-                    <div>
-                      <dt>제안 출처</dt>
-                      <dd>
-                        {question.modelIdentity ?? "모델 정보 없음"}
-                        {question.modelRunId
-                          ? ` · 실행 ${question.modelRunId.slice(0, 8)}`
-                          : ""}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>현재 선택</dt>
-                      <dd>
-                        {ISSUE_TYPE_OPTIONS.find(
-                          ([value]) => value === typeCode,
-                        )?.[1] ?? typeCode}
-                        {typeCode !== question.proposalTypeCode
-                          ? " · AI 제안에서 변경됨"
-                          : " · 아직 저장되지 않음"}
-                      </dd>
-                    </div>
-                  </dl>
+              <section className="experimental-proposal" role="note">
+                <div className="experimental-proposal__heading">
+                  <Sparkles size={15} aria-hidden="true" />
+                  <strong>AI 제안</strong>
+                  <span>사용자 확인 전</span>
                 </div>
-              </div>
+                <div className="experimental-proposal__summary">
+                  <strong>{question.displayName ?? typeCode}</strong>
+                  <span>{question.scoreText}</span>
+                  <span
+                    title={`${question.modelIdentity ?? "모델 정보 없음"}${
+                      question.modelRunId
+                        ? ` · 실행 ${question.modelRunId.slice(0, 8)}`
+                        : ""
+                    }`}
+                  >
+                    {question.modelIdentity ?? "모델 정보 없음"}
+                  </span>
+                </div>
+                <p>
+                  현재 선택{" "}
+                  <strong>
+                    {ISSUE_TYPE_OPTIONS.find(([value]) => value === typeCode)?.[1] ??
+                      typeCode}
+                  </strong>
+                  {typeCode !== question.proposalTypeCode
+                    ? " · AI 제안에서 변경됨"
+                    : " · 아직 저장되지 않음"}
+                </p>
+              </section>
             ) : null}
             {answerError ? (
               <div className="notice notice--danger" role="alert">
@@ -3184,7 +3334,7 @@ export function LabelingScreen({
             <label className="compact-field">
               <span>
                 {question.experimental
-                  ? "AI 유형이 틀렸다면 변경"
+                  ? "유형 수정"
                   : "실제 도로 문제 유형 선택"}
               </span>
               <select value={typeCode} onChange={(event) => setTypeCode(event.target.value)}>
@@ -3212,12 +3362,10 @@ export function LabelingScreen({
             {followup ? (
               <div className="followup-card severity-followup" aria-live="polite">
                 <div className="severity-followup__intro">
-                  <span>사용자 최종 심각도</span>
-                  <strong>
-                    AI 추천 미제공 · 검지 신뢰도와 심각도는 별개
-                  </strong>
+                  <span>마지막 단계</span>
+                  <strong>심각도를 선택하세요</strong>
                   <small>
-                    선택 즉시 사용자 확정값으로 저장하고 다음 카드로 이동합니다.
+                    AI 신뢰도와 별개인 사용자 최종값입니다.
                   </small>
                 </div>
                 <div className="severity-choice-grid" role="group" aria-label="사용자 최종 심각도">
@@ -3269,7 +3417,7 @@ export function LabelingScreen({
                     <strong>예 <kbd>Y</kbd></strong>
                     <small>
                       {reviewMode === "precision"
-                        ? "심각도 선택으로 이동"
+                        ? "심각도 1·2·3 선택"
                         : currentBox
                           ? "표시 영역·유형 즉시 저장"
                           : "선택 유형 즉시 저장"}
@@ -3366,7 +3514,7 @@ export function LabelingScreen({
 
             <Button
               variant="ghost"
-              className="full-width"
+              className="full-width question-skip"
               onClick={() => submit("skipped")}
               disabled={mandatoryQuestion || savingAnswer}
               title={mandatoryQuestion ? "긴급·낙하물 질문은 건너뛸 수 없습니다." : undefined}

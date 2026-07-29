@@ -1,4 +1,5 @@
 import type { AnalysisVisionIssueType } from "./runtimeState";
+import { CANONICAL_ISSUE_TYPES } from "./issueTypes";
 
 export type WeakCaseReference = {
   sourceId: string;
@@ -6,10 +7,20 @@ export type WeakCaseReference = {
   rank: number;
   similarityScore: number;
   matchedTerms: string[];
+  referenceState: "weak_unconfirmed" | "approved_reference";
+  reviewRequired: boolean;
+  approvedReference: boolean;
+  trainingEligible: boolean;
   quarter: 3 | 4;
   documentName: string;
   documentSha256: string;
+  structureTargetSummarySha256: string;
+  indexManifestSha256: string;
+  sectionPath: string;
+  sectionIndex: number;
+  pictureTargetId: string;
   pageHint: number;
+  cellTargetId: string | null;
   tableIndex: number | null;
   cellRow: number | null;
   cellColumn: number | null;
@@ -20,6 +31,7 @@ export type WeakCaseReference = {
   evaluation: string | null;
   opinion: string | null;
   imageAvailable: boolean;
+  imageSha256: string | null;
   imageMediaType:
     | "image/bmp"
     | "image/png"
@@ -27,24 +39,40 @@ export type WeakCaseReference = {
     | "image/gif"
     | "image/webp"
     | null;
+  approvalId: string | null;
+  approvalRevision: number | null;
+  approvalRecordSha256: string | null;
+  approvedIssueType: AnalysisVisionIssueType | null;
+  approvedAction: string | null;
 };
 
 export type WeakCaseSearchResult = {
-  capabilityState: "weak_reference_only" | "unavailable";
+  capabilityState:
+    | "approved_reference_available"
+    | "weak_reference_only"
+    | "unavailable";
   searchMode: "bounded_text_and_structure_metadata";
   semanticImageEmbeddingUsed: false;
   cases: WeakCaseReference[];
   readySourceCount: number;
   sourceCount: number;
-  approvedReferenceCount: 0;
+  approvedReferenceCount: number;
   annotationCount: 0;
   incidentCount: 0;
-  trainingEligibleCount: 0;
+  trainingEligibleCount: number;
 };
 
 const SHA_PATTERN = /^[a-f0-9]{64}$/;
 const SOURCE_ID_PATTERN = /^sample-hwpx-[34]q-[a-f0-9]{16}$/;
 const CASE_ID_PATTERN = /^hwpx-weak-case-[a-f0-9]{32}$/;
+const CELL_TARGET_ID_PATTERN = /^hwpx-cell-[a-f0-9]{24}$/;
+const PICTURE_TARGET_ID_PATTERN = /^hwpx-picture-[a-f0-9]{24}$/;
+const APPROVAL_ID_PATTERN = /^approved-reference-[a-f0-9]{24}$/;
+const SECTION_PATH_PATTERN = /^Contents\/section[0-9]{1,5}\.xml$/;
+const ISSUE_TYPES = new Set<string>([
+  ...CANONICAL_ISSUE_TYPES.map(({ apiValue }) => apiValue),
+  "other",
+]);
 const KNOWN_SOURCES = Object.freeze({
   "sample-hwpx-3q-24ffb4bc62cd86a6": Object.freeze({
     documentName: "3분기 점검 내용 정리.hwpx",
@@ -111,32 +139,44 @@ const SOURCE_KEYS = [
 ];
 const CASE_KEYS = [
   "annotation_created",
+  "approval_id",
+  "approval_record_sha256",
+  "approval_revision",
+  "approved_action",
+  "approved_issue_type",
   "approved_reference",
   "caption",
   "case_id",
   "cell_column",
   "cell_row",
+  "cell_target_id",
   "document_name",
   "document_sha256",
   "evaluation",
   "image_available",
   "image_height",
   "image_media_type",
+  "image_sha256",
   "image_width",
   "incident_created",
+  "index_manifest_sha256",
   "location",
   "matched_terms",
   "opinion",
   "page_hint",
   "page_hint_source",
   "picture_index",
+  "picture_target_id",
   "quarter",
   "rank",
   "reference_state",
   "review_required",
   "route",
+  "section_index",
+  "section_path",
   "similarity_score",
   "source_id",
+  "structure_target_summary_sha256",
   "table_index",
   "training_eligible",
 ];
@@ -208,8 +248,8 @@ function parseSource(value: unknown) {
     !boundedInteger(value.case_count, 0, 10_000) ||
     !boundedInteger(value.resolved_case_count, 0, 10_000) ||
     !boundedInteger(value.review_required_count, 0, 10_000) ||
-    value.approved_reference_count !== 0 ||
-    value.training_eligible_count !== 0 ||
+    !boundedInteger(value.approved_reference_count, 0, 10_000) ||
+    !boundedInteger(value.training_eligible_count, 0, 10_000) ||
     value.annotation_count !== 0 ||
     value.incident_count !== 0 ||
     !(
@@ -224,13 +264,18 @@ function parseSource(value: unknown) {
   if (
     (ready &&
       (value.index_manifest_sha256 === null ||
-        value.case_count !== value.review_required_count ||
+        value.case_count !==
+          Number(value.review_required_count) +
+            Number(value.approved_reference_count) ||
+        value.training_eligible_count !== value.approved_reference_count ||
         Number(value.resolved_case_count) > Number(value.case_count))) ||
     (!ready &&
       (value.index_manifest_sha256 !== null ||
         value.case_count !== 0 ||
         value.resolved_case_count !== 0 ||
-        value.review_required_count !== 0))
+        value.review_required_count !== 0 ||
+        value.approved_reference_count !== 0 ||
+        value.training_eligible_count !== 0))
   ) {
     return null;
   }
@@ -253,17 +298,32 @@ function parseCase(value: unknown): WeakCaseReference | null {
     value.matched_terms.some(
       (item) => !boundedString(item, 240),
     ) ||
-    value.reference_state !== "weak_unconfirmed" ||
-    value.review_required !== true ||
-    value.approved_reference !== false ||
-    value.training_eligible !== false ||
+    (value.reference_state !== "weak_unconfirmed" &&
+      value.reference_state !== "approved_reference") ||
+    typeof value.review_required !== "boolean" ||
+    typeof value.approved_reference !== "boolean" ||
+    typeof value.training_eligible !== "boolean" ||
     value.annotation_created !== false ||
     value.incident_created !== false ||
     value.quarter !== source.quarter ||
     value.document_name !== source.documentName ||
     value.document_sha256 !== source.documentSha256 ||
+    typeof value.structure_target_summary_sha256 !== "string" ||
+    !SHA_PATTERN.test(value.structure_target_summary_sha256) ||
+    typeof value.index_manifest_sha256 !== "string" ||
+    !SHA_PATTERN.test(value.index_manifest_sha256) ||
+    typeof value.section_path !== "string" ||
+    !SECTION_PATH_PATTERN.test(value.section_path) ||
+    !boundedInteger(value.section_index, 0, 100_000) ||
+    typeof value.picture_target_id !== "string" ||
+    !PICTURE_TARGET_ID_PATTERN.test(value.picture_target_id) ||
     !boundedInteger(value.page_hint, 1, 10_000) ||
     !boundedString(value.page_hint_source, 120) ||
+    !(
+      value.cell_target_id === null ||
+      (typeof value.cell_target_id === "string" &&
+        CELL_TARGET_ID_PATTERN.test(value.cell_target_id))
+    ) ||
     !boundedInteger(value.table_index, 0, 100_000, { nullable: true }) ||
     !boundedInteger(value.cell_row, 0, 100_000, { nullable: true }) ||
     !boundedInteger(value.cell_column, 0, 100_000, { nullable: true }) ||
@@ -274,6 +334,11 @@ function parseCase(value: unknown): WeakCaseReference | null {
     !boundedString(value.evaluation, 320, { nullable: true }) ||
     !boundedString(value.opinion, 320, { nullable: true }) ||
     typeof value.image_available !== "boolean" ||
+    !(
+      value.image_sha256 === null ||
+      (typeof value.image_sha256 === "string" &&
+        SHA_PATTERN.test(value.image_sha256))
+    ) ||
     !(
       value.image_media_type === null ||
       (typeof value.image_media_type === "string" &&
@@ -286,9 +351,41 @@ function parseCase(value: unknown): WeakCaseReference | null {
   }
   if (
     value.image_available &&
-    (value.image_media_type === null ||
+    (value.image_sha256 === null ||
+      value.image_media_type === null ||
       value.image_width === null ||
       value.image_height === null)
+  ) {
+    return null;
+  }
+  const approvalFields = [
+    value.approval_id,
+    value.approval_revision,
+    value.approval_record_sha256,
+    value.approved_issue_type,
+    value.approved_action,
+  ];
+  if (
+    value.approved_reference
+      ? (
+          value.reference_state !== "approved_reference" ||
+          value.review_required ||
+          !value.training_eligible ||
+          typeof value.approval_id !== "string" ||
+          !APPROVAL_ID_PATTERN.test(value.approval_id) ||
+          !boundedInteger(value.approval_revision, 1, 1_000_000_000) ||
+          typeof value.approval_record_sha256 !== "string" ||
+          !SHA_PATTERN.test(value.approval_record_sha256) ||
+          typeof value.approved_issue_type !== "string" ||
+          !ISSUE_TYPES.has(value.approved_issue_type) ||
+          !boundedString(value.approved_action, 500)
+        )
+      : (
+          value.reference_state !== "weak_unconfirmed" ||
+          !value.review_required ||
+          value.training_eligible ||
+          approvalFields.some((field) => field !== null)
+        )
   ) {
     return null;
   }
@@ -298,10 +395,21 @@ function parseCase(value: unknown): WeakCaseReference | null {
     rank: Number(value.rank),
     similarityScore: Number(value.similarity_score),
     matchedTerms: value.matched_terms as string[],
+    referenceState: value.reference_state,
+    reviewRequired: value.review_required,
+    approvedReference: value.approved_reference,
+    trainingEligible: value.training_eligible,
     quarter: source.quarter,
     documentName: source.documentName,
     documentSha256: source.documentSha256,
+    structureTargetSummarySha256:
+      value.structure_target_summary_sha256,
+    indexManifestSha256: value.index_manifest_sha256,
+    sectionPath: value.section_path,
+    sectionIndex: Number(value.section_index),
+    pictureTargetId: value.picture_target_id,
     pageHint: Number(value.page_hint),
+    cellTargetId: value.cell_target_id as string | null,
     tableIndex: value.table_index as number | null,
     cellRow: value.cell_row as number | null,
     cellColumn: value.cell_column as number | null,
@@ -312,7 +420,14 @@ function parseCase(value: unknown): WeakCaseReference | null {
     evaluation: value.evaluation as string | null,
     opinion: value.opinion as string | null,
     imageAvailable: value.image_available,
+    imageSha256: value.image_sha256 as string | null,
     imageMediaType: value.image_media_type as WeakCaseReference["imageMediaType"],
+    approvalId: value.approval_id as string | null,
+    approvalRevision: value.approval_revision as number | null,
+    approvalRecordSha256: value.approval_record_sha256 as string | null,
+    approvedIssueType:
+      value.approved_issue_type as AnalysisVisionIssueType | null,
+    approvedAction: value.approved_action as string | null,
   };
 }
 
@@ -329,7 +444,8 @@ export function parseWeakCaseSearchResponse(
     value.schema_version !== "trafficvisson.weak-case-search.v1" ||
     value.search_mode !== "bounded_text_and_structure_metadata" ||
     value.semantic_image_embedding_used !== false ||
-    (value.capability_state !== "weak_reference_only" &&
+    (value.capability_state !== "approved_reference_available" &&
+      value.capability_state !== "weak_reference_only" &&
       value.capability_state !== "unavailable") ||
     value.issue_type !== expected.issueType ||
     !(
@@ -343,10 +459,10 @@ export function parseWeakCaseSearchResponse(
     !Array.isArray(value.source_states) ||
     value.source_states.length > 4 ||
     value.review_required_before_promotion !== true ||
-    value.approved_reference_count !== 0 ||
+    !boundedInteger(value.approved_reference_count, 0, 5) ||
     value.annotation_count !== 0 ||
     value.incident_count !== 0 ||
-    value.training_eligible_count !== 0
+    !boundedInteger(value.training_eligible_count, 0, 5)
   ) {
     throw new Error(
       "3·4분기 참고 사례 검색 응답을 검증하지 못했습니다.",
@@ -369,10 +485,19 @@ export function parseWeakCaseSearchResponse(
       .map((source) => [source.source_id, source]),
   );
   if (
-    (value.capability_state === "weak_reference_only" &&
+    ((value.capability_state === "weak_reference_only" ||
+      value.capability_state === "approved_reference_available") &&
       readySourceCount < 1) ||
     (value.capability_state === "unavailable" &&
       readySourceCount !== 0) ||
+    Number(value.approved_reference_count) !==
+      cases.filter((item) => item?.approvedReference).length ||
+    Number(value.training_eligible_count) !==
+      cases.filter((item) => item?.trainingEligible).length ||
+    (value.capability_state === "approved_reference_available" &&
+      Number(value.approved_reference_count) < 1) ||
+    (value.capability_state !== "approved_reference_available" &&
+      Number(value.approved_reference_count) !== 0) ||
     cases.some((item, index) => {
       if (item?.rank !== index + 1) return true;
       const source = item ? sourceById.get(item.sourceId) : null;
@@ -396,9 +521,9 @@ export function parseWeakCaseSearchResponse(
     cases: cases as WeakCaseReference[],
     readySourceCount,
     sourceCount: sources.length,
-    approvedReferenceCount: 0,
+    approvedReferenceCount: Number(value.approved_reference_count),
     annotationCount: 0,
     incidentCount: 0,
-    trainingEligibleCount: 0,
+    trainingEligibleCount: Number(value.training_eligible_count),
   };
 }

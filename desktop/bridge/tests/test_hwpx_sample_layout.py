@@ -8,6 +8,7 @@ import pytest
 from app.contracts import DocumentEditPlan
 from app.hwpx_sample_layout import (
     HwpxSampleLayoutError,
+    bind_sample_reference_case,
     inspect_sample_layout,
     preview_sample_layout_plan,
 )
@@ -178,6 +179,142 @@ def test_4q_table_pair_mapping_reaches_page_48_despite_46_breaks(
     )
     assert preview.operation_bindings[0].page_number == 48
     assert preview.operation_bindings[0].page_kind == "photo"
+
+
+def test_reference_photo_binds_exact_slot_and_square_marker_cells(
+    sample_3q,
+):
+    photo = next(
+        picture
+        for picture in sample_3q.snapshot.pictures
+        if picture.nearest_table_index == 2
+    )
+
+    binding = bind_sample_reference_case(
+        sample_3q,
+        photo.target_id,
+    )
+
+    assert binding.picture_target_id == photo.target_id
+    assert binding.photo_table_index == 2
+    assert binding.page_pair_index == 0
+    assert binding.inspection_page_number == 1
+    assert binding.photo_page_number == 2
+    assert binding.photo_cell_target_id == (
+        photo.nearest_cell_target_id
+    )
+    assert binding.photo_caption.role == "photo_caption"
+    assert binding.photo_caption.table_index == 2
+    assert binding.photo_caption.page_number == 2
+    assert binding.photo_caption.row == binding.photo_cell_row + 1
+    assert (
+        binding.photo_caption.column
+        <= binding.photo_cell_column
+        < (
+            binding.photo_caption.column
+            + binding.photo_caption.column_span
+        )
+    )
+    assert binding.inspection_route.role == "inspection_route"
+    assert binding.inspection_route.table_index == 1
+    assert binding.inspection_route.page_number == 1
+    assert binding.inspection_route.text_excerpt.startswith(
+        "노선명"
+    )
+    assert (
+        binding.inspection_opinion_label.role
+        == "inspection_opinion_label"
+    )
+    assert (
+        binding.inspection_opinion_label.text_excerpt
+        == "점검의견"
+    )
+    assert (
+        binding.inspection_opinion_body.role
+        == "inspection_opinion_body"
+    )
+    assert (
+        binding.inspection_opinion_body.row
+        == binding.inspection_opinion_label.row + 1
+    )
+    assert (
+        binding.inspection_opinion_body.column
+        == binding.inspection_opinion_label.column
+    )
+    assert binding.photo_slot_id.startswith("sample-photo-slot-")
+    assert len(binding.binding_sha256) == 64
+    assert len(binding.square_markers) == 20
+    assert all(
+        marker.table_index == 1
+        and marker.page_number == 1
+        and marker.marker == "■"
+        and marker.cell_target_id.startswith("hwpx-cell-")
+        and len(marker.text_sha256) == 64
+        for marker in binding.square_markers
+    )
+
+
+@pytest.mark.parametrize("fixture_name", ("sample_3q", "sample_4q"))
+def test_every_sample_photo_has_exact_semantic_page_pair_binding(
+    request,
+    fixture_name,
+):
+    inspection = request.getfixturevalue(fixture_name)
+    photos = [
+        picture
+        for picture in inspection.snapshot.pictures
+        if (
+            picture.nearest_table_index is not None
+            and picture.nearest_table_index % 3 == 2
+        )
+    ]
+
+    bindings = [
+        bind_sample_reference_case(inspection, photo.target_id)
+        for photo in photos
+    ]
+
+    assert len(bindings) == (
+        inspection.counts.existing_photo_picture_count
+    )
+    assert all(
+        binding.photo_page_number
+        == binding.inspection_page_number + 1
+        and binding.photo_caption.column
+        <= binding.photo_cell_column
+        < (
+            binding.photo_caption.column
+            + binding.photo_caption.column_span
+        )
+        and binding.photo_caption.page_number
+        == binding.photo_page_number
+        and binding.inspection_route.page_number
+        == binding.inspection_page_number
+        and binding.inspection_opinion_body.page_number
+        == binding.inspection_page_number
+        and 1 <= binding.inspection_page_number <= 47
+        and 2 <= binding.photo_page_number <= 48
+        for binding in bindings
+    )
+
+
+def test_fixed_inspection_picture_cannot_become_reference_photo(
+    sample_3q,
+):
+    fixed = next(
+        picture
+        for picture in sample_3q.snapshot.pictures
+        if picture.nearest_table_index == 1
+    )
+
+    with pytest.raises(
+        HwpxSampleLayoutError,
+        match="고정 그림",
+    ):
+        bind_sample_reference_case(
+            sample_3q,
+            fixed.target_id,
+        )
 
 
 def test_plan_cannot_target_fixed_picture_duplicate_or_other_snapshot(

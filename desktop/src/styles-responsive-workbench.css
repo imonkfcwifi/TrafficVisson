@@ -1,0 +1,546 @@
+/*
+ * Responsive desktop workbench
+ *
+ * Viewport media queries alone do not describe the usable workbench because
+ * the side navigation and Windows caption controls also consume horizontal
+ * space. This final cascade keeps those regions flexible from the roomy
+ * 1600 px window down to the supported 1280 × 720 minimum.
+ */
+:root {
+  --layout-motion-duration: 180ms;
+  --layout-motion-easing: cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+@media (min-width: 961px) {
+  .titlebar {
+    display: grid;
+    grid-template-columns:
+      max-content
+      minmax(220px, 360px)
+      minmax(136px, 156px)
+      minmax(0, 1fr)
+      max-content;
+    grid-template-areas: "brand project context runtime diagnostics";
+    gap: clamp(8px, 1vw, 16px);
+    padding-left: clamp(12px, 1.15vw, 18px);
+    transition:
+      grid-template-columns var(--layout-motion-duration) var(--layout-motion-easing),
+      gap var(--layout-motion-duration) var(--layout-motion-easing),
+      padding var(--layout-motion-duration) var(--layout-motion-easing);
+  }
+
+  .brand {
+    grid-area: brand;
+    min-width: 0;
+    white-space: nowrap;
+  }
+
+  .project-switcher {
+    grid-area: project;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    margin: 0;
+    transition:
+      width var(--layout-motion-duration) var(--layout-motion-easing),
+      padding var(--layout-motion-duration) var(--layout-motion-easing);
+  }
+
+  .shell-screen-context {
+    grid-area: context;
+    min-width: 0;
+    width: 100%;
+    transition:
+      width var(--layout-motion-duration) var(--layout-motion-easing),
+      padding var(--layout-motion-duration) var(--layout-motion-easing),
+      column-gap var(--layout-motion-duration) var(--layout-motion-easing);
+  }
+
+  .runtime-strip {
+    grid-area: runtime;
+  }
+
+  .shell-diagnostics-button {
+    grid-area: diagnostics;
+  }
+
+  .side-nav,
+  .workspace,
+  .screen,
+  .screen-header,
+  .screen--labeling > .screen-header,
+  .screen--labeling .labeling-macro-flow,
+  .screen--labeling .labeling-layout,
+  .screen--labeling .label-queue-controls,
+  .screen--labeling .evidence-workbench,
+  .screen--labeling .question-card {
+    transition:
+      width var(--layout-motion-duration) var(--layout-motion-easing),
+      min-width var(--layout-motion-duration) var(--layout-motion-easing),
+      padding var(--layout-motion-duration) var(--layout-motion-easing),
+      gap var(--layout-motion-duration) var(--layout-motion-easing),
+      grid-template-columns var(--layout-motion-duration) var(--layout-motion-easing);
+  }
+
+  .workspace {
+    padding: clamp(14px, 1.38vw, 22px);
+  }
+
+  .screen {
+    gap: clamp(8px, 1vw, 16px);
+  }
+
+  .screen--labeling > .screen-header {
+    grid-template-columns:
+      minmax(220px, 0.72fr)
+      minmax(400px, 1.45fr)
+      minmax(190px, auto);
+    gap: clamp(8px, 0.9vw, 14px);
+  }
+
+  .screen--labeling > .screen-header > :first-child,
+  .screen--labeling .labeling-macro-flow,
+  .screen--labeling .review-profile-summary,
+  .screen--labeling .labeling-layout,
+  .screen--labeling .evidence-workbench,
+  .screen--labeling .labeling-sidebar,
+  .screen--labeling .question-card {
+    min-width: 0;
+  }
+
+  .screen--labeling .labeling-layout {
+    grid-template-columns: minmax(0, 1.65fr) minmax(380px, 0.9fr);
+    gap: clamp(8px, 0.95vw, 14px);
+  }
+
+  .screen--labeling .label-queue-controls {
+    grid-template-columns:
+      minmax(250px, 1fr)
+      max-content
+      minmax(190px, 0.7fr);
+    gap: clamp(6px, 0.75vw, 12px);
+  }
+
+  .screen--labeling .evidence-image {
+    transition:
+      height var(--layout-motion-duration) var(--layout-motion-easing),
+      min-height var(--layout-motion-duration) var(--layout-motion-easing),
+      flex-basis var(--layout-motion-duration) var(--layout-motion-easing);
+  }
+}
+
+/*
+ * A 1280 px native BrowserWindow exposes about 1266 px of renderer width on
+ * Windows. Enter the compact desktop composition before that client area is
+ * crowded instead of waiting for a hard 1280 px edge.
+ */
+@media (min-width: 961px) and (max-width: 1399px) {
+  .titlebar {
+    grid-template-columns:
+      max-content
+      minmax(210px, 1fr)
+      minmax(130px, 146px)
+      max-content;
+    grid-template-areas: "brand project context diagnostics";
+    gap: clamp(7px, 0.8vw, 11px);
+    padding-right: 156px;
+  }
+
+  .runtime-strip {
+    display: none;
+  }
+
+  .brand-name {
+    font-size: 15px;
+  }
+
+  .project-switcher {
+    height: 38px;
+    padding-inline: 12px 10px;
+  }
+
+  .shell-screen-context {
+    height: 38px;
+    column-gap: 6px;
+    padding-inline: 9px 7px;
+  }
+
+  .shell-screen-context > span {
+    font-size: 10.5px;
+    letter-spacing: 0;
+  }
+
+  .shell-screen-context > strong {
+    font-size: 12.5px;
+  }
+
+  .screen--labeling > .screen-header {
+    grid-template-columns:
+      minmax(220px, 0.68fr)
+      minmax(390px, 1.38fr)
+      minmax(184px, 0.58fr);
+    gap: 8px;
+  }
+
+  .screen--labeling > .screen-header p:not(.eyebrow) {
+    max-width: 38ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .screen--labeling .labeling-macro-flow {
+    gap: 2px;
+    padding: 2px;
+  }
+
+  .screen--labeling .labeling-macro-flow > li {
+    min-height: 38px;
+    grid-template-columns: 18px minmax(0, 1fr);
+    gap: 4px;
+    padding-inline: 4px;
+  }
+
+  .screen--labeling .labeling-macro-flow__index {
+    width: 18px;
+    height: 18px;
+  }
+
+  .screen--labeling .labeling-macro-flow small {
+    display: none;
+  }
+
+  .screen--labeling .review-profile-summary {
+    min-width: 0;
+    min-height: 44px;
+    column-gap: 7px;
+    padding: 5px 8px;
+  }
+
+  .screen--labeling .review-profile-summary > span {
+    padding-right: 7px;
+  }
+
+  .screen--labeling .review-profile-summary > small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .screen--labeling .labeling-layout {
+    grid-template-columns: minmax(0, 1.72fr) minmax(380px, 0.9fr);
+    gap: 8px;
+  }
+
+  .screen--labeling .label-queue-controls {
+    grid-template-columns:
+      minmax(0, 1fr)
+      max-content
+      minmax(176px, 0.58fr);
+    gap: 6px;
+  }
+
+  .screen--labeling .workbench-toolbar {
+    gap: 8px;
+  }
+
+  .screen--labeling .workbench-toolbar > div:first-child {
+    min-width: 0;
+    overflow: hidden;
+  }
+}
+
+/*
+ * Width and height become constrained together in the Windows minimum client
+ * area. Reassert the decision-card budget after the legacy short-window
+ * layers so their individual readable-size fixes cannot add up to clipping.
+ */
+@media (min-width: 961px) and (max-height: 820px) {
+  .screen--labeling {
+    gap: 8px;
+  }
+
+  .screen--labeling > .screen-header {
+    min-height: 54px;
+  }
+
+  .screen--labeling > .screen-header p:not(.eyebrow) {
+    margin-top: 1px;
+    font-size: 11.5px;
+    line-height: 1.2;
+  }
+
+  .screen--labeling .labeling-sidebar {
+    grid-template-rows: minmax(0, 1fr) 34px;
+  }
+
+  .screen--labeling .question-card,
+  .screen--labeling .question-card:has(> .experimental-proposal),
+  .screen--labeling .question-card:has(> .severity-followup) {
+    padding: 5px 7px;
+  }
+
+  .screen--labeling .question-card__header {
+    min-height: 24px;
+    flex-basis: 24px;
+  }
+
+  .screen--labeling .question-card__header > div > strong {
+    font-size: 15px;
+  }
+
+  .screen--labeling .question-card__status {
+    min-height: 21px;
+    padding-inline: 7px;
+  }
+
+  .screen--labeling .question-prompt,
+  .screen--labeling
+    .question-card:has(> .experimental-proposal)
+    .question-prompt {
+    min-height: 36px;
+    max-height: 36px;
+    margin: 1px 0;
+    font-size: 15px;
+    line-height: 1.2;
+    -webkit-line-clamp: 2;
+  }
+
+  .screen--labeling .question-metadata {
+    min-height: 17px;
+    height: 17px;
+    line-height: 1.15;
+  }
+
+  .screen--labeling .question-decision-context,
+  .screen--labeling
+    .question-card:has(> .ocr-roi)
+    > .question-decision-context {
+    min-height: 40px;
+    max-height: 40px;
+    flex-basis: 40px;
+    margin-top: 1px;
+  }
+
+  .screen--labeling .question-decision-context__row {
+    min-height: 19px;
+    grid-template-columns: minmax(112px, auto) minmax(0, 1fr);
+    gap: 5px;
+    padding-block: 0;
+  }
+
+  .screen--labeling .question-decision-context__row--severity {
+    grid-template-columns: minmax(112px, auto) minmax(0, 1fr) max-content;
+  }
+
+  .screen--labeling
+    .question-card:has(> .experimental-proposal)
+    > .weak-case-reference,
+  .screen--labeling
+    .question-card:has(> .severity-followup)
+    > .weak-case-reference,
+  .screen--labeling .weak-case-reference {
+    max-height: 50px;
+    margin-top: 1px;
+    padding-block: 3px;
+  }
+
+  .screen--labeling .weak-case-reference__header {
+    min-height: 14px;
+  }
+
+  .screen--labeling .weak-case-strip,
+  .screen--labeling .weak-case-strip > button,
+  .screen--labeling
+    .question-card:has(> .severity-followup)
+    .weak-case-strip,
+  .screen--labeling
+    .question-card:has(> .severity-followup)
+    .weak-case-strip
+    > button {
+    height: 29px;
+  }
+
+  .screen--labeling .weak-case-reference__detail {
+    display: none;
+  }
+
+  .screen--labeling .experimental-proposal,
+  .screen--labeling
+    .question-card:has(> .severity-followup)
+    > .experimental-proposal {
+    min-height: 38px;
+    max-height: 38px;
+    flex-basis: 38px;
+    grid-template-rows: 17px 15px;
+    margin-top: 1px;
+    padding: 2px 6px;
+  }
+
+  .screen--labeling .experimental-proposal > p {
+    font-size: 10px;
+  }
+
+  .screen--labeling .question-card > .compact-field,
+  .screen--labeling
+    .question-card:has(> .experimental-proposal)
+    > .compact-field {
+    min-height: 28px;
+    margin-top: 1px;
+  }
+
+  .screen--labeling .question-card > .compact-field :is(select, input) {
+    min-height: 28px;
+  }
+
+  .screen--labeling .answer-grid,
+  .screen--labeling
+    .question-card:has(> .experimental-proposal)
+    > .answer-grid {
+    min-height: 44px;
+    margin-top: 2px;
+  }
+
+  .screen--labeling .answer {
+    min-height: 38px;
+    padding-block: 4px;
+  }
+
+  .screen--labeling .explanation,
+  .screen--labeling .experimental-proposal ~ .explanation,
+  .screen--labeling
+    .question-card:has(> .severity-followup)
+    > .explanation {
+    min-height: 26px;
+    max-height: 26px;
+    flex-basis: 26px;
+    margin: 1px 0;
+    padding: 2px 4px;
+    overflow: hidden;
+  }
+
+  .screen--labeling .experimental-proposal ~ .explanation p,
+  .screen--labeling
+    .question-card:has(> .severity-followup)
+    > .explanation
+    p {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .screen--labeling .question-card > .question-skip {
+    min-height: 24px;
+    flex-basis: 24px;
+    padding-block: 2px;
+  }
+
+  .screen--labeling .label-progress {
+    min-height: 34px;
+    height: 34px;
+    padding-block: 4px;
+  }
+}
+
+/*
+ * This interval is mainly useful for browser QA and future lower-minimum
+ * hardware. The Electron product currently stops at 1280 px, but the layout
+ * still degrades coherently if the renderer receives less space.
+ */
+@media (min-width: 961px) and (max-width: 1150px) {
+  .titlebar {
+    grid-template-columns: max-content minmax(190px, 1fr) minmax(110px, 132px) 40px;
+    gap: 6px;
+    padding-right: 146px;
+  }
+
+  .brand-mark {
+    width: 30px;
+    height: 30px;
+  }
+
+  .brand-name {
+    max-width: 112px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .shell-screen-context {
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding-inline: 7px 5px;
+  }
+
+  .shell-screen-context > span {
+    display: none;
+  }
+
+  .shell-screen-context > strong {
+    grid-row: 1 / span 2;
+    align-self: center;
+  }
+
+  .shell-diagnostics-button {
+    width: 40px;
+    min-width: 40px;
+    padding: 0;
+  }
+
+  .shell-diagnostics-button span {
+    display: none;
+  }
+
+  #root .side-nav {
+    width: 82px;
+    padding-inline: 5px;
+  }
+
+  .workspace {
+    padding-inline: 11px;
+  }
+
+  .screen--labeling > .screen-header {
+    grid-template-columns: minmax(210px, 0.72fr) minmax(0, 1.28fr) 176px;
+  }
+
+  .screen--labeling .labeling-macro-flow > li {
+    display: flex;
+    justify-content: center;
+    padding-inline: 2px;
+  }
+
+  .screen--labeling .labeling-macro-flow > li > span:last-child {
+    display: none;
+  }
+
+  .screen--labeling .labeling-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(350px, 0.72fr);
+  }
+
+  .screen--labeling .label-queue-controls {
+    grid-template-columns: minmax(0, 1fr) max-content;
+  }
+
+  .screen--labeling .label-job-status {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --layout-motion-duration: 0ms;
+  }
+
+  .titlebar,
+  .side-nav,
+  .workspace,
+  .screen,
+  .screen-header,
+  .screen--labeling > .screen-header,
+  .screen--labeling .labeling-macro-flow,
+  .screen--labeling .labeling-layout,
+  .screen--labeling .label-queue-controls,
+  .screen--labeling .evidence-workbench,
+  .screen--labeling .question-card,
+  .screen--labeling .evidence-image {
+    transition: none;
+  }
+}

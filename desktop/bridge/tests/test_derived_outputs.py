@@ -254,6 +254,39 @@ class FakeStore:
         return [dict(self.incident)]
 
 
+class EmptyStore:
+    def __init__(self):
+        self.projected = []
+
+    def project_label_records(
+        self,
+        project_id,
+        records,
+        *,
+        materialize_analysis_job_ids=None,
+    ):
+        self.projected.append(
+            (
+                project_id,
+                list(records),
+                list(materialize_analysis_job_ids or []),
+            )
+        )
+        return []
+
+    def list_incidents(
+        self,
+        project_id,
+        *,
+        include_inactive=False,
+        analysis_job_id=None,
+    ):
+        assert project_id == PROJECT_ID
+        assert include_inactive is False
+        assert analysis_job_id == ANALYSIS_JOB_ID
+        return []
+
+
 class FakeAnalysisJobs:
     def __init__(self, candidates):
         self.candidates = candidates
@@ -469,6 +502,133 @@ def test_reviewed_outputs_are_exact_job_idempotent_and_report_blocked(
     assert manifest["record_counts"]["route_points"] == 0
     assert manifest["evidence"]["incident_count"] == 1
     assert manifest["evidence"]["file_count"] == 2
+
+
+def test_zero_detections_exports_empty_bundle_without_review_projection(
+    tmp_path,
+):
+    empty_ledger_sha256 = hashlib.sha256(b"").hexdigest()
+    store = EmptyStore()
+    service = DerivedOutputsService(
+        data_root=(tmp_path / "bridge-data").resolve(),
+        candidate_labels=FakeCandidateLabels([]),
+        store=store,
+        analysis_jobs=FakeAnalysisJobs([]),
+    )
+    request = DerivedOutputsRequest(
+        project_id=PROJECT_ID,
+        pipeline_job_id=PIPELINE_JOB_ID,
+        analysis_job_id=ANALYSIS_JOB_ID,
+        source_sha256=SOURCE_SHA256,
+        pipeline_input_fingerprint="1" * 64,
+        pipeline_profile_sha256="2" * 64,
+        review_completion_id=(
+            f"zero-detections:{empty_ledger_sha256}"
+        ),
+        answer_ledger_sha256=empty_ledger_sha256,
+        question_candidate_ids=(),
+        template_id="sample-4q-v1",
+        template_sha256="3" * 64,
+        report_provider="codex",
+        report_transmission_consent=False,
+        template_semantic_map_ready=False,
+        report_provider_ready=False,
+        completion_mode="zero_detections",
+    )
+
+    first = service.generate(request)
+    second = service.generate(request)
+
+    assert first.replayed is False
+    assert second.replayed is True
+    assert first.checkpoint == second.checkpoint
+    assert first.checkpoint["state"] == "completed"
+    assert first.checkpoint["completion_mode"] == "zero_detections"
+    assert first.checkpoint["report"] == {
+        "state": "not_applicable_no_approved_incidents",
+        "blocking_reasons": [],
+        "provider_called": False,
+        "document_edit_plan_prepared": False,
+        "com_invoked": False,
+    }
+    assert first.metrics["raw_detection_count"] == 0
+    assert first.metrics["reviewed_answer_count"] == 0
+    assert first.metrics["annotation_count"] == 0
+    assert first.metrics["incident_count"] == 0
+    assert first.metrics["evidence_file_count"] == 0
+    assert store.projected == []
+
+    bundles = list(
+        (tmp_path / "bridge-data" / "exports").glob(
+            "trafficsupervision-export-*"
+        )
+    )
+    assert len(bundles) == 1
+    bundle = bundles[0]
+    for file_name in (
+        "raw_detections.csv",
+        "reviewed_incidents.csv",
+        "label_questions.csv",
+        "annotations.csv",
+        "ocr_observations.csv",
+        "maintenance_actions.csv",
+    ):
+        with (bundle / file_name).open(
+            "r", encoding="utf-8-sig", newline=""
+        ) as source:
+            assert list(csv.DictReader(source)) == []
+    manifest = json.loads(
+        (bundle / "manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest["provenance"]["completion_mode"] == (
+        "zero_detections"
+    )
+    assert manifest["provenance"]["answer_ledger_sha256"] == (
+        empty_ledger_sha256
+    )
+    assert manifest["record_counts"]["detections"] == 0
+    assert manifest["record_counts"]["incidents"] == 0
+
+
+def test_zero_detections_rejects_a_nonempty_analysis(tmp_path):
+    evidence_root = tmp_path / "evidence"
+    evidence_root.mkdir()
+    candidate = _candidate(
+        evidence_root, CANDIDATE_A, timestamp=1.0
+    )
+    empty_ledger_sha256 = hashlib.sha256(b"").hexdigest()
+    service = DerivedOutputsService(
+        data_root=(tmp_path / "bridge-data").resolve(),
+        candidate_labels=FakeCandidateLabels([]),
+        store=EmptyStore(),
+        analysis_jobs=FakeAnalysisJobs([candidate]),
+    )
+    request = DerivedOutputsRequest(
+        project_id=PROJECT_ID,
+        pipeline_job_id=PIPELINE_JOB_ID,
+        analysis_job_id=ANALYSIS_JOB_ID,
+        source_sha256=SOURCE_SHA256,
+        pipeline_input_fingerprint="1" * 64,
+        pipeline_profile_sha256="2" * 64,
+        review_completion_id=(
+            f"zero-detections:{empty_ledger_sha256}"
+        ),
+        answer_ledger_sha256=empty_ledger_sha256,
+        question_candidate_ids=(),
+        template_id="sample-4q-v1",
+        template_sha256="3" * 64,
+        report_provider="none",
+        report_transmission_consent=False,
+        template_semantic_map_ready=False,
+        report_provider_ready=False,
+        completion_mode="zero_detections",
+    )
+
+    with pytest.raises(
+        DerivedOutputsConflict,
+        match="contains candidates",
+    ):
+        service.generate(request)
 
 
 def test_forged_review_ledger_creates_no_export(tmp_path):

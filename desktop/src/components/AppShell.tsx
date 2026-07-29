@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  Fragment,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   Activity,
   BrainCircuit,
@@ -77,12 +83,35 @@ type RuntimeComponentState =
   | "external_required"
   | "disabled";
 
+type ShellRuntimeModelPack = {
+  provenanceVerified: true;
+  provider: string;
+  packId: string;
+  packVersion: string;
+  manifestSha256: string;
+  modelName: string;
+  modelVersion: string;
+  modelArtifactSha256: string;
+  sourceRepoId: string;
+  sourceRevision: string;
+  weightsSpdx: string;
+  runtimeSpdx: string;
+  commercialUseConfirmed: true;
+  redistributionAllowed: boolean;
+  gpuRequired: boolean;
+  cpuFallback: boolean;
+  recommendedMinVramMb: number;
+  cudaMinVersion: string | null;
+  reviewOnly: true;
+};
+
 type ShellRuntimeComponent = {
   componentId: string;
   displayName: string;
   state: RuntimeComponentState;
   message: string;
   version: string | null;
+  modelPack: ShellRuntimeModelPack | null;
 };
 
 const RUNTIME_COMPONENT_STATES = new Set<RuntimeComponentState>([
@@ -93,6 +122,12 @@ const RUNTIME_COMPONENT_STATES = new Set<RuntimeComponentState>([
   "external_required",
   "disabled",
 ]);
+const MODEL_PACK_RUNTIME_COMPONENTS = new Set([
+  "grounding_dino",
+  "sam2",
+  "korean_ocr",
+  "embedding_search",
+]);
 
 const ANALYSIS_RUNTIME_COMPONENTS = [
   ["pytorch_cuda", "PyTorch CUDA"],
@@ -102,6 +137,66 @@ const ANALYSIS_RUNTIME_COMPONENTS = [
   ["korean_ocr", "한국어 OCR"],
   ["embedding_search", "유사 사례 검색"],
 ] as const;
+
+function parseRuntimeModelPack(value: unknown): ShellRuntimeModelPack | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  const sha256 = /^[a-f0-9]{64}$/;
+  const revision = /^[a-f0-9]{40,64}$/;
+  if (
+    row.provenance_verified !== true ||
+    typeof row.provider !== "string" ||
+    typeof row.pack_id !== "string" ||
+    typeof row.pack_version !== "string" ||
+    typeof row.manifest_sha256 !== "string" ||
+    !sha256.test(row.manifest_sha256) ||
+    typeof row.model_name !== "string" ||
+    typeof row.model_version !== "string" ||
+    typeof row.model_artifact_sha256 !== "string" ||
+    !sha256.test(row.model_artifact_sha256) ||
+    typeof row.source_repo_id !== "string" ||
+    typeof row.source_revision !== "string" ||
+    !revision.test(row.source_revision) ||
+    typeof row.weights_spdx !== "string" ||
+    typeof row.runtime_spdx !== "string" ||
+    row.commercial_use_confirmed !== true ||
+    typeof row.redistribution_allowed !== "boolean" ||
+    typeof row.gpu_required !== "boolean" ||
+    typeof row.cpu_fallback !== "boolean" ||
+    typeof row.recommended_min_vram_mb !== "number" ||
+    !Number.isInteger(row.recommended_min_vram_mb) ||
+    row.recommended_min_vram_mb < 0 ||
+    row.recommended_min_vram_mb > 131_072 ||
+    !(
+      row.cuda_min_version === null ||
+      typeof row.cuda_min_version === "string"
+    ) ||
+    row.review_only !== true
+  ) {
+    return null;
+  }
+  return {
+    provenanceVerified: true,
+    provider: row.provider,
+    packId: row.pack_id,
+    packVersion: row.pack_version,
+    manifestSha256: row.manifest_sha256,
+    modelName: row.model_name,
+    modelVersion: row.model_version,
+    modelArtifactSha256: row.model_artifact_sha256,
+    sourceRepoId: row.source_repo_id,
+    sourceRevision: row.source_revision,
+    weightsSpdx: row.weights_spdx,
+    runtimeSpdx: row.runtime_spdx,
+    commercialUseConfirmed: true,
+    redistributionAllowed: row.redistribution_allowed,
+    gpuRequired: row.gpu_required,
+    cpuFallback: row.cpu_fallback,
+    recommendedMinVramMb: row.recommended_min_vram_mb,
+    cudaMinVersion: row.cuda_min_version,
+    reviewOnly: true,
+  };
+}
 
 function parseRuntimeReadiness(value: unknown): ShellRuntimeComponent[] | null {
   if (!value || typeof value !== "object") return null;
@@ -125,7 +220,12 @@ function parseRuntimeReadiness(value: unknown): ShellRuntimeComponent[] | null {
       state?: unknown;
       message?: unknown;
       version?: unknown;
+      model_pack?: unknown;
     };
+    const modelPack =
+      row.model_pack === undefined
+        ? null
+        : parseRuntimeModelPack(row.model_pack);
     if (
       typeof row.component_id !== "string" ||
       componentIds.has(row.component_id) ||
@@ -133,7 +233,11 @@ function parseRuntimeReadiness(value: unknown): ShellRuntimeComponent[] | null {
       typeof row.state !== "string" ||
       !RUNTIME_COMPONENT_STATES.has(row.state as RuntimeComponentState) ||
       typeof row.message !== "string" ||
-      (row.version !== undefined && typeof row.version !== "string")
+      (row.version !== undefined && typeof row.version !== "string") ||
+      (row.model_pack !== undefined && !modelPack) ||
+      (row.state === "ready" &&
+        MODEL_PACK_RUNTIME_COMPONENTS.has(row.component_id) &&
+        !modelPack)
     ) {
       return null;
     }
@@ -144,9 +248,31 @@ function parseRuntimeReadiness(value: unknown): ShellRuntimeComponent[] | null {
       state: row.state as RuntimeComponentState,
       message: row.message,
       version: typeof row.version === "string" ? row.version : null,
+      modelPack,
     });
   }
   return parsed;
+}
+
+function runtimeComponentDetail(component: ShellRuntimeComponent | null) {
+  if (!component) return "응답에 준비 상태가 없습니다.";
+  const pack = component.modelPack;
+  if (!pack) return component.message;
+  const vram =
+    pack.recommendedMinVramMb > 0
+      ? `VRAM ${Math.ceil(pack.recommendedMinVramMb / 1024)}GB 권장`
+      : "VRAM 요구 없음";
+  const execution = pack.gpuRequired
+    ? `GPU 필수${pack.cudaMinVersion ? ` · CUDA ${pack.cudaMinVersion}+` : ""}`
+    : pack.cpuFallback
+      ? "CPU 대체 가능"
+      : "GPU 요구 없음";
+  return `${pack.modelName} · ${pack.sourceRepoId}@${pack.sourceRevision.slice(
+    0,
+    8,
+  )} · SHA ${pack.manifestSha256.slice(0, 10)}… · ${
+    pack.weightsSpdx
+  } · ${vram} · ${execution}`;
 }
 
 function runtimeStateLabel(
@@ -194,6 +320,7 @@ const NAV_ITEMS: Array<{
   compactLabel: string;
   shortcut: string;
   icon: typeof FolderKanban;
+  sectionLabel?: string;
 }> = [
   {
     id: "home",
@@ -201,6 +328,7 @@ const NAV_ITEMS: Array<{
     compactLabel: "홈",
     shortcut: "1",
     icon: FolderKanban,
+    sectionLabel: "자동 점검",
   },
   {
     id: "import",
@@ -210,18 +338,18 @@ const NAV_ITEMS: Array<{
     icon: Import,
   },
   {
+    id: "analysis",
+    label: "자동 분석 진행",
+    compactLabel: "진행",
+    shortcut: "3",
+    icon: Activity,
+  },
+  {
     id: "label",
     label: "질문 라벨링",
     compactLabel: "질문",
-    shortcut: "3",
-    icon: Tags,
-  },
-  {
-    id: "analysis",
-    label: "분석",
-    compactLabel: "진행",
     shortcut: "4",
-    icon: Activity,
+    icon: Tags,
   },
   {
     id: "review",
@@ -229,34 +357,36 @@ const NAV_ITEMS: Array<{
     compactLabel: "사건",
     shortcut: "5",
     icon: ClipboardCheck,
-  },
-  {
-    id: "models",
-    label: "모델 관리",
-    compactLabel: "모델",
-    shortcut: "6",
-    icon: BrainCircuit,
+    sectionLabel: "결과 확인",
   },
   {
     id: "history",
     label: "GPS 히스토리",
     compactLabel: "지도",
-    shortcut: "7",
+    shortcut: "6",
     icon: History,
   },
   {
     id: "report",
     label: "보고서",
     compactLabel: "보고서",
-    shortcut: "8",
+    shortcut: "7",
     icon: FileText,
   },
   {
     id: "export",
     label: "내보내기",
     compactLabel: "내보내기",
-    shortcut: "9",
+    shortcut: "8",
     icon: FileOutput,
+  },
+  {
+    id: "models",
+    label: "모델 관리",
+    compactLabel: "모델",
+    shortcut: "9",
+    icon: BrainCircuit,
+    sectionLabel: "관리",
   },
 ];
 
@@ -935,6 +1065,10 @@ export function AppShell({
   );
   const activeNavigationItem =
     NAV_ITEMS.find((item) => item.id === activeScreen) ?? NAV_ITEMS[0];
+  const activeNavigationIndex = Math.max(
+    0,
+    NAV_ITEMS.findIndex((item) => item.id === activeNavigationItem.id),
+  );
   const activeProjectSecondaryStatus = currentPipeline
     ? `${pipelineStatusLabel(currentPipeline)} · ${currentPipeline.progressPercent}%`
     : runtime.activeImport
@@ -1017,7 +1151,9 @@ export function AppShell({
             className="shell-screen-context"
             aria-label={`현재 작업 화면: ${activeNavigationItem.label}`}
           >
-            <span>현재 화면</span>
+            <span>
+              업무 화면 {activeNavigationIndex + 1} / {NAV_ITEMS.length}
+            </span>
             <strong>{activeNavigationItem.label}</strong>
             <kbd aria-label={`${activeNavigationItem.shortcut}번 단축키`}>
               {activeNavigationItem.shortcut}
@@ -1084,33 +1220,39 @@ export function AppShell({
                 const Icon = item.icon;
                 const active = activeScreen === item.id;
                 return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className={`nav-item ${active ? "nav-item--active" : ""}`}
-                    aria-label={`${item.label} (${item.shortcut})`}
-                    aria-current={active ? "page" : undefined}
-                    onPointerEnter={() => onScreenPrefetch(item.id)}
-                    onFocus={() => onScreenPrefetch(item.id)}
-                    onClick={() => {
-                      onScreenChange(item.id);
-                      if (window.innerWidth < 960) onNavOpenChange(false);
-                    }}
-                    title={`${item.label} (${item.shortcut})`}
-                  >
-                    <span className="nav-icon">
-                      <Icon size={20} strokeWidth={1.8} aria-hidden="true" />
-                    </span>
-                    <span className="nav-label">{item.label}</span>
-                    <span className="nav-label-compact" aria-hidden="true">
-                      {item.compactLabel}
-                    </span>
-                    {badgeFor(item.id) ? (
-                      <span className="nav-badge">
-                        {badgeFor(item.id)}
+                  <Fragment key={item.id}>
+                    {item.sectionLabel ? (
+                      <span className="nav-section-label">
+                        {item.sectionLabel}
                       </span>
                     ) : null}
-                  </button>
+                    <button
+                      type="button"
+                      className={`nav-item ${active ? "nav-item--active" : ""}`}
+                      aria-label={`${item.label} (${item.shortcut})`}
+                      aria-current={active ? "page" : undefined}
+                      onPointerEnter={() => onScreenPrefetch(item.id)}
+                      onFocus={() => onScreenPrefetch(item.id)}
+                      onClick={() => {
+                        onScreenChange(item.id);
+                        if (window.innerWidth < 960) onNavOpenChange(false);
+                      }}
+                      title={`${item.label} (${item.shortcut})`}
+                    >
+                      <span className="nav-icon">
+                        <Icon size={20} strokeWidth={1.8} aria-hidden="true" />
+                      </span>
+                      <span className="nav-label">{item.label}</span>
+                      <span className="nav-label-compact" aria-hidden="true">
+                        {item.compactLabel}
+                      </span>
+                      {badgeFor(item.id) ? (
+                        <span className="nav-badge">
+                          {badgeFor(item.id)}
+                        </span>
+                      ) : null}
+                    </button>
+                  </Fragment>
                 );
               })}
             </div>
@@ -1254,6 +1396,9 @@ export function AppShell({
                         )}
                         {component?.version ? ` · ${component.version}` : ""}
                       </strong>
+                      <small className="diagnostic-runtime-detail">
+                        {runtimeComponentDetail(component)}
+                      </small>
                     </li>
                   ),
                 )}
@@ -1263,7 +1408,7 @@ export function AppShell({
                   ? "설치본과 Model Pack 무결성 상태를 읽고 있습니다."
                   : runtimeReadinessLoadState === "unavailable"
                     ? "준비 상태를 확인하지 못했으며 미설치를 완료로 간주하지 않습니다."
-                    : "준비됨은 해당 구성의 로컬 무결성 계약을 통과한 상태입니다."}
+                    : "준비됨은 출처·라이선스·가중치 SHA-256·GPU 요구조건까지 확인된 상태입니다. 0건 검지는 별도의 정상 실행 결과입니다."}
               </code>
             </div>
             <div className="diagnostic-card">

@@ -69,13 +69,13 @@ const PREFETCHABLE_SCREENS = Object.keys(
 const SCREEN_ORDER: ScreenId[] = [
   "home",
   "import",
-  "label",
   "analysis",
+  "label",
   "review",
-  "models",
   "history",
   "report",
   "export",
+  "models",
 ];
 
 type IdleCapableWindow = Window & {
@@ -164,6 +164,7 @@ export function App() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
       if (diagnosticsOpen) {
         if (event.key === "Escape") setDiagnosticsOpen(false);
         return;
@@ -181,6 +182,11 @@ export function App() {
       ) {
         return;
       }
+      // The labeling workbench owns 1/2/3 after Y for the severity decision.
+      // Never let those keys fall through to the global screen shortcuts.
+      if (screen === "label" && /^[123]$/.test(event.key)) {
+        return;
+      }
       const index = Number(event.key) - 1;
       if (index >= 0 && index < SCREEN_ORDER.length) {
         event.preventDefault();
@@ -189,7 +195,7 @@ export function App() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [diagnosticsOpen]);
+  }, [diagnosticsOpen, screen]);
 
   let content;
   switch (screen) {

@@ -116,6 +116,15 @@ test("diagnostics dialog traps focus, closes on Escape, and restores background 
   assert.match(appSource, /if \(diagnosticsOpen\)/);
 });
 
+test("labeling severity shortcuts never fall through to screen navigation", () => {
+  assert.match(appSource, /if \(event\.defaultPrevented\) return;/);
+  assert.match(
+    appSource,
+    /if \(screen === "label" && \/\^\[123\]\$\/\.test\(event\.key\)\)\s*\{\s*return;/,
+  );
+  assert.match(appSource, /\}, \[diagnosticsOpen, screen\]\);/);
+});
+
 test("history timeline candidate targets keep a minimum 32px hit area", () => {
   const rule = stylesSource.match(/\.timeline-event\s*\{(?<body>[^}]*)\}/s);
   assert.ok(rule?.groups?.body);

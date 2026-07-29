@@ -10,12 +10,14 @@ const read = (relativePath) =>
 
 const appSource = read("App.tsx");
 const shellSource = read("components/AppShell.tsx");
+const analysisSource = read("screens/AnalysisScreen.tsx");
 const homeSource = read("screens/HomeScreen.tsx");
 const historySource = read("screens/HistoryScreen.tsx");
 const importSource = read("screens/ImportScreen.tsx");
 const labelingSource = read("screens/LabelingScreen.tsx");
 const entrySource = read("main.tsx");
 const productStyles = read("styles-product-shell.css");
+const polishStyles = read("styles-visual-polish.css");
 const appIcon = fs.readFileSync(
   path.join(sourceRoot, "../public/trafficsupervision-app-icon.png"),
 );
@@ -25,13 +27,39 @@ test("desktop navigation stays compact while exposing legible screen labels and 
   assert.match(productStyles, /\.nav-label-compact\s*\{[\s\S]*display:\s*block/);
   assert.match(
     productStyles,
-    /\.nav-label-compact\s*\{[^}]*font-size:\s*10\.5px/s,
+    /\.nav-label-compact\s*\{[^}]*font-size:\s*11px/s,
+  );
+  assert.match(
+    productStyles,
+    /@media \(min-width: 961px\)[\s\S]*?\.nav-section-label\s*\{[^}]*font-size:\s*11px/s,
+  );
+  assert.match(
+    productStyles,
+    /\.shell-screen-context > span\s*\{[^}]*font-size:\s*11px/s,
+  );
+  assert.match(
+    productStyles,
+    /\.shell-screen-context > kbd\s*\{[^}]*font-size:\s*11px/s,
   );
   assert.match(shellSource, /compactLabel:\s*"영상"/);
   assert.match(shellSource, /compactLabel:\s*"질문"/);
   assert.match(shellSource, /현재 작업 화면: \$\{activeNavigationItem\.label\}/);
-  assert.match(shellSource, /<span>현재 화면<\/span>/);
+  assert.match(
+    shellSource,
+    /업무 화면 \{activeNavigationIndex \+ 1\} \/ \{NAV_ITEMS\.length\}/,
+  );
   assert.match(shellSource, /<strong>\{activeNavigationItem\.label\}<\/strong>/);
+  assert.match(shellSource, /sectionLabel:\s*"자동 점검"/);
+  assert.match(shellSource, /sectionLabel:\s*"결과 확인"/);
+  assert.match(shellSource, /sectionLabel:\s*"관리"/);
+  assert.match(
+    productStyles,
+    /@media \(min-width: 961px\) and \(max-height: 800px\)[\s\S]*?\.nav-section-label\s*\{[^}]*min-height:\s*16px;[^}]*color:\s*rgba\(68, 82, 118, 0\.68\);[^}]*font-size:\s*11px/s,
+  );
+  assert.doesNotMatch(
+    productStyles,
+    /@media \(min-width: 961px\) and \(max-height: 800px\)[\s\S]*?\.nav-section-label\s*\{[^}]*(?:color:\s*transparent|font-size:\s*0)/s,
+  );
   assert.match(
     productStyles,
     /\.nav-item--active::before\s*\{[^}]*background:\s*var\(--accent-action\)/s,
@@ -86,6 +114,46 @@ test("home presents one automatic video pipeline instead of separate manual tool
   assert.doesNotMatch(homeSource, /metric-link-icon/);
 });
 
+test("the analysis destination presents a durable automatic PipelineJob, not manual modules", () => {
+  assert.match(analysisSource, /function PipelineAnalysisOverview/);
+  assert.match(analysisSource, /const pipeline = usePipelineUi\(\)/);
+  assert.match(
+    analysisSource,
+    /const currentPipelineJob =[\s\S]*pipeline\.projectId === projectCatalog\.activeProjectId[\s\S]*pipeline\.job/,
+  );
+  assert.match(
+    analysisSource,
+    /if \(currentPipelineJob\) \{[\s\S]*<PipelineAnalysisOverview[\s\S]*job=\{currentPipelineJob\}/,
+  );
+  const pipelineOverview = analysisSource.slice(
+    analysisSource.indexOf("function PipelineAnalysisOverview"),
+    analysisSource.indexOf("function SavedAnalysisJobs"),
+  );
+  assert.match(pipelineOverview, /<h1>자동 분석 진행<\/h1>/);
+  assert.match(
+    analysisSource,
+    /현재 화면을 열어 두지 않아도 단계는 순서대로 진행됩니다\. 중간 분석 버튼을 누를 필요가 없습니다\./,
+  );
+  assert.match(pipelineOverview, /aria-label="자동 파이프라인 단계"/);
+  assert.match(pipelineOverview, /영상[\s\S]*자동 분석[\s\S]*질문 검토[\s\S]*결과 자동 갱신/);
+  assert.doesNotMatch(
+    pipelineOverview,
+    /startActualAnalysis|startDenseIndex|후보 추출 시작|밀집 프레임 준비/,
+  );
+  assert.match(
+    polishStyles,
+    /\.screen--pipeline-analysis \.pipeline-job-stage-grid\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/s,
+  );
+  assert.match(
+    polishStyles,
+    /\.screen--pipeline-analysis \.pipeline-job-stage__copy strong\s*\{[^}]*font-size:\s*11\.5px;/s,
+  );
+  assert.match(
+    polishStyles,
+    /\.screen--pipeline-analysis \.pipeline-job-stage__copy small\s*\{[^}]*font-size:\s*11px;/s,
+  );
+});
+
 test("home previews at most three unanswered questions and exposes the remaining count", () => {
   assert.match(homeSource, /reviewedCandidateIds = new Set/);
   assert.match(
@@ -125,13 +193,42 @@ test("video intake restores a durable pipeline without repeating transient inspe
   assert.match(importSource, /중단 단계에서 재개/);
 });
 
-test("pipeline questions use the immutable project review profile instead of a local toggle cache", () => {
+test("pipeline questions expose the immutable review profile as status, not a settings toggle", () => {
   assert.match(
     labelingSource,
     /setReviewMode\(currentPipelineJob\.profileSnapshot\.reviewMode\)/,
   );
-  assert.match(labelingSource, /disabled=\{Boolean\(currentPipelineJob\)\}/);
-  assert.match(labelingSource, /프로젝트 판정 방식입니다/);
+  assert.match(labelingSource, /className="review-profile-summary"/);
+  assert.match(labelingSource, /aria-label="현재 검토 모드"/);
+  assert.match(labelingSource, /영상 시작 시 확정/);
+  assert.match(
+    labelingSource,
+    /className="labeling-macro-flow"[\s\S]*aria-label="자동 점검 전체 흐름"/,
+  );
+  for (const label of ["영상", "자동 분석", "질문 검토", "결과 자동 갱신"]) {
+    assert.match(labelingSource, new RegExp(label));
+  }
+  assert.match(labelingSource, /data-state=\{state\}/);
+  assert.match(
+    labelingSource,
+    /aria-current=\{state === "current" \? "step" : undefined\}/,
+  );
+  assert.doesNotMatch(labelingSource, /프로젝트 설정/);
+});
+
+test("screen order follows the one-input automatic journey before secondary management", () => {
+  assert.match(
+    appSource,
+    /const SCREEN_ORDER: ScreenId\[\] = \[\s*"home",\s*"import",\s*"analysis",\s*"label",\s*"review",\s*"history",\s*"report",\s*"export",\s*"models",\s*\];/,
+  );
+  assert.ok(
+    shellSource.indexOf('id: "analysis"') <
+      shellSource.indexOf('id: "label"'),
+  );
+  assert.ok(
+    shellSource.indexOf('id: "export"') <
+      shellSource.indexOf('id: "models"'),
+  );
 });
 
 test("active pipeline polling continues through long stages and auto-navigation can observe completion", () => {

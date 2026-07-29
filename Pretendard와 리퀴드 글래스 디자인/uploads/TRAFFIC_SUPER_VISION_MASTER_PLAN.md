@@ -2,7 +2,7 @@
 
 > 문서 상태: 역사적 v2.0 보관본 — 현재 구현 기준으로 사용하지 않음  
 > 문서 버전: 2.0  
-> 현재 단일 기준본: 루트 [`TRAFFIC_SUPER_VISION_MASTER_PLAN.md`](../../TRAFFIC_SUPER_VISION_MASTER_PLAN.md) v2.7  
+> 현재 단일 기준본: 루트 [`TRAFFIC_SUPER_VISION_MASTER_PLAN.md`](../../TRAFFIC_SUPER_VISION_MASTER_PLAN.md) v2.14
 > 보관 안내: 아래 본문은 v2.0 수립 당시 기록을 보존한 것이며, 본문의 `단일 마스터 계획서`·현재형 표현은 현재 상태를 뜻하지 않는다.  
 > 대상 플랫폼: Windows 설치형 Electron 애플리케이션  
 > 핵심 원칙: 로컬 영상 처리, 사용자 확인형 라벨링, 프로젝트별 모델, 증거 중심 GPS 재생, 한/글 COM 보고서 작성

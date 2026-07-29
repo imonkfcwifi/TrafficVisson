@@ -11,7 +11,7 @@ import tempfile
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 from uuid import UUID
 from uuid import uuid4
 
@@ -24,6 +24,7 @@ from .contracts import (
     AnalysisJobListResponse,
     AnalysisJobResponse,
     AnalysisJobStartRequest,
+    ApprovedReferenceListResponse,
     ApprovedReportIncident,
     AutoLabelCompileRequest,
     AutoLabelCompileResponse,
@@ -54,6 +55,7 @@ from .contracts import (
     HwpRollbackRequest,
     HwpRollbackResponse,
     HwpSampleLayoutPreviewResponse,
+    HwpSampleSemanticPreviewResponse,
     ImportCreateRequest,
     ImportCreateResponse,
     ImportInspectRequest,
@@ -110,6 +112,8 @@ from .contracts import (
     TemporalIncidentReviewResponse,
     WeakCaseSearchRequest,
     WeakCaseSearchResponse,
+    WeakCaseApprovalRequest,
+    WeakCaseApprovalResponse,
     WeakCaseSourceListResponse,
 )
 from .analysis_jobs import AnalysisJobService
@@ -165,6 +169,7 @@ from .hwp_com import (
 from .hwp_approval import (
     HwpApprovalError,
     HwpApprovalRegistry,
+    HwpSampleApprovalRegistry,
 )
 from .hwpx_sample_layout import (
     HwpxSampleLayoutError,
@@ -228,6 +233,10 @@ from .weak_case_catalog import (
     WeakCaseCatalog,
     WeakCaseCatalogError,
     default_sample_root,
+)
+from .weak_case_approvals import (
+    WeakCaseApprovalError,
+    WeakCaseApprovalStore,
 )
 
 
@@ -450,12 +459,16 @@ def create_app(
     report_generation_service: Optional[ReportGenerationService] = None,
     hwp_service: Optional[HwpComService] = None,
     hwp_approval_registry: Optional[HwpApprovalRegistry] = None,
+    hwp_sample_approval_registry: Optional[
+        HwpSampleApprovalRegistry
+    ] = None,
     vision_inference_service: Optional[LocalVisionInferenceService] = None,
     source_candidate_probe: Optional[SourceCandidateProbe] = None,
     command_proposal_generator: Optional[CommandProposalGenerator] = None,
     pipeline_runtime: Optional[PipelineRuntime] = None,
     runtime_readiness_service: Optional[RuntimeReadinessService] = None,
     weak_case_catalog: Optional[WeakCaseCatalog] = None,
+    weak_case_approval_store: Optional[WeakCaseApprovalStore] = None,
     sam2_refinement_adapter: Optional[Sam2RefinementAdapter] = None,
 ) -> FastAPI:
     app = FastAPI(
@@ -516,6 +529,14 @@ def create_app(
         weak_case_catalog
         if weak_case_catalog is not None
         else WeakCaseCatalog(default_sample_root())
+    )
+    app.state.weak_case_approvals = (
+        weak_case_approval_store
+        if weak_case_approval_store is not None
+        else WeakCaseApprovalStore(
+            bridge_data_path,
+            app.state.weak_case_catalog,
+        )
     )
     if vision_inference_service is None:
         vision_inference_service = LocalVisionInferenceService(
@@ -680,6 +701,7 @@ def create_app(
             experimental_proposals=app.state.experimental_proposals,
             candidate_labels=app.state.candidate_labels,
             weak_case_catalog=app.state.weak_case_catalog,
+            weak_case_approvals=app.state.weak_case_approvals,
             derived_outputs=app.state.derived_outputs,
         )
     app.state.pipeline_jobs = PipelineJobService(
@@ -751,6 +773,11 @@ def create_app(
         if hwp_approval_registry is not None
         else HwpApprovalRegistry()
     )
+    app.state.hwp_sample_approvals = (
+        hwp_sample_approval_registry
+        if hwp_sample_approval_registry is not None
+        else HwpSampleApprovalRegistry()
+    )
     if runtime_readiness_service is None:
         command_status = getattr(
             app.state.command_proposal_generator,
@@ -772,6 +799,7 @@ def create_app(
             provider_status=app.state.provider_status,
             vision_status=app.state.vision_inference.status,
             command_model_status=command_status,
+            sam2_status=app.state.sam2_refinements.runtime_status,
             hwp_preflight=runtime_hwp_preflight,
             ffmpeg_path=ffmpeg_path,
             electron_version=os.environ.get(
@@ -840,6 +868,33 @@ def create_app(
             status_code = 422
         return HTTPException(status_code=status_code, detail=str(error))
 
+    def weak_case_approval_http_error(
+        error: WeakCaseApprovalError,
+    ) -> HTTPException:
+        if error.code in {"source_not_found", "case_not_found"}:
+            status_code = 404
+        elif error.code in {
+            "document_changed",
+            "case_index_changed",
+            "image_changed",
+            "source_sha256_mismatch",
+            "source_changed",
+            "image_integrity_mismatch",
+            "approval_revision_conflict",
+            "approval_store_corrupt",
+        }:
+            status_code = 409
+        elif error.code in {
+            "source_missing",
+            "source_unavailable",
+            "image_unavailable",
+            "image_too_large",
+        }:
+            status_code = 503
+        else:
+            status_code = 422
+        return HTTPException(status_code=status_code, detail=str(error))
+
     @router.get("/health", response_model=HealthResponse)
     async def health() -> HealthResponse:
         return HealthResponse(
@@ -883,7 +938,12 @@ def create_app(
         result = await run_in_threadpool(
             app.state.weak_case_catalog.list_sources
         )
-        return WeakCaseSourceListResponse(**result)
+        decorated = await run_in_threadpool(
+            app.state.weak_case_approvals.decorate_source_list,
+            project_id,
+            result,
+        )
+        return WeakCaseSourceListResponse(**decorated)
 
     @router.post(
         "/projects/{project_id}/reference-cases/search",
@@ -908,7 +968,53 @@ def create_app(
             )
         except WeakCaseCatalogError as error:
             raise weak_case_http_error(error) from error
-        return WeakCaseSearchResponse(**result)
+        decorated = await run_in_threadpool(
+            app.state.weak_case_approvals.decorate_search,
+            project_id,
+            result,
+        )
+        return WeakCaseSearchResponse(**decorated)
+
+    @router.post(
+        "/projects/{project_id}/reference-cases/approvals",
+        response_model=WeakCaseApprovalResponse,
+    )
+    async def approve_weak_case(
+        project_id: UUID,
+        request: WeakCaseApprovalRequest,
+    ) -> WeakCaseApprovalResponse:
+        app.state.store.get_project(project_id)
+        if request.project_id != project_id:
+            raise HTTPException(
+                status_code=409,
+                detail="Project identity does not match the route",
+            )
+        try:
+            result = await run_in_threadpool(
+                app.state.weak_case_approvals.approve,
+                project_id,
+                request.model_dump(mode="json"),
+            )
+        except WeakCaseApprovalError as error:
+            raise weak_case_approval_http_error(error) from error
+        return WeakCaseApprovalResponse(**result)
+
+    @router.get(
+        "/projects/{project_id}/reference-cases/approved",
+        response_model=ApprovedReferenceListResponse,
+    )
+    async def list_approved_weak_cases(
+        project_id: UUID,
+    ) -> ApprovedReferenceListResponse:
+        app.state.store.get_project(project_id)
+        try:
+            result = await run_in_threadpool(
+                app.state.weak_case_approvals.list_project,
+                project_id,
+            )
+        except WeakCaseApprovalError as error:
+            raise weak_case_approval_http_error(error) from error
+        return ApprovedReferenceListResponse(**result)
 
     @router.get(
         (
@@ -3331,11 +3437,14 @@ def create_app(
 
     @router.post(
         "/projects/{project_id}/hwp/preview",
-        response_model=HwpPreviewResponse,
+        response_model=Union[
+            HwpPreviewResponse,
+            HwpSampleSemanticPreviewResponse,
+        ],
     )
     def preview_hwp(
         project_id: UUID, request: HwpDocumentRequest
-    ) -> HwpPreviewResponse:
+    ) -> Union[HwpPreviewResponse, HwpSampleSemanticPreviewResponse]:
         app.state.store.get_project(project_id)
         if request.project_id != project_id:
             raise HTTPException(
@@ -3361,14 +3470,71 @@ def create_app(
                 # intercepted below before any COM call.
                 protected_sample = None
             if protected_sample is not None:
-                raise HTTPException(
-                    status_code=409,
-                    detail=(
-                        "3·4분기 표본 양식은 sample-layout-preview에서 "
-                        "정확한 HWPML 표·셀·사진 슬롯을 먼저 검증해야 "
-                        "하며, 48쪽 출력 렌더 검증이 구현되기 전에는 "
-                        "COM 적용 승인을 발급하지 않습니다."
+                try:
+                    approved_references = app.state.weak_case_approvals.list_project(
+                        project_id
+                    )["records"]
+                    approval = app.state.hwp_sample_approvals.issue(
+                        project_id,
+                        template,
+                        request.plan,
+                        approved_references,
+                    )
+                except WeakCaseApprovalError as error:
+                    raise weak_case_approval_http_error(error) from error
+                except HwpxSampleLayoutError as error:
+                    status_code = (
+                        409
+                        if error.code
+                        in {
+                            "approved_reference_required",
+                            "approved_reference_hash_mismatch",
+                            "approved_reference_state_invalid",
+                            "approved_reference_structure_mismatch",
+                            "approved_reference_slot_mismatch",
+                            "approved_reference_marker_mismatch",
+                            "approved_reference_semantic_cells_mismatch",
+                            "document_snapshot_mismatch",
+                            "sample_layout_baseline_mismatch",
+                        }
+                        else 422
+                    )
+                    raise HTTPException(
+                        status_code=status_code, detail=str(error)
+                    ) from error
+                except (HwpApprovalError, HwpAutomationError) as error:
+                    raise HTTPException(
+                        status_code=409, detail=str(error)
+                    ) from error
+                validation = approval.validation
+                semantic_payload = validation.to_dict()
+                semantic_payload["state"] = (
+                    "semantic_preview_validated_apply_unavailable"
+                )
+                return HwpSampleSemanticPreviewResponse(
+                    **semantic_payload,
+                    mode="sample_semantic_preview",
+                    approved_references_sha256=(
+                        approval.approved_references_sha256
                     ),
+                    approval_scope="sample_preview_hash_binding_only",
+                    approval_token=approval.token,
+                    approval_expires_at=datetime.fromtimestamp(
+                        approval.expires_at_unix,
+                        tz=timezone.utc,
+                    ),
+                    apply_eligible=False,
+                    writer_state="unavailable",
+                    output_render_validation_status="not_run",
+                    blocking_reasons=[
+                        "exact_hwpml_target_writer_not_implemented",
+                        (
+                            "output_reopen_and_48_page_render_validation_"
+                            "not_implemented"
+                        ),
+                    ],
+                    no_com=True,
+                    no_document_write=True,
                 )
         try:
             result = get_hwp_service().execute(
@@ -3425,6 +3591,47 @@ def create_app(
                 detail="Project identity does not match the route",
             )
         template = Path(request.template_path)
+        if app.state.hwp_sample_approvals.owns(
+            request.approval_token
+        ):
+            try:
+                validation = app.state.hwp_sample_approvals.consume(
+                    request.approval_token,
+                    project_id,
+                    template,
+                    request.plan,
+                    lambda: app.state.weak_case_approvals.list_project(
+                        project_id
+                    )["records"],
+                )
+            except WeakCaseApprovalError as error:
+                raise weak_case_approval_http_error(error) from error
+            except (
+                HwpApprovalError,
+                HwpAutomationError,
+                HwpxSampleLayoutError,
+            ) as error:
+                raise HTTPException(
+                    status_code=409, detail=str(error)
+                ) from error
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "state": "sample_apply_unavailable",
+                    "semantic_validation_sha256": (
+                        validation.validation_sha256
+                    ),
+                    "blocking_reasons": [
+                        "exact_hwpml_target_writer_not_implemented",
+                        (
+                            "output_reopen_and_48_page_render_validation_"
+                            "not_implemented"
+                        ),
+                    ],
+                    "com_invocation_performed": False,
+                    "document_write_performed": False,
+                },
+            )
         try:
             expected_fingerprint = app.state.hwp_approvals.consume(
                 request.approval_token,

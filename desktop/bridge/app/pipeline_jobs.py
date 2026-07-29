@@ -72,10 +72,13 @@ from .temporal_incidents import (
     group_temporal_incident_proposals,
 )
 from .weak_case_catalog import WeakCaseCatalog, WeakCaseCatalogError
+from .weak_case_approvals import WeakCaseApprovalStore
 
 
 PIPELINE_JOB_SCHEMA = "trafficvisson.pipeline-job.v1"
-PIPELINE_PROFILE_SCHEMA = "trafficvisson.pipeline-profile.v1"
+PIPELINE_JOB_ALIAS_SCHEMA = "trafficvisson.pipeline-job-alias.v1"
+PIPELINE_PROFILE_SCHEMA = "trafficvisson.pipeline-profile.v2"
+LEGACY_PIPELINE_PROFILE_SCHEMA = "trafficvisson.pipeline-profile.v1"
 PRIVATE_MEDIA_GRANT_SCHEMA = "trafficvisson.private-media-grant.v1"
 MAX_PIPELINE_JOBS = 128
 MAX_PIPELINE_RETRIES = 5
@@ -86,6 +89,7 @@ _SHA256 = re.compile(r"^[a-f0-9]{64}$")
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _IDEMPOTENCY_KEY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$")
 _SAFE_ERROR_CODE = re.compile(r"^[a-z][a-z0-9_]{2,63}$")
+_EXPLICIT_NEW_SOURCE_PREFIX = "explicit-new:"
 
 # This is deliberately narrower than the complete product taxonomy. Grounding
 # DINO can offer review-only object boxes for these visual concepts, while
@@ -138,6 +142,7 @@ _OUTCOME_CODES = frozenset(
         "model_unavailable",
         "blocked_gpx_required",
         "partial",
+        "report_preview_blocked",
         "failed",
         "cancelled",
     }
@@ -210,6 +215,18 @@ class PipelineRuntime(Protocol):
     """Stage adapter owned by the local bridge, never by the renderer."""
 
     def capability_snapshot(self, profile: Mapping[str, Any]) -> Mapping[str, Any]:
+        ...
+
+    def validate_report_profile(
+        self,
+        *,
+        project_id: UUID,
+        template_id: str,
+        template_sha256: str,
+        semantic_map_id: str,
+        provider: str,
+        explicit_transmission_consent: bool,
+    ) -> Mapping[str, Any]:
         ...
 
     def execute(
@@ -374,6 +391,11 @@ def _profile_payload(
     ocr_pack_id: str,
     sam2_pack_id: str,
     report_provider: str,
+    report_transmission_consent: bool,
+    template_semantic_map_id: str,
+    template_semantic_map_sha256: str,
+    template_semantic_map_ready: bool,
+    report_provider_ready_at_configuration: bool,
     output_location_id: str,
     candidate_rescan_fps: int,
     revision: int,
@@ -390,6 +412,15 @@ def _profile_payload(
         "ocr_pack_id": ocr_pack_id,
         "sam2_pack_id": sam2_pack_id,
         "report_provider": report_provider,
+        "report_transmission_consent": report_transmission_consent,
+        "template_semantic_map_id": template_semantic_map_id,
+        "template_semantic_map_sha256": (
+            template_semantic_map_sha256
+        ),
+        "template_semantic_map_ready": template_semantic_map_ready,
+        "report_provider_ready_at_configuration": (
+            report_provider_ready_at_configuration
+        ),
         "output_location_id": output_location_id,
         "candidate_rescan_fps": candidate_rescan_fps,
         "gps_policy": "timed_track_required_for_route",
@@ -436,6 +467,7 @@ class PipelineJobService:
             raise ValueError("pipeline projects root must be a real directory")
         self._poll_interval_seconds = float(poll_interval_seconds)
         self._jobs: "OrderedDict[UUID, PipelineJobRecord]" = OrderedDict()
+        self._aliases: dict[UUID, dict[str, Any]] = {}
         self._profiles: dict[UUID, dict[str, Any]] = {}
         # One inspected folder can contribute up to MAX_PIPELINE_JOBS videos.
         # Keep the durable worker single-threaded, but allow the complete
@@ -450,7 +482,9 @@ class PipelineJobService:
         self._recovery_summary = {
             "profiles_loaded": 0,
             "jobs_loaded": 0,
+            "aliases_loaded": 0,
             "jobs_requeued": 0,
+            "cancellations_finalized": 0,
             "records_rejected": 0,
         }
         recovered = self._load_records()
@@ -474,6 +508,8 @@ class PipelineJobService:
         report_provider: str,
         output_location_id: str,
         candidate_rescan_fps: int,
+        report_transmission_consent: bool = False,
+        template_semantic_map_id: str = "unconfigured",
     ) -> dict[str, Any]:
         self._validate_project_id(project_id)
         if question_policy not in {
@@ -486,6 +522,15 @@ class PipelineJobService:
             raise ValueError("review_mode is invalid")
         if report_provider not in {"codex", "claude", "local", "none"}:
             raise ValueError("report_provider is invalid")
+        if not isinstance(report_transmission_consent, bool):
+            raise ValueError(
+                "report_transmission_consent must be boolean"
+            )
+        if (
+            not isinstance(template_semantic_map_id, str)
+            or _IDENTIFIER.fullmatch(template_semantic_map_id) is None
+        ):
+            raise ValueError("template_semantic_map_id is invalid")
         for value, label in (
             (default_template_id, "default_template_id"),
             (detector_pack_id, "detector_pack_id"),
@@ -506,6 +551,74 @@ class PipelineJobService:
             or not 5 <= candidate_rescan_fps <= 10
         ):
             raise ValueError("candidate_rescan_fps must be 5 through 10")
+        semantic_map_sha256 = "0" * 64
+        semantic_map_ready = False
+        provider_ready = False
+        validator = getattr(
+            self._runtime, "validate_report_profile", None
+        )
+        should_validate_report = (
+            report_transmission_consent
+            or template_semantic_map_id != "unconfigured"
+        )
+        if should_validate_report:
+            if not callable(validator):
+                raise PipelineJobConflict(
+                    "Report automation profile validation is unavailable"
+                )
+            try:
+                report_snapshot = dict(
+                    validator(
+                        project_id=project_id,
+                        template_id=default_template_id,
+                        template_sha256=default_template_sha256,
+                        semantic_map_id=template_semantic_map_id,
+                        provider=report_provider,
+                        explicit_transmission_consent=(
+                            report_transmission_consent
+                        ),
+                    )
+                )
+                _validate_safe_json(
+                    report_snapshot,
+                    "report automation profile snapshot",
+                )
+            except PipelineJobError:
+                raise
+            except Exception as error:
+                raise PipelineJobConflict(
+                    "Report automation profile validation failed"
+                ) from error
+            semantic_map_sha256 = report_snapshot.get(
+                "template_semantic_map_sha256"
+            )
+            semantic_map_ready = report_snapshot.get(
+                "template_semantic_map_ready"
+            )
+            provider_ready = report_snapshot.get(
+                "report_provider_ready"
+            )
+            if (
+                not isinstance(semantic_map_sha256, str)
+                or _SHA256.fullmatch(semantic_map_sha256) is None
+                or not isinstance(semantic_map_ready, bool)
+                or not isinstance(provider_ready, bool)
+                or report_snapshot.get(
+                    "template_semantic_map_id"
+                )
+                != template_semantic_map_id
+            ):
+                raise PipelineJobConflict(
+                    "Report automation profile validation is invalid"
+                )
+            if report_transmission_consent and (
+                report_provider not in {"codex", "claude"}
+                or semantic_map_ready is not True
+                or provider_ready is not True
+            ):
+                raise PipelineJobConflict(
+                    "The selected report provider and sample map must be ready"
+                )
         with self._lock:
             previous = self._profiles.get(project_id)
             revision = int(previous["revision"]) + 1 if previous else 1
@@ -519,6 +632,13 @@ class PipelineJobService:
                 ocr_pack_id=ocr_pack_id,
                 sam2_pack_id=sam2_pack_id,
                 report_provider=report_provider,
+                report_transmission_consent=(
+                    report_transmission_consent
+                ),
+                template_semantic_map_id=template_semantic_map_id,
+                template_semantic_map_sha256=semantic_map_sha256,
+                template_semantic_map_ready=semantic_map_ready,
+                report_provider_ready_at_configuration=provider_ready,
                 output_location_id=output_location_id,
                 candidate_rescan_fps=candidate_rescan_fps,
                 revision=revision,
@@ -596,6 +716,21 @@ class PipelineJobService:
                     return self._serialize(existing), True
                 if existing.input_fingerprint == fingerprint:
                     return self._serialize(existing), True
+            for alias in self._aliases.values():
+                if alias["idempotency_key"] != idempotency_key:
+                    continue
+                if alias["input_fingerprint"] != fingerprint:
+                    raise PipelineJobConflict(
+                        "The idempotency key belongs to different input"
+                    )
+                canonical = self._jobs.get(
+                    UUID(alias["canonical_job_id"])
+                )
+                if canonical is None:
+                    raise PipelineJobUnavailable(
+                        "pipeline source replay target is unavailable"
+                    )
+                return self._serialize(canonical), True
             self._evict_locked()
             if len(self._jobs) >= MAX_PIPELINE_JOBS:
                 raise PipelineJobUnavailable("pipeline registry is full")
@@ -779,7 +914,8 @@ class PipelineJobService:
             current_index = PIPELINE_STAGES.index(job.current_stage)
             preserve_partial_checkpoint = (
                 job.status == "blocked"
-                and job.outcome_code == "partial"
+                and job.outcome_code
+                in {"partial", "report_preview_blocked"}
                 and job.current_stage == "derived_outputs"
             )
             for stage in job.stages[current_index:]:
@@ -1020,6 +1156,37 @@ class PipelineJobService:
                 stage["completed_at"] = _utc_now().isoformat()
                 stage["error_code"] = result.error_code
                 job.updated_at = _utc_now()
+                if (
+                    stage_name == "sha256"
+                    and result.outcome == "success"
+                    and not job.idempotency_key.startswith(
+                        _EXPLICIT_NEW_SOURCE_PREFIX
+                    )
+                ):
+                    canonical = self._source_replay_target_locked(
+                        job,
+                        result.checkpoint,
+                    )
+                    if canonical is not None:
+                        try:
+                            self._persist_source_alias_locked(
+                                job,
+                                canonical,
+                                result.checkpoint,
+                            )
+                        except (OSError, PipelineJobUnavailable):
+                            stage["status"] = "failed"
+                            stage["outcome"] = "failed"
+                            stage["error_code"] = (
+                                "source_idempotency_store_unavailable"
+                            )
+                            job.status = "failed"
+                            job.outcome_code = "failed"
+                            job.error_code = stage["error_code"]
+                            self._persist_job_locked(job)
+                            return
+                        self._jobs.pop(job.job_id, None)
+                        return
                 if result.outcome == "success":
                     stage["status"] = "success"
                     if stage_name == "question_queue":
@@ -1063,6 +1230,16 @@ class PipelineJobService:
                     )
                     self._persist_job_locked(job)
                     return
+                elif result.outcome == "report_preview_blocked":
+                    stage["status"] = "blocked"
+                    job.status = "blocked"
+                    job.outcome_code = "report_preview_blocked"
+                    job.error_code = (
+                        result.error_code
+                        or "report_preview_blocked"
+                    )
+                    self._persist_job_locked(job)
+                    return
                 elif result.outcome == "cancelled":
                     stage["status"] = "cancelled"
                     self._mark_cancelled_locked(job)
@@ -1082,6 +1259,81 @@ class PipelineJobService:
                     return
                 job.current_stage = PIPELINE_STAGES[next_index]
                 self._persist_job_locked(job)
+
+    def _source_replay_target_locked(
+        self,
+        job: PipelineJobRecord,
+        checkpoint: Mapping[str, Any],
+    ) -> Optional[PipelineJobRecord]:
+        source_sha256 = checkpoint.get("source_sha256")
+        profile_sha256 = job.provenance.get("profile_sha256")
+        if (
+            not isinstance(source_sha256, str)
+            or _SHA256.fullmatch(source_sha256) is None
+            or not isinstance(profile_sha256, str)
+            or _SHA256.fullmatch(profile_sha256) is None
+        ):
+            return None
+        candidates: list[PipelineJobRecord] = []
+        for existing in self._jobs.values():
+            if (
+                existing.job_id == job.job_id
+                or existing.project_id != job.project_id
+                or existing.status in {"failed", "cancelled"}
+                or existing.provenance.get("profile_sha256")
+                != profile_sha256
+            ):
+                continue
+            sha_stage = existing.stages[
+                PIPELINE_STAGES.index("sha256")
+            ]
+            if (
+                sha_stage.get("status") == "success"
+                and isinstance(sha_stage.get("checkpoint"), Mapping)
+                and sha_stage["checkpoint"].get("source_sha256")
+                == source_sha256
+            ):
+                candidates.append(existing)
+        if not candidates:
+            return None
+        return min(
+            candidates,
+            key=lambda item: (item.created_at, str(item.job_id)),
+        )
+
+    def _persist_source_alias_locked(
+        self,
+        alias_job: PipelineJobRecord,
+        canonical: PipelineJobRecord,
+        checkpoint: Mapping[str, Any],
+    ) -> None:
+        source_sha256 = str(checkpoint["source_sha256"])
+        payload = {
+            "schema_version": PIPELINE_JOB_ALIAS_SCHEMA,
+            "alias_job_id": str(alias_job.job_id),
+            "canonical_job_id": str(canonical.job_id),
+            "project_id": str(alias_job.project_id),
+            "snapshot_id": str(alias_job.snapshot_id),
+            "file_name": alias_job.file_name,
+            "idempotency_key": alias_job.idempotency_key,
+            "input_fingerprint": alias_job.input_fingerprint,
+            "source_sha256": source_sha256,
+            "profile_sha256": str(
+                alias_job.provenance["profile_sha256"]
+            ),
+            "created_at": alias_job.created_at.isoformat(),
+        }
+        raw = _canonical_json(payload)
+        digest = hashlib.sha256(raw).hexdigest()
+        path = self._job_path(
+            alias_job.project_id, alias_job.job_id
+        )
+        _write_atomic(path, raw)
+        _write_atomic(
+            path.with_suffix(".json.sha256"),
+            f"{digest}\n".encode("ascii"),
+        )
+        self._aliases[alias_job.job_id] = payload
 
     @staticmethod
     def _next_pending_index(
@@ -1152,6 +1404,10 @@ class PipelineJobService:
             ),
             "input_fingerprint": job.input_fingerprint,
             "profile_sha256": job.provenance["profile_sha256"],
+            "stage_attempts": {
+                stage["name"]: int(stage["attempts"])
+                for stage in job.stages
+            },
         }
 
     def _serialize(self, job: PipelineJobRecord) -> dict[str, Any]:
@@ -1284,6 +1540,24 @@ class PipelineJobService:
                     payload, record_digest = self._read_verified(
                         path, "pipeline job"
                     )
+                    if (
+                        payload.get("schema_version")
+                        == PIPELINE_JOB_ALIAS_SCHEMA
+                    ):
+                        alias = self._parse_alias(
+                            payload, project_id
+                        )
+                        alias_job_id = UUID(alias["alias_job_id"])
+                        if path.stem != str(alias_job_id):
+                            raise ValueError(
+                                "pipeline alias filename does not match "
+                                "its identity"
+                            )
+                        self._aliases[alias_job_id] = alias
+                        self._recovery_summary[
+                            "aliases_loaded"
+                        ] += 1
+                        continue
                     job = self._parse_job(payload, project_id)
                     job.record_sha256 = record_digest
                     if path.stem != str(job.job_id):
@@ -1294,7 +1568,24 @@ class PipelineJobService:
                         raise ValueError(
                             "pipeline job identity is duplicated"
                         )
-                    if job.status in _ACTIVE_JOB_STATUSES:
+                    if job.status == "cancelling":
+                        stage = job.stages[
+                            PIPELINE_STAGES.index(job.current_stage)
+                        ]
+                        if stage["status"] in {"pending", "running"}:
+                            stage["status"] = "cancelled"
+                            stage["outcome"] = "cancelled"
+                            stage["completed_at"] = _utc_now().isoformat()
+                        job.status = "cancelled"
+                        job.outcome_code = "cancelled"
+                        job.error_code = None
+                        job.recovered_after_restart = True
+                        job.cancel_event = threading.Event()
+                        self._persist_job_locked(job)
+                        self._recovery_summary[
+                            "cancellations_finalized"
+                        ] += 1
+                    elif job.status in {"queued", "running"}:
                         stage = job.stages[
                             PIPELINE_STAGES.index(job.current_stage)
                         ]
@@ -1312,13 +1603,80 @@ class PipelineJobService:
                     self._recovery_summary["jobs_loaded"] += 1
                 except (OSError, ValueError, PipelineJobUnavailable):
                     self._recovery_summary["records_rejected"] += 1
+        for alias_job_id, alias in tuple(self._aliases.items()):
+            canonical = self._jobs.get(
+                UUID(alias["canonical_job_id"])
+            )
+            if (
+                canonical is None
+                or canonical.project_id
+                != UUID(alias["project_id"])
+            ):
+                self._aliases.pop(alias_job_id, None)
+                self._recovery_summary["aliases_loaded"] -= 1
+                self._recovery_summary["records_rejected"] += 1
         return recovered
+
+    @staticmethod
+    def _parse_alias(
+        value: Mapping[str, Any],
+        expected_project_id: UUID,
+    ) -> dict[str, Any]:
+        if set(value) != {
+            "schema_version",
+            "alias_job_id",
+            "canonical_job_id",
+            "project_id",
+            "snapshot_id",
+            "file_name",
+            "idempotency_key",
+            "input_fingerprint",
+            "source_sha256",
+            "profile_sha256",
+            "created_at",
+        }:
+            raise ValueError("pipeline alias fields are invalid")
+        _validate_safe_json(value, "pipeline alias")
+        try:
+            alias_job_id = UUID(str(value["alias_job_id"]))
+            canonical_job_id = UUID(
+                str(value["canonical_job_id"])
+            )
+            project_id = UUID(str(value["project_id"]))
+            UUID(str(value["snapshot_id"]))
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError(
+                "pipeline alias identity is invalid"
+            ) from error
+        if (
+            value.get("schema_version")
+            != PIPELINE_JOB_ALIAS_SCHEMA
+            or project_id != expected_project_id
+            or alias_job_id == canonical_job_id
+            or not isinstance(value.get("file_name"), str)
+            or Path(value["file_name"]).name != value["file_name"]
+            or not isinstance(value.get("idempotency_key"), str)
+            or _IDEMPOTENCY_KEY.fullmatch(
+                value["idempotency_key"]
+            )
+            is None
+            or not isinstance(value.get("input_fingerprint"), str)
+            or _SHA256.fullmatch(value["input_fingerprint"])
+            is None
+            or not isinstance(value.get("source_sha256"), str)
+            or _SHA256.fullmatch(value["source_sha256"]) is None
+            or not isinstance(value.get("profile_sha256"), str)
+            or _SHA256.fullmatch(value["profile_sha256"]) is None
+        ):
+            raise ValueError("pipeline alias contract is invalid")
+        _parse_datetime(value.get("created_at"))
+        return dict(value)
 
     @staticmethod
     def _validate_loaded_profile(
         profile: Mapping[str, Any], project_id: UUID
     ) -> None:
-        if set(profile) != {
+        legacy_fields = {
             "schema_version",
             "project_id",
             "question_policy",
@@ -1335,11 +1693,29 @@ class PipelineJobService:
             "bulk_frame_provider_policy",
             "revision",
             "updated_at",
+        }
+        current_fields = {
+            *legacy_fields,
+            "report_transmission_consent",
+            "template_semantic_map_id",
+            "template_semantic_map_sha256",
+            "template_semantic_map_ready",
+            "report_provider_ready_at_configuration",
+        }
+        schema_version = profile.get("schema_version")
+        if (
+            schema_version == LEGACY_PIPELINE_PROFILE_SCHEMA
+            and set(profile) != legacy_fields
+        ) or (
+            schema_version == PIPELINE_PROFILE_SCHEMA
+            and set(profile) != current_fields
+        ) or schema_version not in {
+            LEGACY_PIPELINE_PROFILE_SCHEMA,
+            PIPELINE_PROFILE_SCHEMA,
         }:
             raise ValueError("pipeline profile fields are invalid")
         if (
-            profile.get("schema_version") != PIPELINE_PROFILE_SCHEMA
-            or profile.get("project_id") != str(project_id)
+            profile.get("project_id") != str(project_id)
             or profile.get("question_policy")
             not in {"learning_assist", "full_review", "quick_review"}
             or profile.get("review_mode") not in {"precision", "quick"}
@@ -1357,6 +1733,50 @@ class PipelineJobService:
             or profile.get("gps_policy") != "timed_track_required_for_route"
         ):
             raise ValueError("pipeline profile contract is invalid")
+        if schema_version == PIPELINE_PROFILE_SCHEMA and (
+            not isinstance(
+                profile.get("report_transmission_consent"), bool
+            )
+            or not isinstance(
+                profile.get("template_semantic_map_ready"), bool
+            )
+            or not isinstance(
+                profile.get(
+                    "report_provider_ready_at_configuration"
+                ),
+                bool,
+            )
+            or not isinstance(
+                profile.get("template_semantic_map_id"), str
+            )
+            or _IDENTIFIER.fullmatch(
+                profile["template_semantic_map_id"]
+            )
+            is None
+            or not isinstance(
+                profile.get("template_semantic_map_sha256"), str
+            )
+            or _SHA256.fullmatch(
+                profile["template_semantic_map_sha256"]
+            )
+            is None
+            or (
+                profile["report_transmission_consent"]
+                and (
+                    profile.get("report_provider")
+                    not in {"codex", "claude"}
+                    or profile["template_semantic_map_ready"]
+                    is not True
+                    or profile[
+                        "report_provider_ready_at_configuration"
+                    ]
+                    is not True
+                )
+            )
+        ):
+            raise ValueError(
+                "pipeline report automation profile is invalid"
+            )
         for field_name in (
             "default_template_id",
             "detector_pack_id",
@@ -1615,6 +2035,15 @@ class PipelineJobService:
         if not isinstance(job_id, UUID):
             raise ValueError("job_id must be a UUID")
         job = self._jobs.get(job_id)
+        if job is None:
+            alias = self._aliases.get(job_id)
+            if (
+                alias is not None
+                and alias.get("project_id") == str(project_id)
+            ):
+                job = self._jobs.get(
+                    UUID(alias["canonical_job_id"])
+                )
         if job is None or job.project_id != project_id:
             raise PipelineJobNotFound(
                 "The pipeline job was not found in this project"
@@ -1624,8 +2053,15 @@ class PipelineJobService:
     def _evict_locked(self) -> None:
         if len(self._jobs) < MAX_PIPELINE_JOBS:
             return
+        aliased_targets = {
+            UUID(alias["canonical_job_id"])
+            for alias in self._aliases.values()
+        }
         for job_id, job in tuple(self._jobs.items()):
-            if job.status in _TERMINAL_JOB_STATUSES:
+            if (
+                job.status in _TERMINAL_JOB_STATUSES
+                and job_id not in aliased_targets
+            ):
                 self._jobs.pop(job_id, None)
                 if len(self._jobs) < MAX_PIPELINE_JOBS:
                     return
@@ -1662,7 +2098,12 @@ class BridgePipelineRuntime:
         ] = None,
         candidate_labels: Optional[CandidateLabelStore] = None,
         weak_case_catalog: Optional[WeakCaseCatalog] = None,
+        weak_case_approvals: Optional[WeakCaseApprovalStore] = None,
         derived_outputs: Optional[DerivedOutputsService] = None,
+        report_semantic_maps: Optional[Any] = None,
+        report_provider_status: Optional[
+            Callable[[str], Any]
+        ] = None,
     ) -> None:
         self._media_intake = media_intake
         self._data_root = Path(data_root).resolve()
@@ -1679,10 +2120,97 @@ class BridgePipelineRuntime:
         self._experimental_proposals = experimental_proposals
         self._candidate_labels = candidate_labels
         self._weak_case_catalog = weak_case_catalog
+        self._weak_case_approvals = weak_case_approvals
         self._derived_outputs = derived_outputs
+        self._report_semantic_maps = report_semantic_maps
+        self._report_provider_status = report_provider_status
         self._active_hash_jobs: dict[str, UUID] = {}
         self._active_analysis_jobs: dict[str, UUID] = {}
         self._lock = threading.RLock()
+
+    def validate_report_profile(
+        self,
+        *,
+        project_id: UUID,
+        template_id: str,
+        template_sha256: str,
+        semantic_map_id: str,
+        provider: str,
+        explicit_transmission_consent: bool,
+    ) -> Mapping[str, Any]:
+        if not isinstance(project_id, UUID):
+            raise ValueError("project_id must be a UUID")
+        if self._report_semantic_maps is None:
+            raise PipelineJobConflict(
+                "The sample template semantic map is unavailable"
+            )
+        try:
+            semantic_map = self._report_semantic_maps.resolve(
+                template_id=template_id,
+                template_sha256=template_sha256,
+                semantic_map_id=semantic_map_id,
+            )
+            semantic_snapshot = semantic_map.profile_snapshot()
+        except Exception as error:
+            raise PipelineJobConflict(
+                "The sample template semantic map is unavailable"
+            ) from error
+        provider_ready = False
+        provider_state = "disabled"
+        provider_capabilities: list[str] = []
+        if provider in {"codex", "claude"}:
+            if self._report_provider_status is None:
+                provider_state = "unavailable"
+            else:
+                try:
+                    status = self._report_provider_status(provider)
+                    provider_state = str(
+                        getattr(status, "state", "")
+                        or (
+                            status.get("state")
+                            if isinstance(status, Mapping)
+                            else ""
+                        )
+                    )
+                    raw_capabilities = (
+                        getattr(status, "capabilities", ())
+                        if not isinstance(status, Mapping)
+                        else status.get("capabilities", ())
+                    )
+                    if isinstance(raw_capabilities, (list, tuple)):
+                        provider_capabilities = [
+                            str(item) for item in raw_capabilities
+                        ]
+                    provider_ready = (
+                        provider_state == "ready"
+                        and {
+                            "report_draft",
+                            "document_edit_plan",
+                        }.issubset(set(provider_capabilities))
+                    )
+                except Exception:
+                    provider_state = "unavailable"
+        if explicit_transmission_consent and not provider_ready:
+            raise PipelineJobConflict(
+                "The selected official CLI provider is not ready"
+            )
+        return {
+            "template_semantic_map_id": (
+                semantic_snapshot["template_semantic_map_id"]
+            ),
+            "template_semantic_map_sha256": (
+                semantic_snapshot["template_semantic_map_sha256"]
+            ),
+            "template_semantic_map_ready": True,
+            "report_provider_ready": provider_ready,
+            "report_provider_state": provider_state,
+            "report_provider_capabilities": provider_capabilities,
+            "explicit_transmission_consent": (
+                explicit_transmission_consent
+            ),
+            "project_id": str(project_id),
+            "path_exposed": False,
+        }
 
     def _private_media_grants_root(self, project_id: UUID) -> Path:
         projects_root = self._data_root / "projects"
@@ -2036,6 +2564,70 @@ class BridgePipelineRuntime:
             isinstance(installed_pack_id, str)
             and installed_pack_id == profile["sam2_pack_id"]
         )
+        report_provider = str(profile.get("report_provider", "none"))
+        report_provider_state = "disabled"
+        report_provider_ready = False
+        report_provider_capabilities: list[str] = []
+        if (
+            report_provider in {"codex", "claude"}
+            and self._report_provider_status is not None
+        ):
+            try:
+                status = self._report_provider_status(report_provider)
+                report_provider_state = str(
+                    getattr(status, "state", "")
+                    or (
+                        status.get("state")
+                        if isinstance(status, Mapping)
+                        else ""
+                    )
+                )
+                raw_capabilities = (
+                    getattr(status, "capabilities", ())
+                    if not isinstance(status, Mapping)
+                    else status.get("capabilities", ())
+                )
+                if isinstance(raw_capabilities, (list, tuple)):
+                    report_provider_capabilities = [
+                        str(item) for item in raw_capabilities
+                    ]
+                report_provider_ready = (
+                    report_provider_state == "ready"
+                    and {
+                        "report_draft",
+                        "document_edit_plan",
+                    }.issubset(set(report_provider_capabilities))
+                )
+            except Exception:
+                report_provider_state = "unavailable"
+        semantic_map_ready = False
+        semantic_map_sha256 = profile.get(
+            "template_semantic_map_sha256"
+        )
+        semantic_map_id = profile.get("template_semantic_map_id")
+        if (
+            profile.get("template_semantic_map_ready") is True
+            and isinstance(semantic_map_sha256, str)
+            and _SHA256.fullmatch(semantic_map_sha256) is not None
+            and isinstance(semantic_map_id, str)
+            and self._report_semantic_maps is not None
+        ):
+            try:
+                resolved_map = self._report_semantic_maps.resolve(
+                    template_id=str(
+                        profile["default_template_id"]
+                    ),
+                    template_sha256=str(
+                        profile["default_template_sha256"]
+                    ),
+                    semantic_map_id=semantic_map_id,
+                )
+                semantic_map_ready = (
+                    resolved_map.semantic_map_sha256
+                    == semantic_map_sha256
+                )
+            except Exception:
+                semantic_map_ready = False
         return {
             "intake": "ready",
             "sha256": "ready",
@@ -2084,7 +2676,18 @@ class BridgePipelineRuntime:
                 "manifest_sha256"
             ),
             "dino_review_only_error_code": command_status.get("error_code"),
-            "selected_report_provider": profile["report_provider"],
+            "selected_report_provider": report_provider,
+            "report_provider_state": report_provider_state,
+            "report_provider_ready": report_provider_ready,
+            "report_provider_capabilities": (
+                report_provider_capabilities
+            ),
+            "report_transmission_consent": bool(
+                profile.get("report_transmission_consent", False)
+            ),
+            "template_semantic_map_id": semantic_map_id,
+            "template_semantic_map_sha256": semantic_map_sha256,
+            "template_semantic_map_ready": semantic_map_ready,
             "bulk_frame_provider": "local_models_only",
             "installed_vision_pack_id": installed_pack_id,
             "requested_detector_pack_id": profile["detector_pack_id"],
@@ -2955,7 +3558,14 @@ class BridgePipelineRuntime:
         if not isinstance(issue_types, list):
             raise PipelineStageFailure("dino_checkpoint_missing")
         references = []
+        approved_reference_count = 0
         source_state = "not_applicable"
+        try:
+            project_id = UUID(str(context["project_id"]))
+        except (KeyError, TypeError, ValueError) as error:
+            raise PipelineStageFailure(
+                "pipeline_project_identity_missing"
+            ) from error
         try:
             for issue_type in sorted(set(issue_types)):
                 if issue_type == "other":
@@ -2965,6 +3575,11 @@ class BridgePipelineRuntime:
                     query_text=None,
                     limit=3,
                 )
+                if self._weak_case_approvals is not None:
+                    result = self._weak_case_approvals.decorate_search(
+                        project_id,
+                        result,
+                    )
                 source_state = str(
                     result.get("capability_state", "unavailable")
                 )
@@ -2993,12 +3608,30 @@ class BridgePipelineRuntime:
                             "document_sha256": case.get(
                                 "document_sha256"
                             ),
-                            "reference_state": (
-                                "weak_unconfirmed"
+                            "image_sha256": case.get("image_sha256"),
+                            "index_manifest_sha256": case.get(
+                                "index_manifest_sha256"
                             ),
-                            "review_required": True,
+                            "picture_target_id": case.get(
+                                "picture_target_id"
+                            ),
+                            "cell_target_id": case.get(
+                                "cell_target_id"
+                            ),
+                            "reference_state": case.get(
+                                "reference_state",
+                                "weak_unconfirmed",
+                            ),
+                            "review_required": bool(
+                                case.get("review_required", True)
+                            ),
+                            "approval_record_sha256": case.get(
+                                "approval_record_sha256"
+                            ),
                         }
                     )
+                    if case.get("approved_reference") is True:
+                        approved_reference_count += 1
                     if len(references) >= 5:
                         break
                 if len(references) >= 5:
@@ -3024,9 +3657,9 @@ class BridgePipelineRuntime:
                 ),
                 "semantic_image_embedding_used": False,
                 "references": references,
-                "approved_reference_count": 0,
+                "approved_reference_count": approved_reference_count,
                 "review_required_before_promotion": True,
-                "review_only": True,
+                "review_only": approved_reference_count == 0,
             },
             metrics={"reference_count": len(references)},
             error_code=(
@@ -3116,10 +3749,12 @@ class BridgePipelineRuntime:
             )
         checkpoints = context.get("checkpoints")
         profile = context.get("profile")
+        capabilities = context.get("capabilities")
         review = context.get("review_completion")
         if (
             not isinstance(checkpoints, Mapping)
             or not isinstance(profile, Mapping)
+            or not isinstance(capabilities, Mapping)
             or not isinstance(review, Mapping)
         ):
             raise PipelineStageFailure(
@@ -3127,54 +3762,20 @@ class BridgePipelineRuntime:
             )
         question = checkpoints.get("question_queue")
         sha = checkpoints.get("sha256")
-        if not isinstance(question, Mapping) or not isinstance(sha, Mapping):
+        candidate_rescan = checkpoints.get(
+            "candidate_rescan_5_10fps"
+        )
+        if not isinstance(sha, Mapping):
             raise PipelineStageFailure(
                 "derived_outputs_checkpoint_invalid"
             )
 
-        candidate_ids = question.get("question_candidate_ids")
-        analysis_job_id = question.get("analysis_job_id")
-        question_source_sha256 = question.get("source_sha256")
-        question_queue_revision = question.get(
-            "question_queue_revision"
-        )
         source_sha256 = sha.get("source_sha256")
-        review_completion_id = context.get("review_completion_id")
-        answer_ledger_sha256 = review.get(
-            "server_answer_ledger_revision"
-        )
         input_fingerprint = context.get("input_fingerprint")
         profile_sha256 = context.get("profile_sha256")
         if (
-            not isinstance(candidate_ids, list)
-            or not candidate_ids
-            or len(candidate_ids) != len(set(candidate_ids))
-            or any(
-                not isinstance(item, str)
-                or re.fullmatch(r"[a-f0-9]{20}", item) is None
-                for item in candidate_ids
-            )
-            or not isinstance(analysis_job_id, str)
-            or isinstance(question.get("question_count"), bool)
-            or question.get("question_count") != len(candidate_ids)
-            or not isinstance(question_queue_revision, str)
-            or _SHA256.fullmatch(question_queue_revision) is None
-            or not isinstance(source_sha256, str)
+            not isinstance(source_sha256, str)
             or _SHA256.fullmatch(source_sha256) is None
-            or question_source_sha256 != source_sha256
-            or not isinstance(review_completion_id, str)
-            or review.get("review_completion_id")
-            != review_completion_id
-            or review.get("analysis_job_id") != analysis_job_id
-            or review.get("question_queue_revision")
-            != question_queue_revision
-            or review.get("all_required_questions_answered") is not True
-            or isinstance(review.get("answered_question_count"), bool)
-            or review.get("answered_question_count") != len(candidate_ids)
-            or not isinstance(answer_ledger_sha256, str)
-            or _SHA256.fullmatch(answer_ledger_sha256) is None
-            or review_completion_id
-            != f"review:{answer_ledger_sha256}"
             or not isinstance(input_fingerprint, str)
             or _SHA256.fullmatch(input_fingerprint) is None
             or not isinstance(profile_sha256, str)
@@ -3185,6 +3786,94 @@ class BridgePipelineRuntime:
             raise PipelineStageFailure(
                 "derived_outputs_provenance_invalid"
             )
+        completion_mode = "reviewed"
+        if isinstance(question, Mapping):
+            candidate_ids = question.get("question_candidate_ids")
+            analysis_job_id = question.get("analysis_job_id")
+            question_source_sha256 = question.get("source_sha256")
+            question_queue_revision = question.get(
+                "question_queue_revision"
+            )
+            review_completion_id = context.get(
+                "review_completion_id"
+            )
+            answer_ledger_sha256 = review.get(
+                "server_answer_ledger_revision"
+            )
+            if (
+                not isinstance(candidate_ids, list)
+                or not candidate_ids
+                or len(candidate_ids) != len(set(candidate_ids))
+                or any(
+                    not isinstance(item, str)
+                    or re.fullmatch(r"[a-f0-9]{20}", item) is None
+                    for item in candidate_ids
+                )
+                or not isinstance(analysis_job_id, str)
+                or isinstance(question.get("question_count"), bool)
+                or question.get("question_count") != len(candidate_ids)
+                or not isinstance(question_queue_revision, str)
+                or _SHA256.fullmatch(question_queue_revision) is None
+                or question_source_sha256 != source_sha256
+                or not isinstance(review_completion_id, str)
+                or review.get("review_completion_id")
+                != review_completion_id
+                or review.get("analysis_job_id") != analysis_job_id
+                or review.get("question_queue_revision")
+                != question_queue_revision
+                or review.get("all_required_questions_answered")
+                is not True
+                or isinstance(
+                    review.get("answered_question_count"), bool
+                )
+                or review.get("answered_question_count")
+                != len(candidate_ids)
+                or not isinstance(answer_ledger_sha256, str)
+                or _SHA256.fullmatch(answer_ledger_sha256) is None
+                or review_completion_id
+                != f"review:{answer_ledger_sha256}"
+            ):
+                raise PipelineStageFailure(
+                    "derived_outputs_provenance_invalid"
+                )
+        else:
+            # No question queue is valid only for an exact, completed
+            # zero-candidate analysis. Bind that branch to the analysis/source
+            # checkpoint and the cryptographic empty ledger, then still emit
+            # empty CSV/manifest artifacts instead of converting 0 detections
+            # into a generic stage failure.
+            completion_mode = "zero_detections"
+            candidate_ids = []
+            analysis_job_id = (
+                candidate_rescan.get("analysis_job_id")
+                if isinstance(candidate_rescan, Mapping)
+                else None
+            )
+            candidate_source_sha256 = (
+                candidate_rescan.get("source_sha256")
+                if isinstance(candidate_rescan, Mapping)
+                else None
+            )
+            candidate_count = (
+                candidate_rescan.get("candidate_count")
+                if isinstance(candidate_rescan, Mapping)
+                else None
+            )
+            answer_ledger_sha256 = hashlib.sha256(b"").hexdigest()
+            review_completion_id = (
+                f"zero-detections:{answer_ledger_sha256}"
+            )
+            if (
+                not isinstance(analysis_job_id, str)
+                or candidate_source_sha256 != source_sha256
+                or isinstance(candidate_count, bool)
+                or candidate_count != 0
+                or context.get("review_completion_id") is not None
+                or review
+            ):
+                raise PipelineStageFailure(
+                    "derived_outputs_provenance_invalid"
+                )
         try:
             request = DerivedOutputsRequest(
                 project_id=UUID(str(context["project_id"])),
@@ -3201,15 +3890,59 @@ class BridgePipelineRuntime:
                     profile["default_template_sha256"]
                 ),
                 report_provider=str(profile["report_provider"]),
-                # Consent and exact semantic-template readiness do not yet
-                # exist in the durable project profile. Never infer them.
-                report_transmission_consent=False,
-                template_semantic_map_ready=False,
-                report_provider_ready=False,
+                report_transmission_consent=bool(
+                    profile.get(
+                        "report_transmission_consent", False
+                    )
+                ),
+                template_semantic_map_ready=(
+                    profile.get("template_semantic_map_ready")
+                    is True
+                    and capabilities.get(
+                        "template_semantic_map_ready"
+                    )
+                    is True
+                    and capabilities.get(
+                        "template_semantic_map_sha256"
+                    )
+                    == profile.get(
+                        "template_semantic_map_sha256"
+                    )
+                ),
+                report_provider_ready=(
+                    capabilities.get("report_provider_ready")
+                    is True
+                    and capabilities.get(
+                        "selected_report_provider"
+                    )
+                    == profile.get("report_provider")
+                ),
                 output_location_id=str(profile["output_location_id"]),
-                # A generic pipeline resume must replay the same bundle. A
-                # future explicit report retry may supply its own attempt.
-                report_attempt=0,
+                # Every restarted/resumed derived stage gets a new bounded
+                # attempt identity. A successful preview record still replays
+                # idempotently if export persistence was interrupted.
+                report_attempt=max(
+                    0,
+                    int(
+                        context.get("stage_attempts", {}).get(
+                            "derived_outputs", 1
+                        )
+                    )
+                    - 1,
+                ),
+                completion_mode=completion_mode,
+                template_semantic_map_id=str(
+                    profile.get(
+                        "template_semantic_map_id",
+                        "unconfigured",
+                    )
+                ),
+                template_semantic_map_sha256=str(
+                    profile.get(
+                        "template_semantic_map_sha256",
+                        "0" * 64,
+                    )
+                ),
             )
         except (KeyError, TypeError, ValueError) as error:
             raise PipelineStageFailure(
@@ -3245,12 +3978,61 @@ class BridgePipelineRuntime:
             **dict(result.metrics),
             "idempotent_replay": result.replayed,
         }
-        if checkpoint.get("state") == "partial":
+        if completion_mode == "zero_detections":
+            if (
+                checkpoint.get("state") != "completed"
+                or checkpoint.get("completion_mode")
+                != "zero_detections"
+                or any(
+                    metrics.get(field) != 0
+                    for field in (
+                        "raw_detection_count",
+                        "reviewed_answer_count",
+                        "incident_count",
+                        "annotation_count",
+                        "evidence_file_count",
+                    )
+                )
+            ):
+                raise PipelineStageFailure(
+                    "zero_detections_output_invalid"
+                )
             return PipelineStageResult(
-                "partial",
+                "zero_detections",
                 checkpoint=checkpoint,
                 metrics=metrics,
-                error_code="derived_outputs_partial",
+                error_code="zero_detections",
+            )
+        if checkpoint.get("state") == "blocked":
+            report = checkpoint.get("report")
+            reasons = (
+                report.get("blocking_reasons")
+                if isinstance(report, Mapping)
+                else None
+            )
+            error_code = "report_preview_blocked"
+            if (
+                isinstance(reasons, list)
+                and len(reasons) == 1
+                and isinstance(reasons[0], str)
+                and _SAFE_ERROR_CODE.fullmatch(reasons[0])
+                is not None
+            ):
+                error_code = reasons[0]
+            return PipelineStageResult(
+                "report_preview_blocked",
+                checkpoint=checkpoint,
+                metrics=metrics,
+                error_code=error_code,
+            )
+        if checkpoint.get("state") == "partial":
+            # Backward-compatible recovery for a pre-v2 derived record. New
+            # writes use the explicit blocked state above.
+            return PipelineStageResult(
+                "report_preview_blocked",
+                checkpoint=checkpoint,
+                metrics=metrics,
+                error_code="report_preview_blocked",
             )
         if checkpoint.get("state") == "completed":
             return PipelineStageResult(

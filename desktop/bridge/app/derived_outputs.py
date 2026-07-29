@@ -146,8 +146,11 @@ class ReportPreviewPreparer(Protocol):
         provider: str,
         template_id: str,
         template_sha256: str,
+        template_semantic_map_id: str,
+        template_semantic_map_sha256: str,
         approved_incidents: Sequence[Mapping[str, Any]],
         explicit_transmission_consent: bool,
+        report_attempt: int,
     ) -> Mapping[str, Any]: ...
 
 
@@ -170,6 +173,9 @@ class DerivedOutputsRequest:
     report_provider_ready: bool
     output_location_id: str = "project-default"
     report_attempt: int = 0
+    completion_mode: str = "reviewed"
+    template_semantic_map_id: str = "unconfigured"
+    template_semantic_map_sha256: str = "0" * 64
 
     def __post_init__(self) -> None:
         for value, label in (
@@ -188,15 +194,8 @@ class DerivedOutputsRequest:
         ):
             if not isinstance(value, str) or _SHA256.fullmatch(value) is None:
                 raise ValueError(f"{label} must be a lowercase SHA-256")
-        if self.review_completion_id != (
-            f"review:{self.answer_ledger_sha256}"
-        ):
-            raise ValueError(
-                "review_completion_id must bind the answer ledger SHA-256"
-            )
         if (
-            not self.question_candidate_ids
-            or len(self.question_candidate_ids)
+            len(self.question_candidate_ids)
             != len(set(self.question_candidate_ids))
             or any(
                 not isinstance(item, str)
@@ -207,12 +206,48 @@ class DerivedOutputsRequest:
             raise ValueError(
                 "question_candidate_ids must be unique candidate identities"
             )
+        if self.completion_mode == "reviewed":
+            if (
+                not self.question_candidate_ids
+                or self.review_completion_id
+                != f"review:{self.answer_ledger_sha256}"
+            ):
+                raise ValueError(
+                    "reviewed completion must bind a non-empty answer ledger"
+                )
+        elif self.completion_mode == "zero_detections":
+            empty_ledger_sha256 = hashlib.sha256(b"").hexdigest()
+            if (
+                self.question_candidate_ids
+                or self.answer_ledger_sha256 != empty_ledger_sha256
+                or self.review_completion_id
+                != f"zero-detections:{empty_ledger_sha256}"
+            ):
+                raise ValueError(
+                    "zero-detection completion must bind the empty ledger"
+                )
+        else:
+            raise ValueError("completion_mode is invalid")
         for value, label in (
             (self.template_id, "template_id"),
             (self.output_location_id, "output_location_id"),
+            (
+                self.template_semantic_map_id,
+                "template_semantic_map_id",
+            ),
         ):
             if not isinstance(value, str) or _IDENTIFIER.fullmatch(value) is None:
                 raise ValueError(f"{label} is invalid")
+        if (
+            not isinstance(self.template_semantic_map_sha256, str)
+            or _SHA256.fullmatch(
+                self.template_semantic_map_sha256
+            )
+            is None
+        ):
+            raise ValueError(
+                "template_semantic_map_sha256 is invalid"
+            )
         if self.report_provider not in _REPORT_PROVIDERS:
             raise ValueError("report_provider is invalid")
         for value, label in (
@@ -234,6 +269,13 @@ class DerivedOutputsRequest:
             or not 0 <= self.report_attempt <= 64
         ):
             raise ValueError("report_attempt is invalid")
+        if self.template_semantic_map_ready and (
+            self.template_semantic_map_id == "unconfigured"
+            or self.template_semantic_map_sha256 == "0" * 64
+        ):
+            raise ValueError(
+                "ready template semantic map must have verified provenance"
+            )
 
 
 @dataclass(frozen=True)
@@ -800,10 +842,23 @@ class DerivedOutputsService:
         )
         if (
             ledger_sha256 != request.answer_ledger_sha256
-            or request.review_completion_id != f"review:{ledger_sha256}"
+            or (
+                request.completion_mode == "reviewed"
+                and request.review_completion_id
+                != f"review:{ledger_sha256}"
+            )
+            or (
+                request.completion_mode == "zero_detections"
+                and request.review_completion_id
+                != f"zero-detections:{ledger_sha256}"
+            )
         ):
             raise DerivedOutputsConflict(
-                "the review completion does not match the server answer ledger"
+                "the pipeline completion does not match the server answer ledger"
+            )
+        if request.completion_mode == "zero_detections" and latest:
+            raise DerivedOutputsConflict(
+                "a zero-detection completion cannot contain reviewed answers"
             )
 
         try:
@@ -845,30 +900,40 @@ class DerivedOutputsService:
             raise DerivedOutputsConflict(
                 "the reviewed question set crossed the analysis boundary"
             )
-        if not any(
-            record.get("analysis_job_id")
-            == str(request.analysis_job_id)
+        analysis_audit = [
+            record
             for record in full_audit
-        ):
-            raise DerivedOutputsConflict(
-                "the reviewed analysis has no verified answer audit"
-            )
-        try:
-            # Projection starts only after the exact source, analysis and
-            # reviewed question set above have crossed the server-owned review
-            # boundary.  The full verified ledger preserves its project-wide
-            # chain, while only this analysis may become Annotation/Incident.
-            self._store.project_label_records(
-                request.project_id,
-                full_audit,
-                materialize_analysis_job_ids=[
-                    request.analysis_job_id
-                ],
-            )
-        except LabelProjectionError as error:
-            raise DerivedOutputsConflict(
-                "the reviewed analysis projection is unavailable"
-            ) from error
+            if record.get("analysis_job_id")
+            == str(request.analysis_job_id)
+        ]
+        if request.completion_mode == "zero_detections":
+            if candidates or analysis_audit:
+                raise DerivedOutputsConflict(
+                    "the zero-detection analysis contains candidates or answers"
+                )
+        else:
+            if not analysis_audit:
+                raise DerivedOutputsConflict(
+                    "the reviewed analysis has no verified answer audit"
+                )
+            try:
+                # Projection starts only after the exact source, analysis and
+                # reviewed question set above have crossed the server-owned
+                # review boundary. The full verified ledger preserves its
+                # project-wide chain, while only this analysis may become
+                # Annotation/Incident. A zero-detection completion deliberately
+                # skips projection because it has no user-approved truth.
+                self._store.project_label_records(
+                    request.project_id,
+                    full_audit,
+                    materialize_analysis_job_ids=[
+                        request.analysis_job_id
+                    ],
+                )
+            except LabelProjectionError as error:
+                raise DerivedOutputsConflict(
+                    "the reviewed analysis projection is unavailable"
+                ) from error
 
         proposals: Mapping[str, Mapping[str, Any]] = {}
         if self._experimental_proposals is not None:
@@ -901,6 +966,13 @@ class DerivedOutputsService:
             include_inactive=False,
             analysis_job_id=request.analysis_job_id,
         )
+        if (
+            request.completion_mode == "zero_detections"
+            and active_incidents
+        ):
+            raise DerivedOutputsConflict(
+                "a zero-detection analysis cannot have active incidents"
+            )
         active_by_candidate = {
             str(item.get("candidate_id")): item
             for item in active_incidents
@@ -1071,6 +1143,12 @@ class DerivedOutputsService:
             "template_semantic_map_ready": (
                 request.template_semantic_map_ready
             ),
+            "template_semantic_map_id": (
+                request.template_semantic_map_id
+            ),
+            "template_semantic_map_sha256": (
+                request.template_semantic_map_sha256
+            ),
             "report_attempt": request.report_attempt,
         }
         derived_revision = _sha256_value(
@@ -1089,6 +1167,7 @@ class DerivedOutputsService:
                 "review_completion_id": (
                     request.review_completion_id
                 ),
+                "completion_mode": request.completion_mode,
                 "answer_ledger_sha256": (
                     request.answer_ledger_sha256
                 ),
@@ -1136,8 +1215,15 @@ class DerivedOutputsService:
                         provider=request.report_provider,
                         template_id=request.template_id,
                         template_sha256=request.template_sha256,
+                        template_semantic_map_id=(
+                            request.template_semantic_map_id
+                        ),
+                        template_semantic_map_sha256=(
+                            request.template_semantic_map_sha256
+                        ),
                         approved_incidents=tuple(approved_for_report),
                         explicit_transmission_consent=True,
+                        report_attempt=request.report_attempt,
                     )
                     report = _safe_report_preview(prepared)
                 except Exception:
@@ -1158,7 +1244,7 @@ class DerivedOutputsService:
                     "validated_preview",
                     "not_applicable_no_approved_incidents",
                 }
-                else "partial"
+                else "blocked"
             )
             export_payload = {
                 "trip": {
@@ -1176,6 +1262,7 @@ class DerivedOutputsService:
                 "maintenance_actions": maintenance_actions,
                 "report_payload": {
                     "state": overall_state,
+                    "completion_mode": request.completion_mode,
                     "reviewed_count": len(reviewed_records),
                     "approved_incident_count": len(reviewed_incidents),
                     "approved_incidents": reviewed_incidents,
@@ -1197,6 +1284,7 @@ class DerivedOutputsService:
                     "review_completion_id": (
                         request.review_completion_id
                     ),
+                    "completion_mode": request.completion_mode,
                     "answer_ledger_sha256": (
                         request.answer_ledger_sha256
                     ),
@@ -1467,6 +1555,7 @@ class DerivedOutputsService:
             "pipeline_job_id": str(request.pipeline_job_id),
             "analysis_job_id": str(request.analysis_job_id),
             "review_completion_id": request.review_completion_id,
+            "completion_mode": request.completion_mode,
             "answer_ledger_sha256": request.answer_ledger_sha256,
             "derived_output_revision": derived_revision,
             "export_bundle_id": exported.output_directory.name,

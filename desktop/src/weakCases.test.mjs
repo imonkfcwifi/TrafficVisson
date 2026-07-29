@@ -25,7 +25,7 @@ const DOCUMENT_SHA256 =
 const CASE_ID =
   "hwpx-weak-case-0123456789abcdef0123456789abcdef";
 
-function sourceState() {
+function sourceState(approvedCount = 0) {
   return {
     source_id: SOURCE_ID,
     document_name: "3분기 점검 내용 정리.hwpx",
@@ -36,9 +36,9 @@ function sourceState() {
     status: "ready",
     case_count: 147,
     resolved_case_count: 147,
-    review_required_count: 147,
-    approved_reference_count: 0,
-    training_eligible_count: 0,
+    review_required_count: 147 - approvedCount,
+    approved_reference_count: approvedCount,
+    training_eligible_count: approvedCount,
     annotation_count: 0,
     incident_count: 0,
     index_manifest_sha256: "b".repeat(64),
@@ -61,8 +61,14 @@ function weakCase() {
     quarter: 3,
     document_name: "3분기 점검 내용 정리.hwpx",
     document_sha256: DOCUMENT_SHA256,
+    structure_target_summary_sha256: "c".repeat(64),
+    index_manifest_sha256: "b".repeat(64),
+    section_path: "Contents/section0.xml",
+    section_index: 0,
+    picture_target_id: `hwpx-picture-${"1".repeat(24)}`,
     page_hint: 15,
     page_hint_source: "explicit_break_not_rendered_page",
+    cell_target_id: `hwpx-cell-${"2".repeat(24)}`,
     table_index: 7,
     cell_row: 2,
     cell_column: 1,
@@ -73,9 +79,15 @@ function weakCase() {
     evaluation: "삭초 필요",
     opinion: "표지판 시인성 확보를 위해 수목 제거 필요",
     image_available: true,
+    image_sha256: "d".repeat(64),
     image_media_type: "image/bmp",
     image_width: 640,
     image_height: 480,
+    approval_id: null,
+    approval_revision: null,
+    approval_record_sha256: null,
+    approved_issue_type: null,
+    approved_action: null,
   };
 }
 
@@ -113,6 +125,43 @@ test("weak-case parser keeps sample matches review-only and path-free", () => {
   assert.equal(parsed.incidentCount, 0);
   assert.equal(parsed.trainingEligibleCount, 0);
   assert.doesNotMatch(JSON.stringify(parsed), /BinData|[A-Za-z]:\\/);
+});
+
+test("weak-case parser accepts project-scoped approved references with exact provenance", () => {
+  const approved = response();
+  approved.capability_state = "approved_reference_available";
+  approved.source_states = [sourceState(1)];
+  approved.cases[0] = {
+    ...weakCase(),
+    reference_state: "approved_reference",
+    review_required: false,
+    approved_reference: true,
+    training_eligible: true,
+    approval_id: `approved-reference-${"3".repeat(24)}`,
+    approval_revision: 1,
+    approval_record_sha256: "e".repeat(64),
+    approved_issue_type: "roadside_mowing_required",
+    approved_action: "표지판 시인성 확보를 위한 선택적 삭초",
+  };
+  approved.approved_reference_count = 1;
+  approved.training_eligible_count = 1;
+
+  const parsed = parseWeakCaseSearchResponse(approved, {
+    issueType: "roadside_mowing_required",
+    requestedLimit: 5,
+  });
+  assert.equal(
+    parsed.capabilityState,
+    "approved_reference_available",
+  );
+  assert.equal(parsed.approvedReferenceCount, 1);
+  assert.equal(parsed.trainingEligibleCount, 1);
+  assert.equal(parsed.cases[0].approvedReference, true);
+  assert.equal(
+    parsed.cases[0].approvedAction,
+    "표지판 시인성 확보를 위한 선택적 삭초",
+  );
+  assert.equal(parsed.cases[0].approvalRevision, 1);
 });
 
 test("weak-case parser rejects promotion, path injection and identity drift", () => {

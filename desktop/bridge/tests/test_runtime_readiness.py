@@ -12,6 +12,32 @@ from app.runtime_readiness import (
 )
 
 
+def _verified_pack(**overrides):
+    value = {
+        "provenance_verified": True,
+        "provider": "transformers_grounding_dino",
+        "pack_id": "trafficvisson-grounding-dino",
+        "pack_version": "0.2.0-review",
+        "manifest_sha256": "a" * 64,
+        "model_name": "Grounding DINO Tiny ONNX Q4",
+        "model_version": "1" * 40,
+        "model_artifact_sha256": "b" * 64,
+        "source_repo_id": "onnx-community/grounding-dino-tiny-ONNX",
+        "source_revision": "2" * 40,
+        "weights_spdx": "Apache-2.0",
+        "runtime_spdx": "MIT",
+        "commercial_use_confirmed": True,
+        "redistribution_allowed": True,
+        "gpu_required": False,
+        "cpu_fallback": True,
+        "recommended_min_vram_mb": 4096,
+        "cuda_min_version": None,
+        "review_only": True,
+    }
+    value.update(overrides)
+    return value
+
+
 def _provider_service(tmp_path):
     codex = tmp_path / "codex.exe"
     claude = tmp_path / "claude.exe"
@@ -68,6 +94,7 @@ def test_readiness_keeps_local_detection_and_cli_judgment_boundaries(
             "pack_version": "0.2.0-review",
             "manifest_sha256": "a" * 64,
             "review_only": True,
+            "model_pack": _verified_pack(),
         },
         hwp_preflight=lambda: {
             "available": False,
@@ -98,6 +125,11 @@ def test_readiness_keeps_local_detection_and_cli_judgment_boundaries(
     assert len(rows) == 13
     assert rows["grounding_dino"]["state"] == "ready"
     assert rows["grounding_dino"]["model_pack"]["manifest_sha256"] == "a" * 64
+    assert rows["grounding_dino"]["model_pack"]["source_revision"] == "2" * 40
+    assert (
+        rows["grounding_dino"]["model_pack"]["recommended_min_vram_mb"]
+        == 4096
+    )
     assert rows["sam2"]["state"] == "unavailable"
     assert rows["pytorch_cuda"]["state"] == "incomplete"
     assert rows["korean_ocr"]["state"] == "incomplete"
@@ -107,6 +139,64 @@ def test_readiness_keeps_local_detection_and_cli_judgment_boundaries(
     assert rows["local_model_provider"]["state"] == "disabled"
     assert "OPENAI_API_KEY" not in repr(snapshot)
     assert str(tmp_path) not in repr(snapshot)
+
+
+def test_ready_claim_without_full_model_pack_provenance_is_not_accepted(
+    tmp_path,
+):
+    service = RuntimeReadinessService(
+        provider_status=ProviderStatusService(which=lambda _name: None),
+        vision_status=lambda: {
+            "enabled": True,
+            "capabilities": ["ocr"],
+            "pack_id": "legacy-ocr-pack",
+            "pack_version": "1.0.0",
+            "manifest_sha256": "c" * 64,
+            "weights_spdx": "Apache-2.0",
+            "runtime_spdx": "MIT",
+        },
+        command_model_status=lambda: {
+            "state": "ready",
+            "pack_id": "legacy-dino-pack",
+            "pack_version": "1.0.0",
+            "manifest_sha256": "d" * 64,
+            "review_only": True,
+        },
+        sam2_status=lambda: {
+            "state": "ready",
+            "model_pack": {
+                "pack_id": "legacy-sam2-pack",
+                "pack_version": "1.0.0",
+                "manifest_sha256": "e" * 64,
+            },
+        },
+        hwp_preflight=lambda: {"available": False},
+        ffmpeg_path=None,
+        distribution_version=lambda name: (_ for _ in ()).throw(
+            metadata.PackageNotFoundError(name)
+        ),
+        which=lambda _name: None,
+    )
+
+    rows = {
+        row["component_id"]: row
+        for row in service.snapshot()["components"]
+    }
+
+    assert rows["grounding_dino"]["state"] == "incomplete"
+    assert rows["grounding_dino"]["error_code"] == (
+        "model_pack_provenance_incomplete"
+    )
+    assert rows["korean_ocr"]["state"] == "incomplete"
+    assert rows["korean_ocr"]["error_code"] == (
+        "model_pack_provenance_incomplete"
+    )
+    assert rows["sam2"]["state"] == "failed"
+    assert rows["sam2"]["error_code"] == "model_pack_invalid"
+    assert all(
+        "model_pack" not in rows[component_id]
+        for component_id in ("grounding_dino", "korean_ocr", "sam2")
+    )
 
 
 def test_invalid_model_pack_is_failed_not_unavailable_or_zero_detection(

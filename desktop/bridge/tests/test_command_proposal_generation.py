@@ -241,6 +241,22 @@ def test_fixed_runner_uses_pinned_manifest_and_never_receives_raw_command(
         trusted_manifest_sha256=fixture["manifest_sha256"],
         process_runner=process_runner,
     )
+    status = generator.status()
+    provenance = status["model_pack"]
+    assert status["state"] == "ready"
+    assert provenance["provenance_verified"] is True
+    assert provenance["model_name"] == "Grounding DINO test model"
+    assert provenance["source_repo_id"] == "example/grounding-dino"
+    assert provenance["source_revision"] == (
+        "0123456789abcdef0123456789abcdef01234567"
+    )
+    assert provenance["model_artifact_sha256"] == hashlib.sha256(
+        b"trusted-test-model"
+    ).hexdigest()
+    assert provenance["weights_spdx"] == "Apache-2.0"
+    assert provenance["recommended_min_vram_mb"] == 4096
+    assert provenance["cpu_fallback"] is True
+    assert str(fixture["root"]) not in repr(provenance)
     result = generator.generate(
         project_id=PROJECT_ID,
         analysis_job_id=JOB_ID,

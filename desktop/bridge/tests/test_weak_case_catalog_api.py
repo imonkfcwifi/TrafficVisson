@@ -329,3 +329,257 @@ def test_bridge_api_is_project_scoped_path_free_and_bounded(tmp_path):
             headers=_headers(),
         )
         assert arbitrary.status_code == 404
+
+
+def test_user_confirmation_promotes_exact_case_to_project_reference(
+    tmp_path,
+):
+    source = _write_source(tmp_path / DOCUMENT_NAME)
+
+    class AuditedFixtureCatalog(WeakCaseCatalog):
+        def case_attestation(self, source_id, case_id):
+            result = super().case_attestation(source_id, case_id)
+            result["sample_layout_binding"] = {
+                "picture_target_id": result["picture_target_id"],
+                "picture_index": result["picture_index"],
+                "page_pair_index": 0,
+                "inspection_page_number": 1,
+                "photo_page_number": 2,
+                "photo_table_index": result["table_index"],
+                "photo_cell_target_id": result["cell_target_id"],
+                "photo_cell_row": result["cell_row"],
+                "photo_cell_column": result["cell_column"],
+                "photo_slot_id": (
+                    "sample-photo-slot-" + "a" * 24
+                ),
+                "photo_caption": {
+                    "role": "photo_caption",
+                    "cell_target_id": "hwpx-cell-" + "c" * 24,
+                    "table_id": "photo-grid",
+                    "table_index": result["table_index"],
+                    "page_number": 2,
+                    "row": result["cell_row"] + 1,
+                    "column": result["cell_column"],
+                    "row_span": 1,
+                    "column_span": 1,
+                    "text_excerpt": "삭초 필요",
+                    "text_sha256": hashlib.sha256(
+                        "삭초 필요".encode("utf-8")
+                    ).hexdigest(),
+                },
+                "inspection_route": {
+                    "role": "inspection_route",
+                    "cell_target_id": "hwpx-cell-" + "d" * 24,
+                    "table_id": "inspection-detail",
+                    "table_index": 1,
+                    "page_number": 1,
+                    "row": 32,
+                    "column": 4,
+                    "row_span": 1,
+                    "column_span": 1,
+                    "text_excerpt": "노선명 : 검증 노선",
+                    "text_sha256": hashlib.sha256(
+                        "노선명 : 검증 노선".encode("utf-8")
+                    ).hexdigest(),
+                },
+                "inspection_opinion_label": {
+                    "role": "inspection_opinion_label",
+                    "cell_target_id": "hwpx-cell-" + "e" * 24,
+                    "table_id": "inspection-detail",
+                    "table_index": 1,
+                    "page_number": 1,
+                    "row": 29,
+                    "column": 1,
+                    "row_span": 1,
+                    "column_span": 1,
+                    "text_excerpt": "점검의견",
+                    "text_sha256": hashlib.sha256(
+                        "점검의견".encode("utf-8")
+                    ).hexdigest(),
+                },
+                "inspection_opinion_body": {
+                    "role": "inspection_opinion_body",
+                    "cell_target_id": "hwpx-cell-" + "f" * 24,
+                    "table_id": "inspection-detail",
+                    "table_index": 1,
+                    "page_number": 1,
+                    "row": 30,
+                    "column": 1,
+                    "row_span": 1,
+                    "column_span": 1,
+                    "text_excerpt": "ㅇ 검증 점검의견",
+                    "text_sha256": hashlib.sha256(
+                        "ㅇ 검증 점검의견".encode("utf-8")
+                    ).hexdigest(),
+                },
+                "square_markers": [
+                    {
+                        "cell_target_id": (
+                            "hwpx-cell-" + "b" * 24
+                        ),
+                        "table_id": "inspection-detail",
+                        "table_index": 1,
+                        "page_number": 1,
+                        "row": 3,
+                        "column": 6,
+                        "marker": "■",
+                        "text_sha256": hashlib.sha256(
+                            "■".encode("utf-8")
+                        ).hexdigest(),
+                    }
+                ],
+                "binding_sha256": hashlib.sha256(
+                    b"audited-fixture-binding"
+                ).hexdigest(),
+            }
+            return result
+
+    catalog = AuditedFixtureCatalog(
+        source.parent.resolve(),
+        definitions=(_definition(source),),
+    )
+    app = create_app(
+        TOKEN,
+        fixture_mode=True,
+        allow_test_client=True,
+        bridge_data_root=str(tmp_path / "bridge-data"),
+        media_stability_min_interval_seconds=0,
+        weak_case_catalog=catalog,
+    )
+    with TestClient(app) as client:
+        searched = client.post(
+            f"/projects/{DEMO_PROJECT_ID}/reference-cases/search",
+            headers=_headers(),
+            json={
+                "project_id": str(DEMO_PROJECT_ID),
+                "issue_type": "roadside_mowing_required",
+                "query_text": "수풀 삭초",
+                "limit": 3,
+            },
+        )
+        assert searched.status_code == 200, searched.text
+        case = searched.json()["cases"][0]
+        assert case["approved_reference"] is False
+        assert case["image_sha256"] == hashlib.sha256(
+            _bmp()
+        ).hexdigest()
+        assert case["picture_target_id"].startswith("hwpx-picture-")
+        assert case["cell_target_id"].startswith("hwpx-cell-")
+
+        request = {
+            "project_id": str(DEMO_PROJECT_ID),
+            "source_id": case["source_id"],
+            "case_id": case["case_id"],
+            "expected_document_sha256": case["document_sha256"],
+            "expected_index_manifest_sha256": case[
+                "index_manifest_sha256"
+            ],
+            "expected_image_sha256": case["image_sha256"],
+            "issue_type": "roadside_mowing_required",
+            "maintenance_action": "삭초 및 수목 제거",
+            "caption": case["caption"],
+            "route": case["route"],
+            "location": case["location"],
+            "evaluation": case["evaluation"],
+            "opinion": case["opinion"],
+            "user_confirmed": True,
+        }
+        approved = client.post(
+            f"/projects/{DEMO_PROJECT_ID}/reference-cases/approvals",
+            headers=_headers(),
+            json=request,
+        )
+        assert approved.status_code == 200, approved.text
+        approval = approved.json()
+        assert approval["reference_state"] == "approved_reference"
+        assert approval["training_eligible"] is True
+        assert approval["training_scope"] == "approved_reference_only"
+        assert approval["annotation_created"] is False
+        assert approval["incident_created"] is False
+        assert approval["photo_slot_id"] == (
+            "sample-photo-slot-" + "a" * 24
+        )
+        assert approval["square_markers"][0]["marker"] == "■"
+        assert {
+            cell["role"] for cell in approval["semantic_cells"]
+        } == {
+            "photo_caption",
+            "inspection_route",
+            "inspection_opinion_label",
+            "inspection_opinion_body",
+        }
+        assert approval["document_sha256"] == case["document_sha256"]
+        assert approval["image_sha256"] == case["image_sha256"]
+        assert approval["idempotent_replay"] is False
+
+        replay = client.post(
+            f"/projects/{DEMO_PROJECT_ID}/reference-cases/approvals",
+            headers=_headers(),
+            json=request,
+        )
+        assert replay.status_code == 200, replay.text
+        assert replay.json()["idempotent_replay"] is True
+        assert replay.json()["record_sha256"] == approval["record_sha256"]
+
+        promoted_search = client.post(
+            f"/projects/{DEMO_PROJECT_ID}/reference-cases/search",
+            headers=_headers(),
+            json={
+                "project_id": str(DEMO_PROJECT_ID),
+                "issue_type": "roadside_mowing_required",
+                "query_text": "수풀 삭초",
+                "limit": 3,
+            },
+        )
+        assert promoted_search.status_code == 200, promoted_search.text
+        promoted = promoted_search.json()
+        assert promoted["capability_state"] == (
+            "approved_reference_available"
+        )
+        assert promoted["approved_reference_count"] == 1
+        assert promoted["training_eligible_count"] == 1
+        assert promoted["annotation_count"] == 0
+        assert promoted["incident_count"] == 0
+        assert promoted["cases"][0]["review_required"] is False
+        assert promoted["cases"][0]["approval_record_sha256"] == (
+            approval["record_sha256"]
+        )
+
+        listed = client.get(
+            f"/projects/{DEMO_PROJECT_ID}/reference-cases/approved",
+            headers=_headers(),
+        )
+        assert listed.status_code == 200, listed.text
+        assert listed.json()["approved_reference_count"] == 1
+        assert listed.json()["annotation_count"] == 0
+        assert listed.json()["incident_count"] == 0
+
+        stale = {
+            **request,
+            "expected_image_sha256": "0" * 64,
+        }
+        rejected = client.post(
+            f"/projects/{DEMO_PROJECT_ID}/reference-cases/approvals",
+            headers=_headers(),
+            json=stale,
+        )
+        assert rejected.status_code == 409
+
+    restarted = create_app(
+        TOKEN,
+        fixture_mode=True,
+        allow_test_client=True,
+        bridge_data_root=str(tmp_path / "bridge-data"),
+        media_stability_min_interval_seconds=0,
+        weak_case_catalog=catalog,
+    )
+    with TestClient(restarted) as client:
+        recovered = client.get(
+            f"/projects/{DEMO_PROJECT_ID}/reference-cases/approved",
+            headers=_headers(),
+        )
+        assert recovered.status_code == 200, recovered.text
+        assert recovered.json()["approved_reference_count"] == 1
+        assert recovered.json()["records"][0]["record_sha256"] == (
+            approval["record_sha256"]
+        )

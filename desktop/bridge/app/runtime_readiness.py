@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from importlib import metadata
 from pathlib import Path
 import platform
+import re
 import shutil
 import stat
 from typing import Any, Callable, Mapping, Optional, Sequence
@@ -55,6 +56,12 @@ _COMPONENT_STATES = frozenset(
 _SAFE_VERSION_CHARS = frozenset(
     "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz.-+_ "
 )
+_SAFE_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+_SAFE_SOURCE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$")
+_SAFE_REVISION = re.compile(r"^[a-f0-9]{40,64}$")
+_SHA256 = re.compile(r"^[a-f0-9]{64}$")
+_SPDX = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.+-]{0,63}$")
+_CUDA_VERSION = re.compile(r"^[0-9]{1,3}(?:\.[0-9]{1,3}){1,2}$")
 
 
 @dataclass(frozen=True)
@@ -107,6 +114,7 @@ class RuntimeReadinessService:
         vision_status: Callable[[], Mapping[str, Any]],
         command_model_status: Callable[[], Mapping[str, Any]],
         hwp_preflight: Callable[[], object],
+        sam2_status: Optional[Callable[[], Mapping[str, Any]]] = None,
         ffmpeg_path: Optional[str] = None,
         distribution_version: Callable[[str], str] = metadata.version,
         which: Callable[[str], Optional[str]] = shutil.which,
@@ -116,6 +124,7 @@ class RuntimeReadinessService:
         self._provider_status = provider_status
         self._vision_status = vision_status
         self._command_model_status = command_model_status
+        self._sam2_status = sam2_status
         self._hwp_preflight = hwp_preflight
         self._ffmpeg_path = ffmpeg_path
         self._distribution_version = distribution_version
@@ -128,6 +137,14 @@ class RuntimeReadinessService:
         command_model, command_status_failed = self._read_status(
             self._command_model_status
         )
+        if self._sam2_status is None:
+            sam2 = {
+                "state": "unavailable",
+                "error_code": "model_pack_not_configured",
+            }
+            sam2_status_failed = False
+        else:
+            sam2, sam2_status_failed = self._read_status(self._sam2_status)
         components = [
             RuntimeComponent(
                 component_id="electron_host",
@@ -177,17 +194,9 @@ class RuntimeReadinessService:
             self._command_model_component(
                 command_model, status_failed=command_status_failed
             ),
-            RuntimeComponent(
-                component_id="sam2",
-                display_name="SAM 2 mask and tracking",
-                state="unavailable",
-                management="model_pack",
-                required_for=("mask_refinement", "temporal_tracking"),
-                message=(
-                    "검증된 SAM 2 가중치·라이선스·GPU 매니페스트가 "
-                    "설치되지 않았습니다."
-                ),
-                error_code="model_pack_not_configured",
+            self._sam2_component(
+                sam2,
+                status_failed=sam2_status_failed,
             ),
             self._python_component(
                 component_id="opencv",
@@ -275,17 +284,20 @@ class RuntimeReadinessService:
             )
         state = status.get("state")
         if state == "ready":
-            pack = {
-                key: status[key]
-                for key in (
-                    "provider",
-                    "pack_id",
-                    "pack_version",
-                    "manifest_sha256",
-                    "review_only",
+            pack = _verified_model_pack(status.get("model_pack"))
+            if pack is None:
+                return RuntimeComponent(
+                    component_id="grounding_dino",
+                    display_name="Grounding DINO",
+                    state="incomplete",
+                    management="model_pack",
+                    required_for=("natural_language_box_proposals",),
+                    message=(
+                        "실행기는 있으나 모델명·출처 revision·라이선스·"
+                        "artifact SHA-256·GPU 요구조건 증빙이 완전하지 않습니다."
+                    ),
+                    error_code="model_pack_provenance_incomplete",
                 )
-                if key in status
-            }
             return RuntimeComponent(
                 component_id="grounding_dino",
                 display_name="Grounding DINO",
@@ -315,6 +327,65 @@ class RuntimeReadinessService:
             management="model_pack",
             required_for=("natural_language_box_proposals",),
             message="검증된 Grounding DINO Model Pack이 설치되지 않았습니다.",
+            error_code="model_pack_not_configured",
+        )
+
+    def _sam2_component(
+        self,
+        status: Mapping[str, Any],
+        *,
+        status_failed: bool = False,
+    ) -> RuntimeComponent:
+        if status_failed:
+            return RuntimeComponent(
+                component_id="sam2",
+                display_name="SAM 2 mask and tracking",
+                state="failed",
+                management="model_pack",
+                required_for=("mask_refinement", "temporal_tracking"),
+                message="SAM 2 Model Pack 상태 확인에 실패했습니다.",
+                error_code="model_pack_status_failed",
+            )
+        state = status.get("state")
+        if state == "ready":
+            pack = _verified_model_pack(status.get("model_pack"))
+            if pack is not None:
+                return RuntimeComponent(
+                    component_id="sam2",
+                    display_name="SAM 2 mask and tracking",
+                    state="ready",
+                    management="model_pack",
+                    required_for=("mask_refinement", "temporal_tracking"),
+                    message=(
+                        "검증된 SAM 2 Model Pack이 사용자 확인 전 "
+                        "마스크·추적 제안에만 활성화되어 있습니다."
+                    ),
+                    model_pack=pack,
+                )
+            state = "failed"
+        if state == "failed":
+            return RuntimeComponent(
+                component_id="sam2",
+                display_name="SAM 2 mask and tracking",
+                state="failed",
+                management="model_pack",
+                required_for=("mask_refinement", "temporal_tracking"),
+                message=(
+                    "설치된 SAM 2 구성의 매니페스트 provenance 또는 "
+                    "무결성 검증에 실패했습니다."
+                ),
+                error_code="model_pack_invalid",
+            )
+        return RuntimeComponent(
+            component_id="sam2",
+            display_name="SAM 2 mask and tracking",
+            state="unavailable",
+            management="model_pack",
+            required_for=("mask_refinement", "temporal_tracking"),
+            message=(
+                "검증된 SAM 2 가중치·라이선스·GPU 매니페스트가 "
+                "설치되지 않았습니다."
+            ),
             error_code="model_pack_not_configured",
         )
 
@@ -378,25 +449,29 @@ class RuntimeReadinessService:
             if isinstance(value, str)
         }
         if vision.get("enabled") is True and capability in capabilities:
-            pack = {
-                key: vision[key]
-                for key in (
-                    "pack_id",
-                    "pack_version",
-                    "manifest_sha256",
-                    "weights_spdx",
-                    "runtime_spdx",
+            pack = _verified_model_pack(vision.get("model_pack"))
+            if pack is not None:
+                return RuntimeComponent(
+                    component_id=component_id,
+                    display_name=display_name,
+                    state="ready",
+                    management="model_pack",
+                    required_for=required_for,
+                    message="검증된 로컬 Model Pack 기능이 활성화되어 있습니다.",
+                    model_pack=pack,
                 )
-                if key in vision
-            }
             return RuntimeComponent(
                 component_id=component_id,
                 display_name=display_name,
-                state="ready",
+                state="incomplete",
                 management="model_pack",
                 required_for=required_for,
-                message="검증된 로컬 Model Pack 기능이 활성화되어 있습니다.",
-                model_pack=pack,
+                message=(
+                    "가중치 무결성은 확인됐지만 모델명·고정 출처 revision·"
+                    "라이선스·artifact SHA-256·GPU 요구조건 증빙이 "
+                    "완전하지 않아 준비 완료로 승격하지 않습니다."
+                ),
+                error_code="model_pack_provenance_incomplete",
             )
         for distribution in fallback_distributions:
             version = self._distribution(distribution)
@@ -566,6 +641,120 @@ def _safe_version(value: object) -> Optional[str]:
     ):
         return None
     return candidate
+
+
+def _bounded_public_text(value: object, maximum: int) -> Optional[str]:
+    if not isinstance(value, str):
+        return None
+    candidate = value.strip()
+    if (
+        not candidate
+        or len(candidate) > maximum
+        or any(ord(character) < 0x20 for character in candidate)
+    ):
+        return None
+    return candidate
+
+
+def _verified_model_pack(value: object) -> Optional[dict[str, Any]]:
+    """Return only a complete, path-free model-pack provenance record."""
+
+    required = {
+        "provenance_verified",
+        "provider",
+        "pack_id",
+        "pack_version",
+        "manifest_sha256",
+        "model_name",
+        "model_version",
+        "model_artifact_sha256",
+        "source_repo_id",
+        "source_revision",
+        "weights_spdx",
+        "runtime_spdx",
+        "commercial_use_confirmed",
+        "redistribution_allowed",
+        "gpu_required",
+        "cpu_fallback",
+        "recommended_min_vram_mb",
+        "cuda_min_version",
+        "review_only",
+    }
+    if not isinstance(value, Mapping) or set(value) != required:
+        return None
+    provider = value.get("provider")
+    pack_id = value.get("pack_id")
+    pack_version = _safe_version(value.get("pack_version"))
+    manifest_sha256 = value.get("manifest_sha256")
+    model_name = _bounded_public_text(value.get("model_name"), 128)
+    model_version = _bounded_public_text(value.get("model_version"), 128)
+    model_artifact_sha256 = value.get("model_artifact_sha256")
+    source_repo_id = value.get("source_repo_id")
+    source_revision = value.get("source_revision")
+    weights_spdx = value.get("weights_spdx")
+    runtime_spdx = value.get("runtime_spdx")
+    recommended_vram = value.get("recommended_min_vram_mb")
+    cuda_min_version = value.get("cuda_min_version")
+    if (
+        value.get("provenance_verified") is not True
+        or not isinstance(provider, str)
+        or _SAFE_IDENTIFIER.fullmatch(provider) is None
+        or not isinstance(pack_id, str)
+        or _SAFE_IDENTIFIER.fullmatch(pack_id) is None
+        or pack_version is None
+        or not isinstance(manifest_sha256, str)
+        or _SHA256.fullmatch(manifest_sha256) is None
+        or model_name is None
+        or model_version is None
+        or not isinstance(model_artifact_sha256, str)
+        or _SHA256.fullmatch(model_artifact_sha256) is None
+        or not isinstance(source_repo_id, str)
+        or _SAFE_SOURCE_ID.fullmatch(source_repo_id) is None
+        or not isinstance(source_revision, str)
+        or _SAFE_REVISION.fullmatch(source_revision) is None
+        or not isinstance(weights_spdx, str)
+        or _SPDX.fullmatch(weights_spdx) is None
+        or not isinstance(runtime_spdx, str)
+        or _SPDX.fullmatch(runtime_spdx) is None
+        or value.get("commercial_use_confirmed") is not True
+        or not isinstance(value.get("redistribution_allowed"), bool)
+        or not isinstance(value.get("gpu_required"), bool)
+        or not isinstance(value.get("cpu_fallback"), bool)
+        or isinstance(recommended_vram, bool)
+        or not isinstance(recommended_vram, int)
+        or not 0 <= recommended_vram <= 131_072
+        or not (
+            cuda_min_version is None
+            or (
+                isinstance(cuda_min_version, str)
+                and _CUDA_VERSION.fullmatch(cuda_min_version) is not None
+            )
+        )
+        or (value["gpu_required"] and cuda_min_version is None)
+        or value.get("review_only") is not True
+    ):
+        return None
+    return {
+        "provenance_verified": True,
+        "provider": provider,
+        "pack_id": pack_id,
+        "pack_version": pack_version,
+        "manifest_sha256": manifest_sha256,
+        "model_name": model_name,
+        "model_version": model_version,
+        "model_artifact_sha256": model_artifact_sha256,
+        "source_repo_id": source_repo_id,
+        "source_revision": source_revision,
+        "weights_spdx": weights_spdx,
+        "runtime_spdx": runtime_spdx,
+        "commercial_use_confirmed": True,
+        "redistribution_allowed": value["redistribution_allowed"],
+        "gpu_required": value["gpu_required"],
+        "cpu_fallback": value["cpu_fallback"],
+        "recommended_min_vram_mb": recommended_vram,
+        "cuda_min_version": cuda_min_version,
+        "review_only": True,
+    }
 
 
 def _is_reparse_point(path: Path) -> bool:

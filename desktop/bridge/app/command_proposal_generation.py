@@ -1100,11 +1100,18 @@ class FixedManifestCommandProposalGenerator:
                 "evaluation": evaluation.model_dump(mode="json"),
             },
             manifest_sha256,
+            model_manifest,
         )
 
     def status(self) -> Mapping[str, Any]:
         try:
-            _executable, _model_root, manifest, manifest_sha256 = (
+            (
+                _executable,
+                _model_root,
+                manifest,
+                manifest_sha256,
+                model_manifest,
+            ) = (
                 self._load_verified_runner()
             )
         except CommandProposalGenerationError:
@@ -1113,6 +1120,15 @@ class FixedManifestCommandProposalGenerator:
                 "error_code": "model_pack_invalid",
             }
         model = manifest["model"]
+        selected_artifact = model_manifest["model"]["selected_artifact"]
+        selected_artifact_row = next(
+            row
+            for row in model_manifest["artifacts"]
+            if row["path"] == selected_artifact
+        )
+        source = model_manifest["source"]
+        licence = model_manifest["license"]
+        gpu = model_manifest["gpu_requirements"]
         return {
             "state": "ready",
             "error_code": None,
@@ -1124,6 +1140,29 @@ class FixedManifestCommandProposalGenerator:
             "capabilities": ["natural_language_box_proposals"],
             "review_only": True,
             "bulk_frame_detection_provider": "local_model",
+            "model_pack": {
+                "provenance_verified": True,
+                "provider": model["provider"],
+                "pack_id": model_manifest["pack_id"],
+                "pack_version": model_manifest["pack_version"],
+                "manifest_sha256": model["manifest_sha256"],
+                "model_name": model_manifest["model"]["name"],
+                "model_version": model_manifest["model"]["version"],
+                "model_artifact_sha256": selected_artifact_row["sha256"],
+                "source_repo_id": source["repo_id"],
+                "source_revision": source["resolved_revision"],
+                "weights_spdx": licence["weights_spdx"],
+                "runtime_spdx": licence["runtime_spdx"],
+                "commercial_use_confirmed": True,
+                "redistribution_allowed": licence["redistribution_allowed"],
+                "gpu_required": gpu["required"],
+                "cpu_fallback": gpu["cpu_fallback"],
+                "recommended_min_vram_mb": gpu[
+                    "recommended_min_vram_mb"
+                ],
+                "cuda_min_version": gpu["cuda_min_version"],
+                "review_only": True,
+            },
         }
 
     def generate(
@@ -1161,7 +1200,13 @@ class FixedManifestCommandProposalGenerator:
             raise CommandProposalGenerationError(
                 "proposal image resolver is invalid"
             )
-        executable, model_root, manifest, manifest_sha256 = (
+        (
+            executable,
+            model_root,
+            manifest,
+            manifest_sha256,
+            _model_manifest,
+        ) = (
             self._load_verified_runner()
         )
         candidate_rows: list[dict[str, Any]] = []

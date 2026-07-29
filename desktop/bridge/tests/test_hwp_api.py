@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from copy import deepcopy
+from dataclasses import asdict
 from pathlib import Path
 from uuid import uuid4
 
@@ -19,8 +21,15 @@ from app.hwp_com import (
     StructureSummary,
     fingerprint_document,
 )
-from app.hwp_approval import HwpApprovalRegistry
-from app.hwpx_sample_layout import inspect_sample_layout
+from app.contracts import DocumentEditPlan
+from app.hwp_approval import (
+    HwpApprovalRegistry,
+    HwpSampleApprovalRegistry,
+)
+from app.hwpx_sample_layout import (
+    bind_sample_reference_case,
+    inspect_sample_layout,
+)
 from app.main import create_app
 from app.store import DEMO_PROJECT_ID
 
@@ -163,6 +172,10 @@ def hwp_api():
             ttl_seconds=5,
             clock=lambda: now[0],
         ),
+        hwp_sample_approval_registry=HwpSampleApprovalRegistry(
+            ttl_seconds=5,
+            clock=lambda: now[0],
+        ),
     )
     with TestClient(app) as client:
         yield client, service, now
@@ -221,6 +234,205 @@ def valid_sample_layout_request(template: Path):
             ],
         },
     }
+
+
+def _canonical_sha256(value: object) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            value,
+            ensure_ascii=False,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+class StaticApprovedReferenceStore:
+    def __init__(self, records):
+        self.records = list(records)
+
+    def list_project(self, project_id):
+        return {
+            "schema_version": "trafficvisson.approved-reference-list.v1",
+            "project_id": str(project_id),
+            "approved_reference_count": len(self.records),
+            "training_eligible_count": len(self.records),
+            "annotation_count": 0,
+            "incident_count": 0,
+            "records": deepcopy(self.records),
+        }
+
+
+def _sample_approved_reference(inspection, picture_target_id: str):
+    binding = bind_sample_reference_case(
+        inspection,
+        picture_target_id,
+    )
+    token = "a"
+    record = {
+        "schema_version": "trafficvisson.approved-reference.v1",
+        "approval_id": "approved-reference-" + token * 24,
+        "project_id": str(DEMO_PROJECT_ID),
+        "source_id": (
+            f"sample-hwpx-{inspection.baseline.quarter}q-"
+            + inspection.snapshot.document_sha256[:16]
+        ),
+        "case_id": "hwpx-weak-case-" + token * 32,
+        "revision": 1,
+        "reference_state": "approved_reference",
+        "approved_reference": True,
+        "training_eligible": True,
+        "training_scope": "approved_reference_only",
+        "annotation_created": False,
+        "incident_created": False,
+        "document_name": inspection.baseline.expected_document_name,
+        "document_sha256": inspection.snapshot.document_sha256,
+        "structure_target_summary_sha256": (
+            inspection.snapshot.target_summary_sha256
+        ),
+        "index_manifest_sha256": (
+            inspection.baseline.weak_case_index_manifest_sha256
+        ),
+        "image_sha256": token * 64,
+        "image_media_type": "image/jpeg",
+        "image_width": 1920,
+        "image_height": 1080,
+        "quarter": inspection.baseline.quarter,
+        "section_path": "Contents/section0.xml",
+        "section_index": 0,
+        "picture_target_id": binding.picture_target_id,
+        "picture_index": binding.picture_index,
+        "picture_xml_id": None,
+        "table_id": inspection.snapshot.tables[
+            binding.photo_table_index
+        ].table_id,
+        "table_index": binding.photo_table_index,
+        "cell_target_id": binding.photo_cell_target_id,
+        "cell_row": binding.photo_cell_row,
+        "cell_column": binding.photo_cell_column,
+        "page_hint": binding.photo_page_number,
+        "page_hint_source": "audited_three_table_pair_contract",
+        "photo_slot_id": binding.photo_slot_id,
+        "photo_page_number": binding.photo_page_number,
+        "inspection_page_number": binding.inspection_page_number,
+        "sample_layout_binding_sha256": binding.binding_sha256,
+        "square_markers": [
+            asdict(marker) for marker in binding.square_markers
+        ],
+        "semantic_cells": [
+            asdict(binding.photo_caption),
+            asdict(binding.inspection_route),
+            asdict(binding.inspection_opinion_label),
+            asdict(binding.inspection_opinion_body),
+        ],
+        "weak_candidates": {
+            "caption": None,
+            "route": None,
+            "location": None,
+            "evaluation": None,
+            "opinion": None,
+        },
+        "issue_type": "roadside_mowing_required",
+        "maintenance_action": "삭초 및 수목 제거",
+        "caption": "삭초 필요 구간",
+        "route": "검증 노선",
+        "location": "검증 위치",
+        "evaluation": "보통",
+        "opinion": "시야 확보를 위한 삭초가 필요함",
+        "semantic_sha256": "d" * 64,
+        "approved_at": "2026-07-29T00:00:00Z",
+        "updated_at": "2026-07-29T00:00:00Z",
+        "user_confirmed": True,
+    }
+    record["record_sha256"] = _canonical_sha256(record)
+    return record
+
+
+def _sample_semantic_request(template: Path):
+    inspection = inspect_sample_layout(template)
+    picture = next(
+        item
+        for item in inspection.snapshot.pictures
+        if item.nearest_table_index == 2
+    )
+    record = _sample_approved_reference(
+        inspection,
+        picture.target_id,
+    )
+    binding = bind_sample_reference_case(
+        inspection,
+        picture.target_id,
+    )
+
+    def operation(
+        operation_type: str,
+        target: str,
+        expected_value: str,
+        value: str,
+    ):
+        return {
+            "operation_id": str(uuid4()),
+            "type": operation_type,
+            "target": target,
+            "expected_value": expected_value,
+            "value": value,
+            "source_ref": record["approval_id"],
+            "style_policy": "preserve",
+            "preview": "승인된 sample 의미 위치 미리보기",
+        }
+
+    operations = [
+        operation(
+            "insert_image",
+            binding.picture_target_id,
+            record["image_sha256"],
+            "deid:incident-photo-1",
+        ),
+        operation(
+            "fill_cell",
+            binding.photo_caption.cell_target_id,
+            binding.photo_caption.text_excerpt,
+            "삭초 필요 구간",
+        ),
+        operation(
+            "fill_cell",
+            binding.inspection_route.cell_target_id,
+            binding.inspection_route.text_excerpt,
+            "노선명 : 검증 노선",
+        ),
+        operation(
+            "fill_cell",
+            binding.inspection_opinion_body.cell_target_id,
+            binding.inspection_opinion_body.text_excerpt,
+            "ㅇ 시야 확보를 위한 삭초가 필요함",
+        ),
+    ]
+    operations.extend(
+        operation(
+            "fill_cell",
+            marker.cell_target_id,
+            "■",
+            "■",
+        )
+        for marker in binding.square_markers
+    )
+    plan = DocumentEditPlan.model_validate(
+        {
+            "schema_version": "1.0",
+            "plan_id": str(uuid4()),
+            "document_snapshot_id": inspection.document_snapshot_id,
+            "operations": operations,
+        }
+    )
+    return (
+        {
+            "project_id": str(DEMO_PROJECT_ID),
+            "template_path": str(template),
+            "plan": plan.model_dump(mode="json"),
+        },
+        record,
+    )
 
 
 def test_hwp_preflight_uses_injected_service(hwp_api):
@@ -623,7 +835,7 @@ def test_sample_layout_preview_is_server_verified_and_never_calls_com(
     assert service.execute_calls == []
 
 
-def test_exact_sample_cannot_fall_back_to_legacy_com_preview(
+def test_exact_sample_requires_approved_reference_before_semantic_preview(
     hwp_api,
 ):
     client, service, _now = hwp_api
@@ -636,6 +848,219 @@ def test_exact_sample_cannot_fall_back_to_legacy_com_preview(
     )
 
     assert response.status_code == 409
-    assert "48쪽" in response.json()["detail"]
-    assert "sample-layout-preview" in response.json()["detail"]
+    assert "사용자 승인 표본 사례" in response.json()["detail"]
+    assert service.execute_calls == []
+
+
+def test_exact_sample_semantic_preview_binds_server_approved_reference(
+    hwp_api,
+):
+    client, service, _now = hwp_api
+    request, record = _sample_semantic_request(SAMPLE_3Q)
+    client.app.state.weak_case_approvals = StaticApprovedReferenceStore(
+        [record]
+    )
+    source_sha256 = hashlib.sha256(SAMPLE_3Q.read_bytes()).hexdigest()
+
+    response = client.post(
+        f"/projects/{DEMO_PROJECT_ID}/hwp/preview",
+        headers=auth_headers(),
+        json=request,
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["mode"] == "sample_semantic_preview"
+    assert payload["state"] == (
+        "semantic_preview_validated_apply_unavailable"
+    )
+    assert payload["semantic_validation_passed"] is True
+    assert payload["approved_reference_count"] == 1
+    assert payload["expected_page_range"] == [1, 48]
+    assert payload["expected_rendered_page_count"] == 48
+    assert payload["apply_eligible"] is False
+    assert payload["writer_state"] == "unavailable"
+    assert payload["output_render_validation_status"] == "not_run"
+    assert payload["approval_scope"] == (
+        "sample_preview_hash_binding_only"
+    )
+    assert re.fullmatch(r"[a-f0-9]{64}", payload["approval_token"])
+    assert re.fullmatch(
+        r"[a-f0-9]{64}",
+        payload["approved_references_sha256"],
+    )
+    assert payload["blocking_reasons"] == [
+        "exact_hwpml_target_writer_not_implemented",
+        "output_reopen_and_48_page_render_validation_not_implemented",
+    ]
+    assert payload["com_invocation_performed"] is False
+    assert payload["no_com"] is True
+    assert payload["no_document_write"] is True
+    assert service.execute_calls == []
+    assert hashlib.sha256(SAMPLE_3Q.read_bytes()).hexdigest() == source_sha256
+    assert str(SAMPLE_3Q) not in response.text
+
+
+def test_exact_sample_semantic_preview_rejects_cross_project_reference(
+    hwp_api,
+):
+    client, service, _now = hwp_api
+    request, record = _sample_semantic_request(SAMPLE_3Q)
+    record["project_id"] = str(uuid4())
+    record.pop("record_sha256")
+    record["record_sha256"] = _canonical_sha256(record)
+    client.app.state.weak_case_approvals = StaticApprovedReferenceStore(
+        [record]
+    )
+
+    response = client.post(
+        f"/projects/{DEMO_PROJECT_ID}/hwp/preview",
+        headers=auth_headers(),
+        json=request,
+    )
+
+    assert response.status_code == 409
+    assert "현재 프로젝트가 일치하지 않습니다" in response.json()["detail"]
+    assert service.execute_calls == []
+
+
+def test_exact_sample_apply_consumes_preview_then_returns_unavailable_no_com(
+    hwp_api,
+):
+    client, service, _now = hwp_api
+    request, record = _sample_semantic_request(SAMPLE_3Q)
+    client.app.state.weak_case_approvals = StaticApprovedReferenceStore(
+        [record]
+    )
+    source_sha256 = hashlib.sha256(SAMPLE_3Q.read_bytes()).hexdigest()
+    preview = client.post(
+        f"/projects/{DEMO_PROJECT_ID}/hwp/preview",
+        headers=auth_headers(),
+        json=request,
+    )
+    assert preview.status_code == 200, preview.text
+    request["approval_token"] = preview.json()["approval_token"]
+
+    blocked = client.post(
+        f"/projects/{DEMO_PROJECT_ID}/hwp/apply",
+        headers=auth_headers(),
+        json=request,
+    )
+
+    assert blocked.status_code == 409
+    detail = blocked.json()["detail"]
+    assert detail["state"] == "sample_apply_unavailable"
+    assert detail["semantic_validation_sha256"] == (
+        preview.json()["validation_sha256"]
+    )
+    assert detail["com_invocation_performed"] is False
+    assert detail["document_write_performed"] is False
+    assert service.execute_calls == []
+    assert hashlib.sha256(SAMPLE_3Q.read_bytes()).hexdigest() == source_sha256
+
+    replay = client.post(
+        f"/projects/{DEMO_PROJECT_ID}/hwp/apply",
+        headers=auth_headers(),
+        json=request,
+    )
+    assert replay.status_code == 409
+    assert service.execute_calls == []
+
+
+def test_exact_sample_apply_rejects_changed_plan_and_burns_token(
+    hwp_api,
+):
+    client, service, _now = hwp_api
+    request, record = _sample_semantic_request(SAMPLE_3Q)
+    client.app.state.weak_case_approvals = StaticApprovedReferenceStore(
+        [record]
+    )
+    original_request = deepcopy(request)
+    preview = client.post(
+        f"/projects/{DEMO_PROJECT_ID}/hwp/preview",
+        headers=auth_headers(),
+        json=request,
+    )
+    assert preview.status_code == 200, preview.text
+    token = preview.json()["approval_token"]
+    request["approval_token"] = token
+    request["plan"]["operations"][1]["value"] = "변경된 캡션"
+
+    rejected = client.post(
+        f"/projects/{DEMO_PROJECT_ID}/hwp/apply",
+        headers=auth_headers(),
+        json=request,
+    )
+
+    assert rejected.status_code == 409
+    assert "편집 계획이 변경" in rejected.json()["detail"]
+    original_request["approval_token"] = token
+    replay = client.post(
+        f"/projects/{DEMO_PROJECT_ID}/hwp/apply",
+        headers=auth_headers(),
+        json=original_request,
+    )
+    assert replay.status_code == 409
+    assert service.execute_calls == []
+
+
+def test_exact_sample_apply_rejects_changed_template_before_com(
+    hwp_api,
+    tmp_path,
+):
+    client, service, _now = hwp_api
+    template = tmp_path / SAMPLE_3Q.name
+    template.write_bytes(SAMPLE_3Q.read_bytes())
+    request, record = _sample_semantic_request(template)
+    client.app.state.weak_case_approvals = StaticApprovedReferenceStore(
+        [record]
+    )
+    preview = client.post(
+        f"/projects/{DEMO_PROJECT_ID}/hwp/preview",
+        headers=auth_headers(),
+        json=request,
+    )
+    assert preview.status_code == 200, preview.text
+    request["approval_token"] = preview.json()["approval_token"]
+    template.write_bytes(template.read_bytes() + b"tampered")
+
+    rejected = client.post(
+        f"/projects/{DEMO_PROJECT_ID}/hwp/apply",
+        headers=auth_headers(),
+        json=request,
+    )
+
+    assert rejected.status_code == 409
+    assert "표본 양식이 변경" in rejected.json()["detail"]
+    assert service.execute_calls == []
+
+
+def test_exact_sample_apply_rejects_changed_approval_set_before_com(
+    hwp_api,
+):
+    client, service, _now = hwp_api
+    request, record = _sample_semantic_request(SAMPLE_3Q)
+    approval_store = StaticApprovedReferenceStore([record])
+    client.app.state.weak_case_approvals = approval_store
+    preview = client.post(
+        f"/projects/{DEMO_PROJECT_ID}/hwp/preview",
+        headers=auth_headers(),
+        json=request,
+    )
+    assert preview.status_code == 200, preview.text
+    request["approval_token"] = preview.json()["approval_token"]
+    changed = deepcopy(record)
+    changed["opinion"] = "승인 후 변경된 의견"
+    changed.pop("record_sha256")
+    changed["record_sha256"] = _canonical_sha256(changed)
+    approval_store.records = [changed]
+
+    rejected = client.post(
+        f"/projects/{DEMO_PROJECT_ID}/hwp/apply",
+        headers=auth_headers(),
+        json=request,
+    )
+
+    assert rejected.status_code == 409
+    assert "승인 표본 사례가 변경" in rejected.json()["detail"]
     assert service.execute_calls == []

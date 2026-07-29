@@ -86,11 +86,15 @@ test("weak-case search accepts only project, canonical issue text and a 3-5 boun
 test("weak-case IPC exposes list/search only and resolves images through the safe protocol", () => {
   assert.match(
     mainSource,
+    /const WEAK_CASE_SEARCH_TIMEOUT_MS = 2 \* 60 \* 1000;/,
+  );
+  assert.match(
+    mainSource,
     /WEAK_CASE_SOURCES_LIST[\s\S]*\/reference-cases\/sources/,
   );
   assert.match(
     mainSource,
-    /WEAK_CASE_SEARCH[\s\S]*\/reference-cases\/search/,
+    /WEAK_CASE_SEARCH[\s\S]*\/reference-cases\/search[\s\S]*timeoutMs:\s*WEAK_CASE_SEARCH_TIMEOUT_MS/,
   );
   assert.match(
     mainSource,

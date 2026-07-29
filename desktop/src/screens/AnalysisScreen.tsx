@@ -21,7 +21,17 @@ import {
   parseDenseIndexJobList,
   type DenseIndexJobResponse,
 } from "../denseIndexJobs";
-import { requireActiveProjectId } from "../projectCatalog";
+import {
+  requireActiveProjectId,
+  useProjectCatalog,
+} from "../projectCatalog";
+import {
+  pipelineStageLabel,
+  pipelineStatusLabel,
+  usePipelineUi,
+  type PipelineJob,
+  type PipelineStageStatus,
+} from "../pipelineJobs";
 import {
   candidateExtractionSteps,
   extractionStepState,
@@ -63,6 +73,331 @@ function jobMessage(job: AnalysisJobResponse) {
   if (job.stage === "extracting_candidates") return "장면 변화·선명도 기반 후보와 근거 생성";
   if (job.stage === "cancelling") return "현재 미디어 읽기를 마친 뒤 취소";
   return "실제 후보 추출 작업이 대기열에 등록됨";
+}
+
+function pipelineJobTone(
+  job: PipelineJob,
+): "success" | "warning" | "danger" | "accent" | "neutral" {
+  if (job.status === "completed") return "success";
+  if (job.status === "failed") return "danger";
+  if (
+    job.status === "blocked" ||
+    job.status === "cancelled" ||
+    job.status === "cancelling"
+  ) {
+    return "warning";
+  }
+  if (job.status === "running" || job.status === "awaiting_review") {
+    return "accent";
+  }
+  return "neutral";
+}
+
+function pipelineStageTone(
+  status: PipelineStageStatus,
+): "success" | "warning" | "danger" | "accent" | "neutral" {
+  if (status === "success") return "success";
+  if (status === "failed") return "danger";
+  if (status === "running") return "accent";
+  if (
+    status === "blocked" ||
+    status === "cancelled"
+  ) {
+    return "warning";
+  }
+  return "neutral";
+}
+
+function pipelineStageStatusLabel(status: PipelineStageStatus) {
+  return {
+    pending: "대기",
+    running: "진행 중",
+    success: "완료",
+    blocked: "준비 필요",
+    failed: "실패",
+    skipped: "해당 없음",
+    cancelled: "취소",
+  }[status];
+}
+
+function pipelineHeadline(job: PipelineJob) {
+  if (job.status === "awaiting_review") {
+    return "질문 큐 준비 완료 · 이제 질문만 확인하세요";
+  }
+  if (job.status === "completed") {
+    return job.outcomeCode === "zero_detections"
+      ? "검지 후보 0건으로 정상 완료했습니다"
+      : "지도·CSV·증거·보고서 초안까지 자동 갱신했습니다";
+  }
+  if (job.status === "blocked") {
+    return job.outcomeCode === "partial"
+      ? "완료된 산출물은 보존하고 보고서 준비 경계에서 멈췄습니다"
+      : "필요한 모델팩이 없어 현재 단계에서 안전하게 멈췄습니다";
+  }
+  if (job.status === "failed") {
+    return "실패를 빈 성공으로 저장하지 않고 재개 지점을 보존했습니다";
+  }
+  if (job.status === "cancelled") {
+    return "취소 지점과 provenance를 보존했습니다";
+  }
+  if (job.status === "cancelling") {
+    return "현재 작업을 안전하게 종료하고 있습니다";
+  }
+  if (job.status === "queued") {
+    return "자동 점검 대기열에서 순서를 기다리고 있습니다";
+  }
+  return `${pipelineStageLabel(job.currentStage)} 자동 실행 중`;
+}
+
+function pipelineOutcomeCopy(job: PipelineJob) {
+  if (job.status === "awaiting_review") {
+    return "분석 단계는 끝났습니다. 준비된 질문에 답하면 승인 결과가 지도·CSV·증거·보고서 초안에 자동 반영됩니다.";
+  }
+  if (job.status === "completed") {
+    return job.outcomeCode === "zero_detections"
+      ? "분석은 정상 실행됐지만 검지 후보가 없었습니다. 모델 미설치나 분석 실패와 구분해 기록했습니다."
+      : "검토 결과를 바탕으로 파생 산출물을 같은 PipelineJob provenance에 연결했습니다.";
+  }
+  if (job.status === "blocked") {
+    return job.outcomeCode === "partial"
+      ? "CSV와 증거는 저장됐습니다. 보고서 Provider 또는 양식을 복구하면 같은 단계에서 이어갑니다."
+      : "환경 상태에서 필요한 모델팩을 확인한 뒤 영상 가져오기 화면에서 같은 작업을 재개할 수 있습니다.";
+  }
+  if (job.status === "failed") {
+    return `오류 ${job.errorCode ?? "unknown"} · 완료된 단계 기록은 유지되며 같은 입력과 설정은 멱등 처리됩니다.`;
+  }
+  if (job.status === "cancelled" || job.status === "cancelling") {
+    return "부분 성공을 전체 성공으로 표시하지 않습니다. 새 업로드 없이 저장된 작업 기록에서 재개할 수 있습니다.";
+  }
+  return "현재 화면을 열어 두지 않아도 단계는 순서대로 진행됩니다. 중간 분석 버튼을 누를 필요가 없습니다.";
+}
+
+function PipelineAnalysisOverview({
+  job,
+  onNavigate,
+}: {
+  job: PipelineJob;
+  onNavigate: (screen: ScreenId) => void;
+}) {
+  const completedStageCount = job.stages.filter(
+    ({ status }) => status === "success" || status === "skipped",
+  ).length;
+  const action =
+    job.status === "awaiting_review"
+      ? { label: "준비된 질문 검토", screen: "label" as ScreenId }
+      : job.status === "completed"
+        ? {
+            label:
+              job.outcomeCode === "zero_detections"
+                ? "프로젝트 홈 보기"
+                : "자동 갱신 결과 보기",
+            screen:
+              job.outcomeCode === "zero_detections"
+                ? ("home" as ScreenId)
+                : ("history" as ScreenId),
+          }
+        : ["blocked", "failed", "cancelled"].includes(job.status)
+          ? { label: "입력·재개 상태 보기", screen: "import" as ScreenId }
+          : null;
+
+  return (
+    <div className="screen screen--analysis screen--pipeline-analysis">
+      <header className="screen-header">
+        <div>
+          <p className="eyebrow">PIPELINE JOB {job.jobId.slice(0, 8)}</p>
+          <h1>자동 분석 진행</h1>
+          <p>
+            영상 입력 뒤 하나의 영속 작업이 질문 준비까지 자동으로 이어집니다.
+          </p>
+        </div>
+        <div className="header-actions">
+          {action ? (
+            <Button
+              variant={
+                job.status === "awaiting_review" ? "primary" : "ghost"
+              }
+              onClick={() => onNavigate(action.screen)}
+            >
+              {action.label}
+            </Button>
+          ) : (
+            <Badge tone={pipelineJobTone(job)}>
+              자동 실행 · 화면 조작 불필요
+            </Badge>
+          )}
+        </div>
+      </header>
+
+      <div className="analysis-summary">
+        <GlassPanel className="analysis-hero">
+          <div className="analysis-hero-top">
+            <div>
+              <Badge tone={pipelineJobTone(job)}>
+                {pipelineStatusLabel(job)}
+              </Badge>
+              <h2>{pipelineHeadline(job)}</h2>
+              <p>{job.fileName}</p>
+            </div>
+            <strong>
+              {job.progressPercent.toFixed(0)}
+              <small>%</small>
+            </strong>
+          </div>
+          <ProgressBar
+            value={job.progressPercent}
+            label={`자동 점검 진행률 ${job.progressPercent}%`}
+          />
+          <div className="analysis-meta">
+            <span>
+              <Activity size={16} /> {pipelineStageLabel(job.currentStage)}
+            </span>
+            <span>
+              <Clock3 size={16} /> 재시도 {job.retryCount} · 재개{" "}
+              {job.resumeCount}
+            </span>
+            <span>
+              <HardDrive size={16} /> 입력·설정 해시 기반 멱등 처리
+            </span>
+          </div>
+        </GlassPanel>
+
+        <GlassPanel className="stat-tile">
+          <Activity size={20} />
+          <span>자동 단계</span>
+          <strong>
+            {completedStageCount}
+            <small>/{job.stages.length}</small>
+          </strong>
+          <small>완료 또는 해당 없음</small>
+        </GlassPanel>
+        <GlassPanel className="stat-tile">
+          <Clock3 size={20} />
+          <span>재시도</span>
+          <strong>{job.retryCount}</strong>
+          <small>실패 시 단계 단위 기록</small>
+        </GlassPanel>
+        <GlassPanel className="stat-tile">
+          <HardDrive size={20} />
+          <span>재시작 복구</span>
+          <strong>{job.recoveredAfterRestart ? "복구" : job.resumeCount}</strong>
+          <small>정확한 저장 단계에서 재개</small>
+        </GlassPanel>
+      </div>
+
+      <div className="analysis-layout analysis-layout--pipeline">
+        <GlassPanel className="pipeline-panel pipeline-job-panel">
+          <PanelHeader
+            eyebrow="ONE AUTOMATIC PIPELINE"
+            title="영상부터 결과까지 한 작업"
+            action={
+              <Badge tone="neutral">
+                {completedStageCount}/{job.stages.length}
+              </Badge>
+            }
+          />
+          <ol
+            className="pipeline-job-stage-grid"
+            aria-label="자동 파이프라인 단계"
+          >
+            {job.stages.map((stage, index) => (
+              <li
+                key={stage.name}
+                className={
+                  stage.name === job.currentStage
+                    ? "pipeline-job-stage pipeline-job-stage--current"
+                    : "pipeline-job-stage"
+                }
+                aria-current={
+                  stage.name === job.currentStage ? "step" : undefined
+                }
+              >
+                <span className="step-number">{index + 1}</span>
+                <span className="pipeline-job-stage__copy">
+                  <strong>{pipelineStageLabel(stage.name)}</strong>
+                  <small>
+                    시도 {stage.attempts}
+                    {stage.errorCode ? ` · ${stage.errorCode}` : ""}
+                  </small>
+                </span>
+                <Badge tone={pipelineStageTone(stage.status)}>
+                  {pipelineStageStatusLabel(stage.status)}
+                </Badge>
+              </li>
+            ))}
+          </ol>
+        </GlassPanel>
+
+        <GlassPanel className="resource-panel pipeline-job-evidence">
+          <PanelHeader eyebrow="PROVENANCE" title="현재 작업 기록" />
+          <div className="resource-grid">
+            <div>
+              <span>현재 단계</span>
+              <strong>{pipelineStageLabel(job.currentStage)}</strong>
+            </div>
+            <div>
+              <span>판정 모드</span>
+              <strong>
+                {job.profileSnapshot.reviewMode === "precision"
+                  ? "정밀 판정"
+                  : "빠른 판정"}
+              </strong>
+            </div>
+            <div>
+              <span>질문 정책</span>
+              <strong>
+                {
+                  {
+                    learning_assist: "학습 보조",
+                    full_review: "전수 검토",
+                    quick_review: "빠른 검토",
+                  }[job.profileSnapshot.questionPolicy]
+                }
+              </strong>
+            </div>
+            <div>
+              <span>작업 ID</span>
+              <strong className="mono">{job.jobId.slice(0, 12)}…</strong>
+            </div>
+            <div>
+              <span>프로필</span>
+              <strong>revision {job.profileSnapshot.revision}</strong>
+            </div>
+            <div>
+              <span>레코드 SHA</span>
+              <strong className="mono">
+                {job.recordSha256.slice(0, 12)}…
+              </strong>
+            </div>
+          </div>
+          <div className="pipeline-journey-strip" aria-label="자동 처리 흐름">
+            <span>영상</span>
+            <i aria-hidden="true">→</i>
+            <span>자동 분석</span>
+            <i aria-hidden="true">→</i>
+            <span>질문 검토</span>
+            <i aria-hidden="true">→</i>
+            <span>결과 자동 갱신</span>
+          </div>
+          <div
+            className={`notice ${
+              job.status === "failed" ? "notice--danger" : ""
+            }`}
+            role={job.status === "failed" ? "alert" : "status"}
+          >
+            <Activity size={19} />
+            <div>
+              <strong>{pipelineStatusLabel(job)}</strong>
+              <p>{pipelineOutcomeCopy(job)}</p>
+            </div>
+          </div>
+          <p className="pipeline-job-boundary">
+            사용자에게 남는 동작은 권리·분석 시작 승인, 질문 답변, 선택적
+            모델 학습 승인, HWP 실제 적용 승인뿐입니다.
+          </p>
+        </GlassPanel>
+      </div>
+    </div>
+  );
 }
 
 function SavedAnalysisJobs({
@@ -179,6 +514,12 @@ export function AnalysisScreen({
   onNavigate: (screen: ScreenId) => void;
 }) {
   const runtime = useRuntimeState();
+  const projectCatalog = useProjectCatalog();
+  const pipeline = usePipelineUi();
+  const currentPipelineJob =
+    pipeline.projectId === projectCatalog.activeProjectId
+      ? pipeline.job
+      : null;
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [job, setJob] = useState<AnalysisJobResponse | null>(null);
   const [savedJobs, setSavedJobs] = useState<AnalysisJobResponse[]>([]);
@@ -540,6 +881,15 @@ export function AnalysisScreen({
           : "저장된 분석 작업을 열지 못했습니다.",
       );
     }
+  }
+
+  if (currentPipelineJob) {
+    return (
+      <PipelineAnalysisOverview
+        job={currentPipelineJob}
+        onNavigate={onNavigate}
+      />
+    );
   }
 
   if (!runtime.activeImport) {

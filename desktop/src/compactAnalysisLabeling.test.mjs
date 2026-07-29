@@ -85,11 +85,11 @@ test("1280 labeling keeps a 240-260px frame and does not hide proposal or OCR ev
   );
   assert.match(
     polishStyles,
-    /\.screen--labeling \.proposal-facts dt,[\s\S]*\.screen--labeling \.proposal-facts dd \.mono\s*\{[^}]*font-size:\s*10\.5px;[^}]*line-height:\s*1\.15;[^}]*text-overflow:\s*ellipsis;/s,
+    /\.screen--labeling \.proposal-facts dt,[\s\S]*\.screen--labeling \.proposal-facts dd \.mono[\s\S]*\{[^}]*font-size:\s*11px;/s,
   );
   assert.match(
     polishStyles,
-    /\.screen--labeling \.weak-case-strip__identity\s*\{[^}]*font-size:\s*10\.5px;/s,
+    /\.screen--labeling \.weak-case-strip__identity,[\s\S]*\{[^}]*font-size:\s*11px;/s,
   );
   assert.match(
     polishStyles,
@@ -101,7 +101,7 @@ test("1280 labeling keeps a 240-260px frame and does not hide proposal or OCR ev
   );
   assert.match(
     polishStyles,
-    /\.screen--labeling \.ocr-roi figcaption strong,[\s\S]*\.screen--labeling \.ocr-roi > p\s*\{[^}]*overflow:\s*hidden;[^}]*font-size:\s*10\.5px;[^}]*text-overflow:\s*ellipsis;[^}]*white-space:\s*nowrap;/s,
+    /\.screen--labeling \.ocr-roi figcaption strong,[\s\S]*\.screen--labeling \.ocr-roi > p[\s\S]*\{[^}]*font-size:\s*11px;/s,
   );
   assert.match(
     polishStyles,
@@ -110,6 +110,50 @@ test("1280 labeling keeps a 240-260px frame and does not hide proposal or OCR ev
   assert.match(
     polishStyles,
     /\.screen--labeling \.question-card:has\(> \.ocr-roi\)\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/s,
+  );
+});
+
+test("every question exposes honest GPS state and separates AI severity from the user final value", () => {
+  assert.match(
+    labelingSource,
+    /const gpsHeadline = summary\.sourceLocation[\s\S]*"촬영 시작 좌표만 있음"[\s\S]*"시간대별 GPS 없음"/,
+  );
+  assert.match(
+    labelingSource,
+    /"GPX를 추가하기 전에는 실제 이동 경로를 생성하지 않음"/,
+  );
+  assert.match(
+    labelingSource,
+    /후보 위치나 이동 경로로 사용하지 않음/,
+  );
+  assert.match(
+    labelingSource,
+    /className="question-decision-context"[\s\S]*aria-label="위치와 심각도 판단 근거"[\s\S]*<span>GPS<\/span>[\s\S]*\{question\.gpsHeadline\}[\s\S]*\{question\.gpsDetail\}/,
+  );
+  assert.ok(
+    labelingSource.indexOf('className="question-decision-context"') <
+      labelingSource.indexOf('className={`weak-case-reference'),
+  );
+  assert.match(
+    labelingSource,
+    /<span>AI 추천 심각도<\/span>[\s\S]*\{question\.aiSeverityProposal \?\? "미제안"\}[\s\S]*\{question\.aiSeverityRationale\}/,
+  );
+  assert.match(
+    labelingSource,
+    /aria-label="사용자 최종 심각도"[\s\S]*사용자 최종 ·/,
+  );
+  assert.match(labelingSource, /aiSeverityProposal:\s*null/);
+  assert.doesNotMatch(
+    labelingSource,
+    /setSeverity\(\s*question\.(?:ai|proposed|recommended)Severity/,
+  );
+  assert.match(
+    polishStyles,
+    /\.screen--labeling \.question-decision-context__row > small\s*\{[^}]*font-size:\s*11px;/s,
+  );
+  assert.match(
+    polishStyles,
+    /\.screen--labeling \.question-decision-context__user\s*\{[^}]*font-size:\s*11px;/s,
   );
 });
 

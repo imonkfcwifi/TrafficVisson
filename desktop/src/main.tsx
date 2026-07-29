@@ -7,6 +7,7 @@ import "./styles-product-shell.css";
 import "./styles-compact-secondary.css";
 import "./styles-compact-analysis-labeling.css";
 import "./styles-visual-polish.css";
+import "./styles-responsive-workbench.css";
 
 const root = document.getElementById("root");
 

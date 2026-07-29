@@ -17,7 +17,7 @@ import re
 import threading
 import unicodedata
 import zipfile
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Dict, Iterable, Mapping, Optional, Sequence, Tuple
 
@@ -26,6 +26,11 @@ from .hwpx_structure import (
     FileIdentity,
     HwpxLimitExceeded,
     HwpxStructureError,
+)
+from .hwpx_sample_layout import (
+    HwpxSampleLayoutError,
+    bind_sample_reference_case,
+    identify_sample_layout,
 )
 from .hwpx_weak_cases import (
     HWPX_WEAK_CASE_PURPOSE,
@@ -482,6 +487,105 @@ class WeakCaseCatalog:
             sha256=digest,
         )
 
+    def case_attestation(
+        self,
+        source_id: str,
+        case_id: str,
+    ) -> dict:
+        """Return exact, path-free provenance for explicit user approval."""
+
+        indexed = self._ensure_indexed(source_id)
+        case = indexed.cases_by_id.get(case_id)
+        if case is None:
+            raise WeakCaseCatalogError(
+                "case_not_found",
+                "The reference case was not found in the selected source",
+            )
+        if (
+            case.review_state != "unconfirmed"
+            or case.review_required is not True
+            or case.training_eligible
+            or case.annotation_created
+            or case.incident_created
+        ):
+            raise WeakCaseCatalogError(
+                "unsafe_case_state",
+                "The reference case violated the approval boundary",
+            )
+        if len(case.images) != 1:
+            raise WeakCaseCatalogError(
+                "image_unavailable",
+                "The reference case does not resolve to one raster image",
+            )
+        image = self.resolve_case_image(source_id, case_id)
+        observation = case.images[0]
+        if image.sha256 != observation.image_sha256:
+            raise WeakCaseCatalogError(
+                "image_integrity_mismatch",
+                "The reference image no longer matches its case provenance",
+            )
+
+        sample_binding = None
+        try:
+            inspection = identify_sample_layout(indexed.path)
+            if inspection is not None:
+                sample_binding = bind_sample_reference_case(
+                    inspection,
+                    case.source.picture_target_id,
+                )
+        except HwpxSampleLayoutError as error:
+            raise WeakCaseCatalogError(
+                error.code,
+                str(error),
+            ) from error
+
+        return {
+            "source_id": indexed.definition.source_id,
+            "case_id": case.case_id,
+            "document_name": indexed.definition.document_name,
+            "document_sha256": indexed.definition.expected_document_sha256,
+            "structure_target_summary_sha256": (
+                indexed.index.structure_target_summary_sha256
+            ),
+            "index_manifest_sha256": (
+                indexed.index.index_manifest_sha256
+            ),
+            "quarter": indexed.definition.quarter,
+            "section_path": case.source.section_path,
+            "section_index": case.source.section_index,
+            "picture_target_id": case.source.picture_target_id,
+            "picture_index": case.source.picture_index,
+            "picture_xml_id": case.source.picture_xml_id,
+            "table_id": case.source.table_id,
+            "table_index": case.source.table_index,
+            "cell_target_id": case.source.cell_target_id,
+            "cell_row": case.source.cell_row,
+            "cell_column": case.source.cell_column,
+            "page_hint": case.source.page_hint,
+            "page_hint_source": case.source.page_hint_source,
+            "caption": _first_candidate(case.caption_candidate),
+            "route": _first_candidate(case.route_candidates),
+            "location": _first_candidate(case.location_candidates),
+            "evaluation": _first_candidate(case.evaluation_candidates),
+            "opinion": _first_candidate(case.opinion_candidates),
+            "image_sha256": observation.image_sha256,
+            "image_media_type": observation.media_type,
+            "image_width": observation.width,
+            "image_height": observation.height,
+            "image_size_bytes": observation.size_bytes,
+            "sample_layout_binding": (
+                asdict(sample_binding)
+                if sample_binding is not None
+                else None
+            ),
+            "reference_state": "weak_unconfirmed",
+            "review_required": True,
+            "approved_reference": False,
+            "training_eligible": False,
+            "annotation_created": False,
+            "incident_created": False,
+        }
+
     def _source_snapshot(self, definition: WeakCaseSourceDefinition) -> dict:
         try:
             return self._ready_source_snapshot(
@@ -556,8 +660,18 @@ class WeakCaseCatalog:
             "quarter": indexed.definition.quarter,
             "document_name": indexed.definition.document_name,
             "document_sha256": indexed.definition.expected_document_sha256,
+            "structure_target_summary_sha256": (
+                indexed.index.structure_target_summary_sha256
+            ),
+            "index_manifest_sha256": (
+                indexed.index.index_manifest_sha256
+            ),
+            "section_path": case.source.section_path,
+            "section_index": case.source.section_index,
+            "picture_target_id": case.source.picture_target_id,
             "page_hint": case.source.page_hint,
             "page_hint_source": case.source.page_hint_source,
+            "cell_target_id": case.source.cell_target_id,
             "table_index": case.source.table_index,
             "cell_row": case.source.cell_row,
             "cell_column": case.source.cell_column,
@@ -571,6 +685,7 @@ class WeakCaseCatalog:
                 image
                 and image.size_bytes <= self._maximum_stream_image_bytes
             ),
+            "image_sha256": image.image_sha256 if image else None,
             "image_media_type": image.media_type if image else None,
             "image_width": image.width if image else None,
             "image_height": image.height if image else None,

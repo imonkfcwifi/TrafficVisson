@@ -162,6 +162,53 @@ class SampleOperationBinding:
 
 
 @dataclass(frozen=True)
+class SampleSquareMarkerBinding:
+    cell_target_id: str
+    table_id: str
+    table_index: int
+    page_number: int
+    row: int
+    column: int
+    marker: str
+    text_sha256: str
+
+
+@dataclass(frozen=True)
+class SampleSemanticCellBinding:
+    role: str
+    cell_target_id: str
+    table_id: str
+    table_index: int
+    page_number: int
+    row: int
+    column: int
+    row_span: int
+    column_span: int
+    text_excerpt: str
+    text_sha256: str
+
+
+@dataclass(frozen=True)
+class SampleReferenceCaseBinding:
+    picture_target_id: str
+    picture_index: int
+    page_pair_index: int
+    inspection_page_number: int
+    photo_page_number: int
+    photo_table_index: int
+    photo_cell_target_id: str
+    photo_cell_row: int
+    photo_cell_column: int
+    photo_slot_id: str
+    photo_caption: SampleSemanticCellBinding
+    inspection_route: SampleSemanticCellBinding
+    inspection_opinion_label: SampleSemanticCellBinding
+    inspection_opinion_body: SampleSemanticCellBinding
+    square_markers: Tuple[SampleSquareMarkerBinding, ...]
+    binding_sha256: str
+
+
+@dataclass(frozen=True)
 class SampleLayoutInspection:
     baseline: SampleLayoutBaseline
     snapshot: HwpxStructureSnapshot
@@ -273,6 +320,236 @@ def inspect_sample_layout(
             "감사된 3·4분기 HWPX 양식이 아닙니다.",
         )
     return inspection
+
+
+def _normalized_role_text(value: str) -> str:
+    return " ".join(value.replace("：", ":").split()).replace(
+        " :", ":"
+    )
+
+
+def _semantic_cell_binding(
+    cell: CellSnapshot,
+    *,
+    table,
+    page_number: int,
+    role: str,
+) -> SampleSemanticCellBinding:
+    return SampleSemanticCellBinding(
+        role=role,
+        cell_target_id=cell.target_id,
+        table_id=table.table_id,
+        table_index=table.table_index,
+        page_number=page_number,
+        row=cell.row,
+        column=cell.column,
+        row_span=cell.row_span,
+        column_span=cell.column_span,
+        text_excerpt=cell.text_excerpt,
+        text_sha256=cell.text_sha256,
+    )
+
+
+def bind_sample_reference_case(
+    inspection: SampleLayoutInspection,
+    picture_target_id: str,
+) -> SampleReferenceCaseBinding:
+    """Bind one existing sample photo to its exact page pair and markers.
+
+    The returned binding is read-only provenance for reference-case approval.
+    It does not authorize the existing photo slot or any marker cell to be
+    edited.
+    """
+
+    picture = next(
+        (
+            candidate
+            for candidate in inspection.snapshot.pictures
+            if candidate.target_id == picture_target_id
+        ),
+        None,
+    )
+    if (
+        picture is None
+        or picture.nearest_table_index is None
+        or picture.nearest_cell_target_id is None
+        or picture.nearest_cell_row is None
+        or picture.nearest_cell_column is None
+    ):
+        raise HwpxSampleLayoutError(
+            "sample_reference_picture_unresolved",
+            "표본 사례 사진을 정확한 표·셀 슬롯에 결속하지 못했습니다.",
+        )
+    photo_page_number, page_kind, _ = _page_for_table(
+        picture.nearest_table_index
+    )
+    if page_kind != "photo":
+        raise HwpxSampleLayoutError(
+            "sample_reference_picture_not_photo_evidence",
+            "점검표의 고정 그림은 승인 사례 사진으로 승격할 수 없습니다.",
+        )
+    page_pair_index = picture.nearest_table_index // 3
+    inspection_table_index = page_pair_index * 3 + 1
+    inspection_page_number = page_pair_index * 2 + 1
+    inspection_table = inspection.snapshot.tables[
+        inspection_table_index
+    ]
+    photo_table = inspection.snapshot.tables[
+        picture.nearest_table_index
+    ]
+    caption_cells = tuple(
+        cell
+        for cell in photo_table.cells
+        if (
+            cell.row == picture.nearest_cell_row + 1
+            and cell.column <= picture.nearest_cell_column
+            < cell.column + cell.column_span
+        )
+    )
+    if len(caption_cells) != 1:
+        raise HwpxSampleLayoutError(
+            "sample_photo_caption_mapping_invalid",
+            "표본 사례 사진과 같은 열의 캡션 셀을 하나로 결속하지 못했습니다.",
+        )
+    route_cells = tuple(
+        cell
+        for cell in inspection_table.cells
+        if _normalized_role_text(cell.text_excerpt).startswith(
+            "노선명:"
+        )
+    )
+    if len(route_cells) != 1:
+        raise HwpxSampleLayoutError(
+            "sample_route_cell_mapping_invalid",
+            "표본 점검표의 노선명 셀을 하나로 결속하지 못했습니다.",
+        )
+    opinion_labels = tuple(
+        cell
+        for cell in inspection_table.cells
+        if _normalized_role_text(cell.text_excerpt) == "점검의견"
+    )
+    if len(opinion_labels) != 1:
+        raise HwpxSampleLayoutError(
+            "sample_opinion_label_mapping_invalid",
+            "표본 점검표의 점검의견 라벨을 하나로 결속하지 못했습니다.",
+        )
+    opinion_label_cell = opinion_labels[0]
+    opinion_bodies = tuple(
+        cell
+        for cell in inspection_table.cells
+        if (
+            cell.row == opinion_label_cell.row + 1
+            and cell.column == opinion_label_cell.column
+        )
+    )
+    if len(opinion_bodies) != 1:
+        raise HwpxSampleLayoutError(
+            "sample_opinion_body_mapping_invalid",
+            "표본 점검표의 점검의견 본문 셀을 하나로 결속하지 못했습니다.",
+        )
+    photo_caption = _semantic_cell_binding(
+        caption_cells[0],
+        table=photo_table,
+        page_number=photo_page_number,
+        role="photo_caption",
+    )
+    inspection_route = _semantic_cell_binding(
+        route_cells[0],
+        table=inspection_table,
+        page_number=inspection_page_number,
+        role="inspection_route",
+    )
+    inspection_opinion_label = _semantic_cell_binding(
+        opinion_label_cell,
+        table=inspection_table,
+        page_number=inspection_page_number,
+        role="inspection_opinion_label",
+    )
+    inspection_opinion_body = _semantic_cell_binding(
+        opinion_bodies[0],
+        table=inspection_table,
+        page_number=inspection_page_number,
+        role="inspection_opinion_body",
+    )
+    marker_cells = tuple(
+        sorted(
+            (
+                cell
+                for cell in inspection_table.cells
+                if cell.text_excerpt == "■"
+            ),
+            key=lambda cell: (
+                cell.row,
+                cell.column,
+                cell.target_id,
+            ),
+        )
+    )
+    if not marker_cells:
+        raise HwpxSampleLayoutError(
+            "sample_square_marker_mapping_missing",
+            "표본 사례와 같은 점검표 쪽의 네모 표시 위치를 찾지 못했습니다.",
+        )
+    marker_bindings = tuple(
+        SampleSquareMarkerBinding(
+            cell_target_id=cell.target_id,
+            table_id=inspection_table.table_id,
+            table_index=inspection_table_index,
+            page_number=inspection_page_number,
+            row=cell.row,
+            column=cell.column,
+            marker="■",
+            text_sha256=cell.text_sha256,
+        )
+        for cell in marker_cells
+    )
+    slot_payload: Mapping[str, object] = {
+        "document_sha256": inspection.snapshot.document_sha256,
+        "picture_target_id": picture.target_id,
+        "photo_table_index": picture.nearest_table_index,
+        "photo_cell_target_id": picture.nearest_cell_target_id,
+        "photo_cell_row": picture.nearest_cell_row,
+        "photo_cell_column": picture.nearest_cell_column,
+        "photo_caption": asdict(photo_caption),
+        "inspection_route": asdict(inspection_route),
+        "inspection_opinion_label": asdict(
+            inspection_opinion_label
+        ),
+        "inspection_opinion_body": asdict(
+            inspection_opinion_body
+        ),
+    }
+    photo_slot_id = (
+        "sample-photo-slot-" + _canonical_sha256(slot_payload)[:24]
+    )
+    binding_payload: Mapping[str, object] = {
+        **slot_payload,
+        "photo_slot_id": photo_slot_id,
+        "page_pair_index": page_pair_index,
+        "inspection_page_number": inspection_page_number,
+        "photo_page_number": photo_page_number,
+        "square_markers": [
+            asdict(marker) for marker in marker_bindings
+        ],
+    }
+    return SampleReferenceCaseBinding(
+        picture_target_id=picture.target_id,
+        picture_index=picture.picture_index,
+        page_pair_index=page_pair_index,
+        inspection_page_number=inspection_page_number,
+        photo_page_number=photo_page_number,
+        photo_table_index=picture.nearest_table_index,
+        photo_cell_target_id=picture.nearest_cell_target_id,
+        photo_cell_row=picture.nearest_cell_row,
+        photo_cell_column=picture.nearest_cell_column,
+        photo_slot_id=photo_slot_id,
+        photo_caption=photo_caption,
+        inspection_route=inspection_route,
+        inspection_opinion_label=inspection_opinion_label,
+        inspection_opinion_body=inspection_opinion_body,
+        square_markers=marker_bindings,
+        binding_sha256=_canonical_sha256(binding_payload),
+    )
 
 
 def preview_sample_layout_plan(
@@ -565,6 +842,10 @@ __all__ = [
     "SAMPLE_LAYOUT_BASELINES",
     "SampleLayoutInspection",
     "SampleLayoutPlanPreview",
+    "SampleReferenceCaseBinding",
+    "SampleSemanticCellBinding",
+    "SampleSquareMarkerBinding",
+    "bind_sample_reference_case",
     "identify_sample_layout",
     "inspect_sample_layout",
     "is_protected_sample_document_sha256",

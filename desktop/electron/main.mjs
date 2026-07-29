@@ -66,6 +66,10 @@ const smokeTestMode =
   !app.isPackaged && process.env.TRAFFICSUPERVISION_SMOKE_TEST === "1";
 const EXPORT_TIMEOUT_MS = 30 * 60 * 1000;
 const AUTO_LABELING_RUN_TIMEOUT_MS = 10 * 60 * 1000;
+// A cold sample index verifies both multi-page HWPX documents and every
+// embedded image hash before it becomes cacheable. Keep that one-time proof
+// inside the automatic question flow instead of surfacing a false timeout.
+const WEAK_CASE_SEARCH_TIMEOUT_MS = 2 * 60 * 1000;
 const nativeWindowChrome =
   process.platform === "win32"
     ? {
@@ -233,6 +237,7 @@ function registerIpcHandlers() {
           IPC_CHANNELS.WEAK_CASE_SEARCH,
           payload,
         ),
+        timeoutMs: WEAK_CASE_SEARCH_TIMEOUT_MS,
       },
     ),
   );

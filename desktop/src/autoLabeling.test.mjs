@@ -425,6 +425,10 @@ test("12개 표준 결함 유형은 한 계약으로 노출되고 이전 코드�
     "tunnel_name_occlusion",
   );
   assert.equal(
+    issueTypesModule.apiIssueTypeFromIncident("OTHER"),
+    "other",
+  );
+  assert.equal(
     issueTypesModule.incidentTypeFromApi("colored_guidance_line_faded"),
     "COLORED_GUIDANCE_FADED",
   );

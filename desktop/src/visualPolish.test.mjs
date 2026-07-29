@@ -11,6 +11,10 @@ const modelSource = await readFile(
   new URL("./screens/ModelScreen.tsx", import.meta.url),
   "utf8",
 );
+const labelingSource = await readFile(
+  new URL("./screens/LabelingScreen.tsx", import.meta.url),
+  "utf8",
+);
 const polishStyles = await readFile(
   new URL("./styles-visual-polish.css", import.meta.url),
   "utf8",
@@ -100,6 +104,25 @@ test("Korean badges and short-window controls keep readable line boxes", () => {
   assert.match(
     polishStyles,
     /\.screen--labeling \.label-progress\s*\{[^}]*min-height:\s*46px;/s,
+  );
+});
+
+test("label review uses one quiet decision surface instead of nested status cards", () => {
+  assert.match(labelingSource, /className="question-card__header"/);
+  assert.doesNotMatch(labelingSource, /eyebrow="LABEL QUESTION"/);
+  assert.match(labelingSource, /className="experimental-proposal__summary"/);
+  assert.doesNotMatch(labelingSource, /className="proposal-facts"/);
+  assert.match(
+    polishStyles,
+    /\.screen--labeling \.answer-grid\s*\{[^}]*grid-template-columns:\s*repeat\(4,[^}]*border-radius:\s*14px;[^}]*background:\s*rgba\(226,\s*232,\s*243,\s*0\.5\);/s,
+  );
+  assert.match(
+    polishStyles,
+    /\.screen--labeling \.answer--yes\s*\{[^}]*color:\s*#fff;[^}]*background:\s*#17191f;/s,
+  );
+  assert.match(
+    polishStyles,
+    /\.screen--labeling \.severity-followup\s*\{[^}]*border-radius:\s*14px;[^}]*background:\s*rgba\(226,\s*232,\s*243,\s*0\.5\);/s,
   );
 });
 

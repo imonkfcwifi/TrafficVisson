@@ -169,14 +169,17 @@ test("cross-screen candidate selection is scoped by project and job", () => {
 });
 
 test("LabelingScreen keeps experimental proposals review-only and understandable", () => {
-  assert.match(labelingSource, /AI 원본 제안/);
+  assert.match(
+    labelingSource,
+    /className="experimental-proposal__summary"[\s\S]*question\.scoreText/,
+  );
   assert.match(labelingSource, /확률 또는 확정 판정이 아님|scoreText/);
   assert.match(labelingSource, /아직 저장되지 않음/);
   assert.match(labelingSource, /typeCode === "UNCLASSIFIED_ROAD_EVENT"/);
   assert.match(labelingSource, /question\?\.forced/);
   assert.match(labelingSource, /typeCode === "ROAD_DEBRIS"/);
   assert.match(labelingSource, /id:\s*"precision"[\s\S]*id:\s*"quick"/);
-  assert.match(labelingSource, /AI 추천 미제공 · 검지 신뢰도와 심각도는 별개/);
+  assert.match(labelingSource, /AI 신뢰도와 별개인 사용자 최종값입니다/);
   assert.match(labelingSource, /severitySource:\s*finalSeverity \? "user"/);
   assert.match(labelingSource, /decideLabelingSubmission/);
   assert.match(labelingDecisionSource, /kind:\s*"save_and_advance"/);
@@ -203,7 +206,7 @@ test("LabelingScreen can switch among every completed project video without mixi
   assert.match(labelingSource, /더 최신 영상/);
   assert.match(labelingSource, /더 이전 영상/);
   assert.match(labelingSource, /다음 AI 제안 영상/);
-  assert.match(labelingSource, /원본 후보와 답변은 영상별로 분리 저장됩니다/);
+  assert.match(labelingSource, /제안 영상 \$\{proposalJobCount\}[\s\S]*영상별 기록/);
   assert.match(labelingSource, /\{jobSwitcher\}\s*<GlassPanel className="label-empty-state">/);
 });
 

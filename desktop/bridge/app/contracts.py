@@ -2179,8 +2179,8 @@ class WeakCaseSourceResponse(StrictModel):
     case_count: int = Field(ge=0, le=10_000)
     resolved_case_count: int = Field(ge=0, le=10_000)
     review_required_count: int = Field(ge=0, le=10_000)
-    approved_reference_count: Literal[0]
-    training_eligible_count: Literal[0]
+    approved_reference_count: int = Field(ge=0, le=10_000)
+    training_eligible_count: int = Field(ge=0, le=10_000)
     annotation_count: Literal[0]
     incident_count: Literal[0]
     index_manifest_sha256: Optional[str] = Field(
@@ -2192,8 +2192,14 @@ class WeakCaseSourceResponse(StrictModel):
         if self.status == "ready":
             if (
                 self.index_manifest_sha256 is None
-                or self.case_count != self.review_required_count
+                or self.case_count
+                != (
+                    self.review_required_count
+                    + self.approved_reference_count
+                )
                 or self.resolved_case_count > self.case_count
+                or self.training_eligible_count
+                != self.approved_reference_count
             ):
                 raise ValueError("ready weak-case source counts are invalid")
         elif (
@@ -2201,6 +2207,8 @@ class WeakCaseSourceResponse(StrictModel):
             or self.case_count != 0
             or self.resolved_case_count != 0
             or self.review_required_count != 0
+            or self.approved_reference_count != 0
+            or self.training_eligible_count != 0
         ):
             raise ValueError("unavailable weak-case source exposes index data")
         return self
@@ -2208,8 +2216,15 @@ class WeakCaseSourceResponse(StrictModel):
 
 class WeakCaseSourceListResponse(StrictModel):
     schema_version: Literal["trafficvisson.weak-case-catalog.v1"]
-    catalog_role: Literal["sample_hwpx_weak_unconfirmed_reference"]
-    capability_state: Literal["weak_reference_only", "unavailable"]
+    catalog_role: Literal[
+        "sample_hwpx_weak_unconfirmed_reference",
+        "sample_hwpx_project_scoped_reference",
+    ]
+    capability_state: Literal[
+        "approved_reference_available",
+        "weak_reference_only",
+        "unavailable",
+    ]
     automatic_promotion: Literal[False]
     automatic_annotation_creation: Literal[False]
     automatic_incident_creation: Literal[False]
@@ -2227,7 +2242,8 @@ class WeakCaseSourceListResponse(StrictModel):
         ):
             raise ValueError("weak-case source counts are inconsistent")
         if (
-            self.capability_state == "weak_reference_only"
+            self.capability_state
+            in {"weak_reference_only", "approved_reference_available"}
             and self.ready_source_count < 1
         ) or (
             self.capability_state == "unavailable"
@@ -2262,17 +2278,35 @@ class WeakCaseSearchResult(StrictModel):
     rank: int = Field(ge=1, le=5)
     similarity_score: int = Field(gt=0, le=10_000)
     matched_terms: List[str] = Field(max_length=8)
-    reference_state: Literal["weak_unconfirmed"]
-    review_required: Literal[True]
-    approved_reference: Literal[False]
-    training_eligible: Literal[False]
+    reference_state: Literal[
+        "weak_unconfirmed",
+        "approved_reference",
+    ]
+    review_required: bool
+    approved_reference: bool
+    training_eligible: bool
     annotation_created: Literal[False]
     incident_created: Literal[False]
     quarter: Literal[3, 4]
     document_name: str = Field(min_length=1, max_length=120)
     document_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    structure_target_summary_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    index_manifest_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    section_path: str = Field(
+        pattern=r"^Contents/section[0-9]{1,5}\.xml$"
+    )
+    section_index: int = Field(ge=0, le=100_000)
+    picture_target_id: str = Field(
+        pattern=r"^hwpx-picture-[a-f0-9]{24}$"
+    )
     page_hint: int = Field(ge=1, le=10_000)
     page_hint_source: str = Field(min_length=1, max_length=120)
+    cell_target_id: Optional[str] = Field(
+        default=None,
+        pattern=r"^hwpx-cell-[a-f0-9]{24}$",
+    )
     table_index: Optional[int] = Field(default=None, ge=0, le=100_000)
     cell_row: Optional[int] = Field(default=None, ge=0, le=100_000)
     cell_column: Optional[int] = Field(default=None, ge=0, le=100_000)
@@ -2283,6 +2317,9 @@ class WeakCaseSearchResult(StrictModel):
     evaluation: Optional[str] = Field(default=None, max_length=320)
     opinion: Optional[str] = Field(default=None, max_length=320)
     image_available: bool
+    image_sha256: Optional[str] = Field(
+        default=None, pattern=r"^[a-f0-9]{64}$"
+    )
     image_media_type: Optional[
         Literal[
             "image/bmp",
@@ -2294,6 +2331,18 @@ class WeakCaseSearchResult(StrictModel):
     ] = None
     image_width: Optional[int] = Field(default=None, ge=1, le=65_535)
     image_height: Optional[int] = Field(default=None, ge=1, le=65_535)
+    approval_id: Optional[str] = Field(
+        default=None,
+        pattern=r"^approved-reference-[a-f0-9]{24}$",
+    )
+    approval_revision: Optional[int] = Field(default=None, ge=1)
+    approval_record_sha256: Optional[str] = Field(
+        default=None, pattern=r"^[a-f0-9]{64}$"
+    )
+    approved_issue_type: Optional[CandidateIssueType] = None
+    approved_action: Optional[str] = Field(
+        default=None, min_length=1, max_length=500
+    )
 
     @model_validator(mode="after")
     def validate_image(self) -> "WeakCaseSearchResult":
@@ -2304,6 +2353,30 @@ class WeakCaseSearchResult(StrictModel):
         )
         if self.image_available and any(value is None for value in image_fields):
             raise ValueError("available weak-case image metadata is incomplete")
+        approval_fields = (
+            self.approval_id,
+            self.approval_revision,
+            self.approval_record_sha256,
+            self.approved_issue_type,
+            self.approved_action,
+        )
+        if self.approved_reference:
+            if (
+                self.reference_state != "approved_reference"
+                or self.review_required
+                or not self.training_eligible
+                or any(value is None for value in approval_fields)
+            ):
+                raise ValueError(
+                    "approved reference state is incomplete"
+                )
+        elif (
+            self.reference_state != "weak_unconfirmed"
+            or not self.review_required
+            or self.training_eligible
+            or any(value is not None for value in approval_fields)
+        ):
+            raise ValueError("weak reference state is inconsistent")
         return self
 
 
@@ -2311,7 +2384,11 @@ class WeakCaseSearchResponse(StrictModel):
     schema_version: Literal["trafficvisson.weak-case-search.v1"]
     search_mode: Literal["bounded_text_and_structure_metadata"]
     semantic_image_embedding_used: Literal[False]
-    capability_state: Literal["weak_reference_only", "unavailable"]
+    capability_state: Literal[
+        "approved_reference_available",
+        "weak_reference_only",
+        "unavailable",
+    ]
     issue_type: Optional[CandidateIssueType]
     query_text: Optional[str] = Field(default=None, max_length=240)
     requested_limit: int = Field(ge=3, le=5)
@@ -2319,10 +2396,10 @@ class WeakCaseSearchResponse(StrictModel):
     cases: List[WeakCaseSearchResult] = Field(max_length=5)
     source_states: List[WeakCaseSourceResponse] = Field(max_length=4)
     review_required_before_promotion: Literal[True]
-    approved_reference_count: Literal[0]
+    approved_reference_count: int = Field(ge=0, le=5)
     annotation_count: Literal[0]
     incident_count: Literal[0]
-    training_eligible_count: Literal[0]
+    training_eligible_count: int = Field(ge=0, le=5)
 
     @model_validator(mode="after")
     def validate_results(self) -> "WeakCaseSearchResponse":
@@ -2339,12 +2416,219 @@ class WeakCaseSearchResponse(StrictModel):
             source.status == "ready" for source in self.source_states
         )
         if (
-            self.capability_state == "weak_reference_only"
+            self.capability_state
+            in {"weak_reference_only", "approved_reference_available"}
             and ready_count < 1
         ) or (
             self.capability_state == "unavailable" and ready_count != 0
         ):
             raise ValueError("weak-case search capability is inconsistent")
+        if (
+            self.approved_reference_count
+            != sum(case.approved_reference for case in self.cases)
+            or self.training_eligible_count
+            != sum(case.training_eligible for case in self.cases)
+        ):
+            raise ValueError(
+                "approved weak-case search counts are inconsistent"
+            )
+        return self
+
+
+class WeakCaseApprovalRequest(StrictModel):
+    project_id: UUID
+    source_id: str = Field(
+        pattern=r"^sample-hwpx-[34]q-[a-f0-9]{16}$"
+    )
+    case_id: str = Field(
+        pattern=r"^hwpx-weak-case-[a-f0-9]{32}$"
+    )
+    expected_document_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    expected_index_manifest_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    expected_image_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    issue_type: CandidateIssueType
+    maintenance_action: str = Field(min_length=1, max_length=500)
+    caption: Optional[str] = Field(default=None, max_length=320)
+    route: Optional[str] = Field(default=None, max_length=320)
+    location: Optional[str] = Field(default=None, max_length=320)
+    evaluation: Optional[str] = Field(default=None, max_length=320)
+    opinion: Optional[str] = Field(default=None, max_length=320)
+    expected_revision: Optional[int] = Field(default=None, ge=1)
+    user_confirmed: Literal[True]
+
+
+class ApprovedReferenceSquareMarker(StrictModel):
+    cell_target_id: str = Field(
+        pattern=r"^hwpx-cell-[a-f0-9]{24}$"
+    )
+    table_id: str = Field(min_length=1, max_length=120)
+    table_index: int = Field(ge=0, le=100_000)
+    page_number: int = Field(ge=1, le=10_000)
+    row: int = Field(ge=0, le=100_000)
+    column: int = Field(ge=0, le=100_000)
+    marker: Literal["■"]
+    text_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+class ApprovedReferenceSemanticCell(StrictModel):
+    role: Literal[
+        "photo_caption",
+        "inspection_route",
+        "inspection_opinion_label",
+        "inspection_opinion_body",
+    ]
+    cell_target_id: str = Field(
+        pattern=r"^hwpx-cell-[a-f0-9]{24}$"
+    )
+    table_id: str = Field(min_length=1, max_length=120)
+    table_index: int = Field(ge=0, le=100_000)
+    page_number: int = Field(ge=1, le=48)
+    row: int = Field(ge=0, le=100_000)
+    column: int = Field(ge=0, le=100_000)
+    row_span: int = Field(ge=1, le=100_000)
+    column_span: int = Field(ge=1, le=100_000)
+    text_excerpt: str = Field(max_length=320)
+    text_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+class ApprovedReferenceRecord(StrictModel):
+    schema_version: Literal["trafficvisson.approved-reference.v1"]
+    approval_id: str = Field(
+        pattern=r"^approved-reference-[a-f0-9]{24}$"
+    )
+    project_id: UUID
+    source_id: str = Field(
+        pattern=r"^sample-hwpx-[34]q-[a-f0-9]{16}$"
+    )
+    case_id: str = Field(
+        pattern=r"^hwpx-weak-case-[a-f0-9]{32}$"
+    )
+    revision: int = Field(ge=1)
+    reference_state: Literal["approved_reference"]
+    approved_reference: Literal[True]
+    training_eligible: Literal[True]
+    training_scope: Literal["approved_reference_only"]
+    annotation_created: Literal[False]
+    incident_created: Literal[False]
+    document_name: str = Field(min_length=1, max_length=120)
+    document_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    structure_target_summary_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    index_manifest_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    image_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    image_media_type: Literal[
+        "image/bmp",
+        "image/png",
+        "image/jpeg",
+        "image/gif",
+        "image/webp",
+    ]
+    image_width: int = Field(ge=1, le=65_535)
+    image_height: int = Field(ge=1, le=65_535)
+    quarter: Literal[3, 4]
+    section_path: str = Field(
+        pattern=r"^Contents/section[0-9]{1,5}\.xml$"
+    )
+    section_index: int = Field(ge=0, le=100_000)
+    picture_target_id: str = Field(
+        pattern=r"^hwpx-picture-[a-f0-9]{24}$"
+    )
+    picture_index: int = Field(ge=0, le=100_000)
+    picture_xml_id: Optional[str] = Field(default=None, max_length=256)
+    table_id: Optional[str] = Field(default=None, max_length=120)
+    table_index: Optional[int] = Field(default=None, ge=0, le=100_000)
+    cell_target_id: Optional[str] = Field(
+        default=None,
+        pattern=r"^hwpx-cell-[a-f0-9]{24}$",
+    )
+    cell_row: Optional[int] = Field(default=None, ge=0, le=100_000)
+    cell_column: Optional[int] = Field(default=None, ge=0, le=100_000)
+    page_hint: int = Field(ge=1, le=10_000)
+    page_hint_source: str = Field(min_length=1, max_length=120)
+    photo_slot_id: str = Field(
+        pattern=r"^sample-photo-slot-[a-f0-9]{24}$"
+    )
+    photo_page_number: Literal[
+        2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24,
+        26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48,
+    ]
+    inspection_page_number: Literal[
+        1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23,
+        25, 27, 29, 31, 33, 35, 37, 39, 41, 43, 45, 47,
+    ]
+    sample_layout_binding_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    square_markers: List[ApprovedReferenceSquareMarker] = Field(
+        min_length=1, max_length=64
+    )
+    semantic_cells: List[ApprovedReferenceSemanticCell] = Field(
+        min_length=4, max_length=4
+    )
+    weak_candidates: Dict[str, Optional[str]] = Field(
+        min_length=5, max_length=5
+    )
+    issue_type: CandidateIssueType
+    maintenance_action: str = Field(min_length=1, max_length=500)
+    caption: Optional[str] = Field(default=None, max_length=320)
+    route: Optional[str] = Field(default=None, max_length=320)
+    location: Optional[str] = Field(default=None, max_length=320)
+    evaluation: Optional[str] = Field(default=None, max_length=320)
+    opinion: Optional[str] = Field(default=None, max_length=320)
+    semantic_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    approved_at: datetime
+    updated_at: datetime
+    user_confirmed: Literal[True]
+    record_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+    @model_validator(mode="after")
+    def validate_semantic_cells(
+        self,
+    ) -> "ApprovedReferenceRecord":
+        roles = [cell.role for cell in self.semantic_cells]
+        if len(roles) != len(set(roles)) or set(roles) != {
+            "photo_caption",
+            "inspection_route",
+            "inspection_opinion_label",
+            "inspection_opinion_body",
+        }:
+            raise ValueError(
+                "approved reference semantic cell roles are invalid"
+            )
+        return self
+
+
+class WeakCaseApprovalResponse(ApprovedReferenceRecord):
+    idempotent_replay: bool
+
+
+class ApprovedReferenceListResponse(StrictModel):
+    schema_version: Literal[
+        "trafficvisson.approved-reference-list.v1"
+    ]
+    project_id: UUID
+    approved_reference_count: int = Field(ge=0, le=10_000)
+    training_eligible_count: int = Field(ge=0, le=10_000)
+    annotation_count: Literal[0]
+    incident_count: Literal[0]
+    records: List[ApprovedReferenceRecord] = Field(max_length=10_000)
+
+    @model_validator(mode="after")
+    def validate_counts(self) -> "ApprovedReferenceListResponse":
+        if (
+            self.approved_reference_count != len(self.records)
+            or self.training_eligible_count != len(self.records)
+        ):
+            raise ValueError(
+                "approved reference list counts are inconsistent"
+            )
         return self
 
 
@@ -2679,34 +2963,48 @@ class ProviderLoginResponse(StrictModel):
 
 
 class RuntimeModelPackIdentity(StrictModel):
-    provider: Optional[str] = Field(
-        default=None,
+    provenance_verified: Literal[True]
+    provider: str = Field(
         min_length=1,
         max_length=128,
         pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
     )
-    pack_id: Optional[str] = Field(
-        default=None,
+    pack_id: str = Field(
         min_length=1,
         max_length=128,
         pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
     )
-    pack_version: Optional[str] = Field(
-        default=None,
+    pack_version: str = Field(
         min_length=1,
         max_length=64,
         pattern=r"^[0-9A-Za-z][0-9A-Za-z._+-]{0,63}$",
     )
-    manifest_sha256: Optional[str] = Field(
-        default=None, pattern=r"^[a-f0-9]{64}$"
+    manifest_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    model_name: str = Field(min_length=1, max_length=128)
+    model_version: str = Field(min_length=1, max_length=128)
+    model_artifact_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    source_repo_id: str = Field(
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$",
     )
-    weights_spdx: Optional[str] = Field(
-        default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9.+-]{0,63}$"
+    source_revision: str = Field(pattern=r"^[a-f0-9]{40,64}$")
+    weights_spdx: str = Field(
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9.+-]{0,63}$"
     )
-    runtime_spdx: Optional[str] = Field(
-        default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9.+-]{0,63}$"
+    runtime_spdx: str = Field(
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9.+-]{0,63}$"
     )
-    review_only: Optional[bool] = None
+    commercial_use_confirmed: Literal[True]
+    redistribution_allowed: bool
+    gpu_required: bool
+    cpu_fallback: bool
+    recommended_min_vram_mb: int = Field(ge=0, le=131_072)
+    cuda_min_version: Optional[str] = Field(
+        default=None,
+        pattern=r"^[0-9]{1,3}(?:\.[0-9]{1,3}){1,2}$",
+    )
+    review_only: Literal[True]
 
 
 class RuntimeComponentResponse(StrictModel):
@@ -3087,6 +3385,95 @@ class HwpPreviewResponse(StrictModel):
     document_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     plan_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     target_summary: HwpApprovalTargetSummary
+
+
+class HwpSampleSemanticOperationBinding(StrictModel):
+    operation_id: UUID
+    approval_id: str = Field(
+        pattern=r"^approved-reference-[a-f0-9]{24}$"
+    )
+    operation_type: Literal["fill_cell", "insert_image"]
+    target_id: str = Field(
+        pattern=r"^hwpx-(?:cell|picture)-[a-f0-9]{24}$"
+    )
+    semantic_role: Literal[
+        "photo_slot_image",
+        "photo_caption",
+        "inspection_route",
+        "inspection_opinion_body",
+        "evaluation_square_marker",
+    ]
+    page_number: int = Field(ge=1, le=48)
+    table_index: int = Field(ge=0, le=71)
+    row: int = Field(ge=0)
+    column: int = Field(ge=0)
+
+
+class HwpSampleSemanticPreviewResponse(StrictModel):
+    """Exact-sample preview proof; never a claim that apply is available."""
+
+    schema_version: Literal[
+        "trafficvisson.hwpx-sample-semantic-plan.v1"
+    ]
+    mode: Literal["sample_semantic_preview"]
+    state: Literal["semantic_preview_validated_apply_unavailable"]
+    document_snapshot_id: str = Field(
+        pattern=r"^hwpx-sample-[34]q-[a-f0-9]{24}$"
+    )
+    document_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    structure_target_summary_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    weak_case_index_manifest_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    plan_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    validation_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    approved_references_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    approved_reference_count: int = Field(ge=1, le=100)
+    operation_count: int = Field(ge=1, le=100)
+    page_pair_indices: List[int] = Field(min_length=1, max_length=24)
+    touched_pages: List[int] = Field(min_length=1, max_length=48)
+    expected_rendered_page_count: Literal[48]
+    expected_page_range: Tuple[int, int]
+    page_range_preserved_by_structure: Literal[True]
+    table_growth_allowed: Literal[False]
+    semantic_validation_passed: Literal[True]
+    com_invocation_performed: Literal[False]
+    operation_bindings: List[
+        HwpSampleSemanticOperationBinding
+    ] = Field(min_length=1, max_length=100)
+    approval_scope: Literal["sample_preview_hash_binding_only"]
+    approval_token: str = Field(pattern=r"^[a-f0-9]{64}$")
+    approval_expires_at: datetime
+    apply_eligible: Literal[False]
+    writer_state: Literal["unavailable"]
+    output_render_validation_status: Literal["not_run"]
+    blocking_reasons: List[str] = Field(min_length=2, max_length=2)
+    no_com: Literal[True]
+    no_document_write: Literal[True]
+
+    @model_validator(mode="after")
+    def validate_unavailable_state(
+        self,
+    ) -> "HwpSampleSemanticPreviewResponse":
+        if self.expected_page_range != (1, 48):
+            raise ValueError("sample semantic preview must preserve pages 1-48")
+        if self.page_pair_indices != sorted(set(self.page_pair_indices)):
+            raise ValueError("sample page-pair indices must be sorted and unique")
+        if self.touched_pages != sorted(set(self.touched_pages)):
+            raise ValueError("sample touched pages must be sorted and unique")
+        expected_blockers = [
+            "exact_hwpml_target_writer_not_implemented",
+            "output_reopen_and_48_page_render_validation_not_implemented",
+        ]
+        if self.blocking_reasons != expected_blockers:
+            raise ValueError(
+                "sample semantic preview blockers must be explicit and complete"
+            )
+        return self
 
 
 class HwpSampleLayoutCounts(StrictModel):

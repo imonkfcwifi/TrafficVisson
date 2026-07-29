@@ -377,6 +377,159 @@ def _complete_analysis_for_project(client, source, project_id):
     return terminal
 
 
+def _electron_candidate_answer_payload(renderer_payload):
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("Node.js is required for the Electron contract integration")
+    desktop_root = Path(__file__).resolve().parents[2]
+    contract_uri = (desktop_root / "electron" / "contracts.mjs").as_uri()
+    script = (
+        f'import {{ IPC_CHANNELS, toBridgePayload }} from '
+        f'{json.dumps(contract_uri)};'
+        "const rendererPayload = JSON.parse(process.argv[1]);"
+        "process.stdout.write(JSON.stringify("
+        "toBridgePayload(IPC_CHANNELS.CANDIDATE_ANSWER, rendererPayload)"
+        "));"
+    )
+    completed = subprocess.run(
+        [
+            node,
+            "--input-type=module",
+            "--eval",
+            script,
+            json.dumps(renderer_payload, ensure_ascii=False),
+        ],
+        cwd=desktop_root,
+        shell=False,
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=20,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    return json.loads(completed.stdout)
+
+
+def test_electron_candidate_answer_contract_reaches_fastapi_and_persists(
+    tmp_path,
+):
+    source, ffmpeg, ffprobe = _make_video(tmp_path)
+    with _production_client(tmp_path, ffmpeg, ffprobe) as client:
+        created = client.post(
+            "/projects",
+            headers=_auth(),
+            json={
+                "name": "임시 Electron 계약 검증",
+                "description": "실제 프로젝트와 분리된 일회성 통합 테스트",
+            },
+        )
+        assert created.status_code == 201, created.text
+        project_id = created.json()["id"]
+        terminal = _complete_analysis_for_project(
+            client, source, project_id
+        )
+        job_id = terminal["job_id"]
+        candidate_id = terminal["result"]["candidates"][0]["candidate_id"]
+
+        bridge_payload = _electron_candidate_answer_payload(
+            {
+                "projectId": project_id,
+                "jobId": job_id,
+                "candidateId": candidate_id,
+                "answer": "yes",
+                # The renderer's internal OTHER code crosses its API boundary
+                # as the canonical lower-case value.
+                "selectedIssueType": "other",
+                "severity": "major",
+                "maintenanceAction": "기타 도로 위험요소 정비",
+                "normalizedBox": {
+                    "x": 0.125,
+                    "y": 0.25,
+                    "width": 0.5,
+                    "height": 0.375,
+                },
+            }
+        )
+        assert bridge_payload == {
+            "project_id": project_id,
+            "job_id": job_id,
+            "candidate_id": candidate_id,
+            "answer": "yes",
+            "selected_issue_type": "other",
+            "severity": "major",
+            "maintenance_action": "기타 도로 위험요소 정비",
+            "normalized_box": {
+                "x": 0.125,
+                "y": 0.25,
+                "width": 0.5,
+                "height": 0.375,
+            },
+        }
+
+        answer_url = (
+            f"/projects/{project_id}/analysis/jobs/{job_id}"
+            f"/candidates/{candidate_id}/answer"
+        )
+        response = client.post(
+            answer_url,
+            headers=_auth(),
+            json={
+                "project_id": bridge_payload["project_id"],
+                "analysis_job_id": bridge_payload["job_id"],
+                "answer": bridge_payload["answer"],
+                "selected_issue_type": bridge_payload[
+                    "selected_issue_type"
+                ],
+                "severity": bridge_payload["severity"],
+                "maintenance_action": bridge_payload[
+                    "maintenance_action"
+                ],
+                "normalized_box": bridge_payload["normalized_box"],
+            },
+        )
+        assert response.status_code == 201, response.text
+
+        audit = client.app.state.candidate_labels.audit_records(
+            project_id, analysis_job_id=UUID(job_id)
+        )
+        assert len(audit) == 1
+        assert audit[0]["final_answer"] == {
+            "answer": "yes",
+            "selected_issue_type": "other",
+            "severity": "major",
+            "maintenance_action": "기타 도로 위험요소 정비",
+            "ocr_text": None,
+            "normalized_box": {
+                "x": 0.125,
+                "y": 0.25,
+                "width": 0.5,
+                "height": 0.375,
+            },
+            "include_in_training": True,
+            "answered_by": "local_user",
+        }
+
+        reloaded = CandidateLabelStore(
+            client.app.state.bridge_data_root,
+            lambda *_args: None,
+        )
+        persisted = reloaded.latest_answers(
+            project_id, analysis_job_id=UUID(job_id)
+        )
+        assert len(persisted) == 1
+        assert persisted[0]["record_hash"] == response.json()["record_hash"]
+        assert persisted[0]["final_answer"]["selected_issue_type"] == "other"
+        assert persisted[0]["final_answer"]["severity"] == "major"
+        assert persisted[0]["final_answer"]["normalized_box"] == {
+            "x": 0.125,
+            "y": 0.25,
+            "width": 0.5,
+            "height": 0.375,
+        }
+
+
 def test_analysis_rejects_missing_or_mismatched_completed_hash(tmp_path):
     source, ffmpeg, ffprobe = _make_video(tmp_path)
     with _client(tmp_path, ffmpeg, ffprobe) as client:

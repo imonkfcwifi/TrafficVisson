@@ -4,6 +4,8 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { verifyPackagedCommandProposalRunner } from "./verify-packaged-command-proposal-runner.mjs";
+
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const desktopRoot = path.resolve(scriptDirectory, "..");
 const releaseRoot = path.join(desktopRoot, "release");
@@ -368,6 +370,10 @@ export async function writeReleaseManifest() {
     "resources",
     "command-proposal-runner",
   );
+  const packagedRunnerTrust = await verifyPackagedCommandProposalRunner({
+    desktopRoot,
+    packagedRunnerRoot,
+  });
   const verifiedRunner = await verifyBundledRunnerIntegrity(packagedRunnerRoot);
 
   const artifacts = [];
@@ -428,6 +434,7 @@ export async function writeReleaseManifest() {
       purpose: "review_only_open_vocabulary_question_proposals",
       runtime: "onnxruntime_bundled_executable",
       fallback: "cached_existing_or_unavailable",
+      trust_chain: packagedRunnerTrust,
       runner: verifiedRunner.runner,
       model_pack: verifiedRunner.model_pack,
       note: "The bundled model creates review questions only. It cannot approve labels, create incidents, start training, or promote a model.",

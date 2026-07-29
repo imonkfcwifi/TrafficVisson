@@ -55,6 +55,17 @@ test("FFmpeg and local analysis components render bridge-owned states", () => {
   }
   assert.match(shellSource, /ffmpegComponent\?\.message/);
   assert.match(shellSource, /component\?\.version/);
+  assert.match(shellSource, /parseRuntimeModelPack\(row\.model_pack\)/);
+  assert.match(
+    shellSource,
+    /MODEL_PACK_RUNTIME_COMPONENTS\.has\(row\.component_id\)[\s\S]*!modelPack/,
+  );
+  assert.match(shellSource, /provenance_verified !== true/);
+  assert.match(shellSource, /model_artifact_sha256/);
+  assert.match(shellSource, /source_revision/);
+  assert.match(shellSource, /recommended_min_vram_mb/);
+  assert.match(shellSource, /runtimeComponentDetail\(component\)/);
+  assert.match(shellSource, /0건 검지는 별도의 정상 실행 결과/);
 });
 
 test("HWP readiness remains gated by the real read-only COM preflight", () => {
@@ -80,6 +91,10 @@ test("runtime inventory stays compact inside the bounded diagnostics drawer", ()
   );
   assert.match(stylesSource, /\.diagnostic-runtime-state--ready/);
   assert.match(stylesSource, /\.diagnostic-runtime-state--failed/);
+  assert.match(
+    stylesSource,
+    /\.diagnostic-runtime-detail\s*\{[^}]*font-family:\s*inherit[^}]*font-size:\s*10\.5px/s,
+  );
 });
 
 test("active project secondary text prefers the durable PipelineJob state", () => {

@@ -1,5 +1,6 @@
 import hashlib
 import json
+import shutil
 import threading
 import time
 from pathlib import Path
@@ -337,6 +338,116 @@ def test_start_is_idempotent_by_key_and_input_profile_fingerprint(tmp_path):
     service.shutdown()
 
 
+def test_source_hash_and_profile_reuse_canonical_job_across_snapshots(
+    tmp_path,
+):
+    source_sha256 = hashlib.sha256(
+        b"same-road-video"
+    ).hexdigest()
+
+    class SourceHashRuntime(FakeRuntime):
+        def execute(self, stage, context, cancel):
+            if stage == "sha256":
+                self.calls.append(stage)
+                self.contexts.append((stage, context))
+                return PipelineStageResult(
+                    "success",
+                    checkpoint={"source_sha256": source_sha256},
+                    metrics={"completed": 1},
+                )
+            return super().execute(stage, context, cancel)
+
+    runtime = SourceHashRuntime()
+    root = tmp_path.resolve()
+    service = PipelineJobService(runtime, data_root=root)
+    project_id = uuid4()
+    _configure(service, project_id)
+    first, _ = service.start(
+        project_id,
+        snapshot_id=uuid4(),
+        file_name="drive.mp4",
+        rights_confirmed=True,
+        idempotency_key="pipeline-source-first-0001",
+    )
+    canonical = _wait(
+        service, project_id, first["job_id"], {"awaiting_review"}
+    )
+    calls_before_reselection = list(runtime.calls)
+
+    second, replayed_at_start = service.start(
+        project_id,
+        snapshot_id=uuid4(),
+        file_name="drive.mp4",
+        rights_confirmed=True,
+        idempotency_key="pipeline-source-second-0001",
+    )
+    assert replayed_at_start is False
+    replayed = _wait(
+        service, project_id, second["job_id"], {"awaiting_review"}
+    )
+    assert replayed["job_id"] == canonical["job_id"]
+    assert service.list(project_id) == [canonical]
+    assert runtime.calls[len(calls_before_reselection) :] == [
+        "intake_validation",
+        "sha256",
+    ]
+    assert (
+        service.recovery_summary()["aliases_loaded"] == 0
+    )
+    service.shutdown()
+
+    restarted = PipelineJobService(
+        SourceHashRuntime(), data_root=root
+    )
+    restored = restarted.get(project_id, second["job_id"])
+    assert restored["job_id"] == canonical["job_id"]
+    assert restarted.recovery_summary()["aliases_loaded"] == 1
+    restarted.shutdown()
+
+
+def test_explicit_new_source_prefix_bypasses_hash_reuse(tmp_path):
+    source_sha256 = hashlib.sha256(
+        b"same-road-video"
+    ).hexdigest()
+
+    class SourceHashRuntime(FakeRuntime):
+        def execute(self, stage, context, cancel):
+            if stage == "sha256":
+                self.calls.append(stage)
+                self.contexts.append((stage, context))
+                return PipelineStageResult(
+                    "success",
+                    checkpoint={"source_sha256": source_sha256},
+                    metrics={"completed": 1},
+                )
+            return super().execute(stage, context, cancel)
+
+    service = PipelineJobService(
+        SourceHashRuntime(), data_root=tmp_path.resolve()
+    )
+    project_id = uuid4()
+    _configure(service, project_id)
+    first, _ = _start(service, project_id, suffix="source-normal")
+    _wait(service, project_id, first["job_id"], {"awaiting_review"})
+    explicit, replayed = service.start(
+        project_id,
+        snapshot_id=uuid4(),
+        file_name="drive.mp4",
+        rights_confirmed=True,
+        idempotency_key="explicit-new:source-run-0001",
+    )
+    assert replayed is False
+    explicit_waiting = _wait(
+        service,
+        project_id,
+        explicit["job_id"],
+        {"awaiting_review"},
+    )
+    assert explicit_waiting["job_id"] == explicit["job_id"]
+    assert len(service.list(project_id)) == 2
+    service.shutdown()
+
+
 def test_one_stable_folder_can_queue_all_51_videos(tmp_path):
     runtime = FakeRuntime()
     runtime.block_stage = "intake_validation"
@@ -591,6 +702,115 @@ def test_bridge_runtime_builds_exact_safe_derived_output_request(tmp_path):
     assert request.report_attempt == 0
 
 
+def test_bridge_runtime_exports_verified_zero_detection_completion(
+    tmp_path,
+):
+    project_id = uuid4()
+    pipeline_job_id = uuid4()
+    analysis_job_id = uuid4()
+    source_sha256 = hashlib.sha256(b"zero-source").hexdigest()
+    input_fingerprint = hashlib.sha256(b"zero-input").hexdigest()
+    profile = {
+        "default_template_id": "sample-4q-v1",
+        "default_template_sha256": hashlib.sha256(
+            b"template"
+        ).hexdigest(),
+        "report_provider": "codex",
+        "output_location_id": "project-default",
+    }
+    profile_sha256 = hashlib.sha256(
+        json.dumps(
+            profile,
+            ensure_ascii=False,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+
+    class CapturingZeroOutputs:
+        def __init__(self):
+            self.requests = []
+
+        def generate(self, request, *, cancelled):
+            assert cancelled() is False
+            self.requests.append(request)
+            return DerivedOutputsResult(
+                checkpoint={
+                    "state": "completed",
+                    "completion_mode": "zero_detections",
+                    "export_bundle_id": "bundle-zero-v1",
+                    "report": {
+                        "state": (
+                            "not_applicable_no_approved_incidents"
+                        ),
+                        "blocking_reasons": [],
+                        "provider_called": False,
+                        "document_edit_plan_prepared": False,
+                        "com_invoked": False,
+                    },
+                    "absolute_paths_exposed": False,
+                    "com_invoked": False,
+                },
+                metrics={
+                    "raw_detection_count": 0,
+                    "reviewed_answer_count": 0,
+                    "incident_count": 0,
+                    "annotation_count": 0,
+                    "route_point_count": 0,
+                    "evidence_file_count": 0,
+                    "artifact_count": 10,
+                },
+                replayed=False,
+            )
+
+    derived = CapturingZeroOutputs()
+    runtime = BridgePipelineRuntime(
+        object(),
+        data_root=tmp_path.resolve(),
+        derived_outputs=derived,
+    )
+    context = {
+        "job_id": str(pipeline_job_id),
+        "project_id": str(project_id),
+        "snapshot_id": str(uuid4()),
+        "file_name": "empty-drive.mp4",
+        "input_fingerprint": input_fingerprint,
+        "profile_sha256": profile_sha256,
+        "profile": profile,
+        "capabilities": {},
+        "checkpoints": {
+            "sha256": {"source_sha256": source_sha256},
+            "candidate_rescan_5_10fps": {
+                "analysis_job_id": str(analysis_job_id),
+                "source_sha256": source_sha256,
+                "candidate_count": 0,
+            },
+        },
+        "review_completion_id": None,
+        "review_completion": {},
+    }
+
+    result = runtime.execute("derived_outputs", context, lambda: False)
+
+    assert result.outcome == "zero_detections"
+    assert result.error_code == "zero_detections"
+    assert result.checkpoint["completion_mode"] == "zero_detections"
+    assert result.metrics["raw_detection_count"] == 0
+    assert result.metrics["incident_count"] == 0
+    request = derived.requests[0]
+    empty_ledger_sha256 = hashlib.sha256(b"").hexdigest()
+    assert request.project_id == project_id
+    assert request.pipeline_job_id == pipeline_job_id
+    assert request.analysis_job_id == analysis_job_id
+    assert request.completion_mode == "zero_detections"
+    assert request.question_candidate_ids == ()
+    assert request.answer_ledger_sha256 == empty_ledger_sha256
+    assert request.review_completion_id == (
+        f"zero-detections:{empty_ledger_sha256}"
+    )
+
+
 def test_zero_detections_is_not_saved_as_success(tmp_path):
     runtime = FakeRuntime()
     runtime.zero_detections = True
@@ -654,6 +874,57 @@ def test_restart_requeues_the_exact_running_stage(tmp_path):
     assert second_runtime.calls[0] == "dense_index_2fps"
     assert "intake_validation" not in second_runtime.calls
     second.shutdown()
+
+
+def test_restart_finalizes_durable_cancelling_without_requeue(
+    tmp_path,
+):
+    class UninterruptibleRuntime(FakeRuntime):
+        def execute(self, stage, context, cancel):
+            self.calls.append(stage)
+            self.contexts.append((stage, context))
+            if stage == "intake_validation":
+                self.block_started.set()
+                self.block_release.wait(5)
+            return PipelineStageResult(
+                "success",
+                checkpoint={f"{stage}_id": f"{stage}-v1"},
+                metrics={"completed": 1},
+            )
+
+    live_root = (tmp_path / "live").resolve()
+    recovery_root = (tmp_path / "recovery").resolve()
+    runtime = UninterruptibleRuntime()
+    first = PipelineJobService(runtime, data_root=live_root)
+    project_id = uuid4()
+    _configure(first, project_id)
+    started, _ = _start(
+        first, project_id, suffix="durable-cancelling"
+    )
+    assert runtime.block_started.wait(1)
+    cancelling = first.cancel(project_id, started["job_id"])
+    assert cancelling["status"] == "cancelling"
+    shutil.copytree(live_root, recovery_root)
+
+    recovered_runtime = FakeRuntime()
+    recovered = PipelineJobService(
+        recovered_runtime, data_root=recovery_root
+    )
+    cancelled = recovered.get(project_id, started["job_id"])
+    assert cancelled["status"] == "cancelled"
+    assert cancelled["outcome_code"] == "cancelled"
+    assert cancelled["recovered_after_restart"] is True
+    assert cancelled["stages"][0]["status"] == "cancelled"
+    assert recovered.recovery_summary()["jobs_requeued"] == 0
+    assert (
+        recovered.recovery_summary()["cancellations_finalized"]
+        == 1
+    )
+    assert recovered_runtime.calls == []
+
+    recovered.shutdown()
+    runtime.block_release.set()
+    first.shutdown()
 
 
 def test_bridge_restart_restores_private_media_grant_and_reuses_dense_artifact(
@@ -1452,3 +1723,95 @@ def test_bridge_runtime_prepares_honest_dino_review_queue_without_full_pack(
     assert proof["all_required_questions_answered"] is True
     assert "annotation_count_before_projection" not in proof
     assert "incident_count_before_projection" not in proof
+
+
+def test_similar_case_stage_preserves_project_approved_provenance(
+    tmp_path,
+):
+    project_id = uuid4()
+
+    class FakeWeakCases:
+        def search(self, **_kwargs):
+            return {
+                "capability_state": "weak_reference_only",
+                "cases": [
+                    {
+                        "source_id": (
+                            "sample-hwpx-3q-0123456789abcdef"
+                        ),
+                        "case_id": (
+                            "hwpx-weak-case-" + "a" * 32
+                        ),
+                        "quarter": 3,
+                        "document_sha256": "b" * 64,
+                        "image_sha256": "c" * 64,
+                        "index_manifest_sha256": "d" * 64,
+                        "picture_target_id": (
+                            "hwpx-picture-" + "e" * 24
+                        ),
+                        "cell_target_id": (
+                            "hwpx-cell-" + "f" * 24
+                        ),
+                        "reference_state": "weak_unconfirmed",
+                        "review_required": True,
+                        "approved_reference": False,
+                    }
+                ],
+            }
+
+    class FakeApprovals:
+        def decorate_search(self, actual_project_id, result):
+            assert actual_project_id == project_id
+            decorated = dict(result)
+            decorated["capability_state"] = (
+                "approved_reference_available"
+            )
+            decorated["cases"] = [
+                {
+                    **result["cases"][0],
+                    "reference_state": "approved_reference",
+                    "review_required": False,
+                    "approved_reference": True,
+                    "approval_record_sha256": "1" * 64,
+                }
+            ]
+            decorated["approved_reference_count"] = 1
+            return decorated
+
+    runtime = BridgePipelineRuntime(
+        object(),
+        data_root=tmp_path.resolve(),
+        weak_case_catalog=FakeWeakCases(),
+        weak_case_approvals=FakeApprovals(),
+    )
+    result = runtime._search_weak_reference_cases(
+        {
+            "project_id": str(project_id),
+            "checkpoints": {
+                "detection_ocr": {
+                    "detected_issue_types": [
+                        "roadside_mowing_required"
+                    ]
+                }
+            },
+        }
+    )
+
+    assert result.checkpoint["approved_reference_count"] == 1
+    assert result.checkpoint["review_only"] is False
+    assert result.checkpoint["references"] == [
+        {
+            "source_id": "sample-hwpx-3q-0123456789abcdef",
+            "case_id": "hwpx-weak-case-" + "a" * 32,
+            "issue_type": "roadside_mowing_required",
+            "quarter": 3,
+            "document_sha256": "b" * 64,
+            "image_sha256": "c" * 64,
+            "index_manifest_sha256": "d" * 64,
+            "picture_target_id": "hwpx-picture-" + "e" * 24,
+            "cell_target_id": "hwpx-cell-" + "f" * 24,
+            "reference_state": "approved_reference",
+            "review_required": False,
+            "approval_record_sha256": "1" * 64,
+        }
+    ]
