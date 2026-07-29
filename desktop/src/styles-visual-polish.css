@@ -1,0 +1,1018 @@
+/*
+ * Final visual pass
+ *
+ * The supplied liquid-glass reference is calm because it uses asymmetry,
+ * restrained surfaces and readable type. This file is intentionally loaded
+ * last so short-window fit never comes from shrinking Korean text below a
+ * useful reading size.
+ */
+
+:root {
+  --radius-card: 18px;
+  --radius-control: 11px;
+  --shadow-card:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 10px 28px rgba(46, 62, 105, 0.065);
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.48;
+  letter-spacing: -0.008em;
+}
+
+h1,
+h2,
+h3,
+strong {
+  font-family: var(--font-sans);
+  text-wrap: pretty;
+}
+
+h1 {
+  font-weight: 680;
+}
+
+h2,
+h3 {
+  font-weight: 650;
+}
+
+.eyebrow {
+  font-family: var(--font-sans);
+  font-size: 11.5px;
+  line-height: 1.35;
+  font-weight: 680;
+  letter-spacing: 0.06em;
+}
+
+.badge {
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.button,
+.icon-button,
+.segmented-control button,
+.rate-toggle button {
+  line-height: 1.3;
+}
+
+.glass-panel {
+  border-color: rgba(52, 67, 112, 0.09);
+  box-shadow: var(--shadow-card);
+}
+
+.glass-panel:not(.metric-card--primary) {
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.74), rgba(246, 250, 255, 0.52)),
+    rgba(248, 251, 255, 0.66);
+}
+
+.question-list small,
+.screen--labeling .workbench-toolbar .mono {
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+@media (min-width: 961px) {
+  .screen--model .model-layout,
+  .screen--model .model-main,
+  .screen--model .model-comparison {
+    min-height: 0;
+  }
+
+  .screen--model .model-main,
+  .screen--model .model-comparison {
+    overflow: hidden;
+  }
+
+  .screen--model .model-table-wrap {
+    min-height: 0;
+    flex: 1 1 auto;
+    overflow: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+
+  .screen--model .model-comparison > .notice,
+  .screen--model .model-versions,
+  .screen--model .model-main > .model-message {
+    flex: 0 0 auto;
+  }
+
+  .screen--model .model-main > .model-message {
+    min-height: 17px;
+    margin: 0;
+    overflow: hidden;
+    line-height: 1.4;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .titlebar {
+    min-height: 56px;
+    gap: 14px;
+    padding: 0 156px 0 16px;
+  }
+
+  .brand {
+    min-width: 198px;
+  }
+
+  .brand-mark {
+    width: 32px;
+    height: 32px;
+    border-radius: 10px;
+    box-shadow: 0 7px 16px rgba(55, 83, 174, 0.18);
+  }
+
+  .project-switcher {
+    min-width: 286px;
+    height: 38px;
+    border-radius: 12px;
+  }
+
+  .side-nav {
+    width: 76px;
+    padding: 12px 8px;
+  }
+
+  .nav-item {
+    min-height: 44px;
+    border-color: transparent;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .nav-item--active {
+    border-color: transparent;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .nav-item--active .nav-icon {
+    color: var(--accent-action);
+    background: rgba(255, 255, 255, 0.78);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.96),
+      0 7px 18px rgba(45, 68, 145, 0.1);
+  }
+
+  .workspace {
+    padding: 12px;
+  }
+
+  .statusbar {
+    min-height: 28px;
+    padding-inline: 14px;
+    font-family: var(--font-sans);
+    font-size: 11.5px;
+    line-height: 1.35;
+  }
+
+  .screen {
+    gap: 10px;
+  }
+
+  .screen-header {
+    min-height: 52px;
+    align-items: center;
+    gap: 18px;
+  }
+
+  .screen-header h1 {
+    margin-top: 0;
+    font-size: 24px;
+    line-height: 1.24;
+  }
+
+  .screen-header p:not(.eyebrow) {
+    margin-top: 2px;
+    font-size: 12.5px;
+    line-height: 1.42;
+  }
+
+  .screen--home {
+    display: grid;
+    grid-template-rows: auto auto minmax(0, 1fr);
+  }
+
+  .screen--home .screen-header {
+    min-height: 54px;
+  }
+
+  .hero-metrics {
+    grid-template-columns: minmax(0, 1.35fr) repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    padding-bottom: 0;
+    overflow: visible;
+  }
+
+  .metric-card {
+    min-height: 126px;
+    gap: 6px;
+    padding: 14px;
+  }
+
+  .metric-card > strong {
+    font-size: 28px;
+    line-height: 1.2;
+  }
+
+  .metric-card > .metric-status {
+    max-width: none;
+    font-size: 17px;
+    line-height: 1.35;
+  }
+
+  .metric-card > p {
+    display: -webkit-box;
+    overflow: hidden;
+    font-size: 12px;
+    line-height: 1.4;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .metric-inline {
+    min-height: 24px;
+    font-size: 11.5px;
+    line-height: 1.35;
+  }
+
+  .home-grid {
+    height: auto;
+    min-height: 0;
+    flex: 1 1 0;
+    align-self: stretch;
+    grid-template-columns: minmax(0, 1.72fr) minmax(330px, 0.88fr);
+    gap: 10px;
+  }
+
+  .trips-panel,
+  .question-queue {
+    padding: 14px;
+  }
+
+  .question-list {
+    overflow: hidden;
+  }
+
+  .trip-evidence-showcase {
+    min-height: 0;
+    flex: 1 1 auto;
+    display: grid;
+    grid-template-columns: minmax(0, 1.48fr) repeat(2, minmax(0, 0.76fr));
+    gap: 8px;
+    margin-top: 9px;
+  }
+
+  .trip-evidence-showcase--count-1 {
+    grid-template-columns: 1fr;
+  }
+
+  .trip-evidence-showcase--count-2 {
+    grid-template-columns: minmax(0, 1.55fr) minmax(0, 0.8fr);
+  }
+
+  .trip-evidence-tile {
+    min-width: 0;
+    min-height: 0;
+    position: relative;
+    overflow: hidden;
+    padding: 0;
+    border: 1px solid rgba(45, 57, 101, 0.09);
+    border-radius: 15px;
+    background: #121622;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.12),
+      0 8px 20px rgba(24, 36, 76, 0.08);
+    cursor: pointer;
+  }
+
+  .trip-evidence-tile:focus-visible {
+    outline: 3px solid var(--focus);
+    outline-offset: 2px;
+  }
+
+  .trip-evidence-tile img {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: cover;
+    transition: transform 180ms ease;
+  }
+
+  .trip-evidence-tile:hover img {
+    transform: scale(1.025);
+  }
+
+  .trip-evidence-tile__shade {
+    position: absolute;
+    inset: 38% 0 0;
+    background: linear-gradient(transparent, rgba(9, 15, 28, 0.84));
+    pointer-events: none;
+  }
+
+  .trip-evidence-tile__copy {
+    min-width: 0;
+    position: absolute;
+    right: 11px;
+    bottom: 10px;
+    left: 11px;
+    color: #fff;
+    text-align: left;
+    pointer-events: none;
+  }
+
+  .trip-evidence-tile__copy strong,
+  .trip-evidence-tile__copy small {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .trip-evidence-tile__copy strong {
+    font-size: 12.5px;
+    line-height: 1.35;
+  }
+
+  .trip-evidence-tile__copy small {
+    margin-top: 2px;
+    color: rgba(255, 255, 255, 0.75);
+    font-size: 10.5px;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.35;
+  }
+
+  .trip-evidence-showcase + .trip-table-wrap {
+    min-height: 92px;
+    flex: 0 0 auto;
+    overflow: visible;
+  }
+
+  .home-empty-row {
+    min-height: 112px;
+    padding: 18px;
+    font-size: 12.5px;
+    line-height: 1.5;
+  }
+
+  .question-sample {
+    min-height: 118px;
+    gap: 11px;
+    margin-top: 8px;
+    padding: 10px;
+  }
+
+  .question-sample strong {
+    font-size: 13px;
+    line-height: 1.42;
+  }
+
+  .question-sample p {
+    font-size: 12px;
+    line-height: 1.45;
+  }
+
+  .queue-summary {
+    margin-top: 8px;
+    padding: 9px 10px;
+    font-size: 11.5px;
+    line-height: 1.4;
+  }
+
+  .screen--import .import-layout {
+    grid-template-columns:
+      minmax(410px, 1.08fr)
+      minmax(350px, 1fr)
+      minmax(270px, 0.72fr);
+    gap: 10px;
+  }
+
+  .screen--import .source-panel,
+  .screen--import .inspection-panel,
+  .screen--import .gps-panel {
+    gap: 10px;
+    padding: 14px;
+  }
+
+  .screen--import .source-tabs {
+    gap: 6px;
+  }
+
+  .screen--import .source-tabs button {
+    min-height: 68px;
+    flex-direction: column;
+    gap: 5px;
+    padding: 8px 5px;
+    font-size: 12px;
+    line-height: 1.35;
+    white-space: nowrap;
+  }
+
+  .screen--import .rights-check {
+    line-height: 1.4;
+  }
+
+  .screen--import .rights-check small,
+  .screen--import .support-tiers > div,
+  .screen--import .empty-state p,
+  .screen--import .inspection-loading p {
+    font-size: 11.5px;
+    line-height: 1.45;
+  }
+
+  .screen--import .support-tiers {
+    padding-top: 10px;
+  }
+
+  .screen--import .support-tiers > div {
+    padding: 5px 0;
+  }
+}
+
+/*
+ * Above the short-window breakpoint, History uses explicit rows. The generic
+ * flex screen otherwise lets the video row consume all free height and can
+ * collapse the synchronized incident/evidence row to zero.
+ */
+@media (min-width: 961px) and (min-height: 781px) {
+  .screen--history {
+    display: grid;
+    grid-template-rows:
+      auto
+      minmax(270px, 1fr)
+      106px
+      minmax(180px, 0.6fr);
+    gap: 10px;
+  }
+
+  .screen--history .history-top,
+  .screen--history .history-bottom {
+    min-height: 0;
+    height: 100%;
+    gap: 10px;
+  }
+}
+
+@media (min-width: 961px) and (max-height: 820px) {
+  .question-list li:nth-child(n + 4) {
+    display: none;
+  }
+}
+
+@media (min-width: 961px) and (max-height: 820px) {
+  .screen--analysis .screen-header,
+  .screen--labeling .screen-header {
+    min-height: 50px;
+  }
+
+  .screen--analysis .screen-header h1,
+  .screen--labeling .screen-header h1 {
+    font-size: 24px;
+    line-height: 1.24;
+  }
+
+  .screen--analysis .screen-header p:not(.eyebrow),
+  .screen--labeling .screen-header p:not(.eyebrow) {
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  .screen--analysis .analysis-hero-top h2 {
+    font-size: 15px;
+    line-height: 1.35;
+  }
+
+  .screen--analysis .analysis-hero-top > div {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    column-gap: 7px;
+    row-gap: 2px;
+  }
+
+  .screen--analysis .analysis-hero-top > div > .badge {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .screen--analysis .analysis-hero-top > div > h2 {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 0;
+    margin-top: 0;
+  }
+
+  .screen--analysis .analysis-hero-top > div > p {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    margin-top: 0;
+  }
+
+  .screen--analysis .analysis-hero-top p,
+  .screen--analysis .analysis-meta,
+  .screen--analysis .stat-tile small {
+    font-size: 11px;
+    line-height: 1.35;
+  }
+
+  .screen--analysis .resource-grid strong,
+  .screen--analysis .analysis-records-table th,
+  .screen--analysis .analysis-records-table td {
+    font-size: 11.5px;
+    line-height: 1.35;
+  }
+
+  .screen--labeling .label-queue-controls {
+    height: 48px;
+    min-height: 48px;
+    max-height: 48px;
+    padding: 6px 8px;
+  }
+
+  .screen--labeling .label-job-field > span,
+  .screen--labeling .label-job-field select,
+  .screen--labeling .label-job-actions .button,
+  .screen--labeling .label-job-status > span {
+    font-size: 11.5px;
+    line-height: 1.35;
+  }
+
+  /* 430px leaves 388px for copy after the icon, gap, border and padding. */
+  .screen--labeling .auto-label-command__body {
+    grid-template-columns: minmax(0, 1fr) minmax(430px, 0.72fr);
+  }
+
+  .screen--labeling .auto-label-command__identity small,
+  .screen--labeling .auto-label-command__guardrail span,
+  .screen--labeling .auto-label-command__preview summary,
+  .screen--labeling .auto-label-command__progress span,
+  .screen--labeling .auto-label-command__result > div > span {
+    font-size: 11px;
+    line-height: 1.35;
+  }
+
+  .screen--labeling .auto-label-command__guardrail span {
+    display: block;
+    overflow: visible;
+    font-family: var(--font-sans);
+    text-overflow: clip;
+    white-space: normal;
+  }
+
+  .screen--labeling .labeling-layout {
+    grid-template-columns: minmax(500px, 1.42fr) minmax(390px, 0.9fr);
+    gap: 10px;
+  }
+
+  .screen--labeling .evidence-workbench {
+    gap: 7px;
+    padding: 10px;
+  }
+
+  .screen--labeling .workbench-toolbar {
+    min-height: 32px;
+    flex-basis: 32px;
+  }
+
+  .screen--labeling .workbench-toolbar .mono {
+    font-size: 11px;
+    line-height: 1.35;
+  }
+
+  .screen--labeling .evidence-image {
+    height: clamp(170px, 27vh, 210px);
+    min-height: 170px;
+    flex-basis: clamp(170px, 27vh, 210px);
+  }
+
+  .screen--labeling .candidate-frame-note {
+    min-height: 38px;
+    max-height: 38px;
+    flex-basis: 38px;
+    padding: 7px 9px;
+    font-size: 11.5px;
+    line-height: 1.4;
+  }
+
+  .screen--labeling .candidate-preview {
+    min-height: 60px;
+    max-height: 60px;
+    flex-basis: 60px;
+  }
+
+  .screen--labeling .candidate-preview > div > span {
+    font-size: 11px;
+    line-height: 1.35;
+  }
+
+  .screen--labeling .labeling-sidebar {
+    grid-template-rows: minmax(0, 1fr) 46px;
+    gap: 7px;
+  }
+
+  .screen--labeling .question-card {
+    padding: 8px 9px;
+  }
+
+  /*
+   * The experimental rationale needs three 14.3px lines. Reusing 13px from
+   * card and sibling spacing offsets its 34px -> 50px growth without moving
+   * the four answers or skip action out of the bounded question card.
+   */
+  .screen--labeling .question-card:has(> .experimental-proposal) {
+    padding: 6px 7px;
+  }
+
+  .screen--labeling .question-card .panel-header {
+    min-height: 24px;
+    flex: 0 0 24px;
+    align-items: center;
+  }
+
+  .screen--labeling .question-card .panel-header > div:first-child {
+    min-width: 0;
+    display: flex;
+    align-items: baseline;
+    gap: 7px;
+  }
+
+  .screen--labeling .question-card .panel-header h2 {
+    margin-top: 0;
+    font-size: 14px;
+    line-height: 1.35;
+  }
+
+  .screen--labeling .question-card .panel-header .eyebrow {
+    font-size: 10.5px;
+  }
+
+  .screen--labeling .question-prompt {
+    margin: 3px 0;
+    font-size: 16px;
+    line-height: 1.35;
+    -webkit-line-clamp: 2;
+  }
+
+  .screen--labeling
+    .question-card:has(> .experimental-proposal)
+    .question-prompt {
+    margin-block: 1px;
+  }
+
+  .screen--labeling .question-metadata {
+    min-height: 18px;
+    gap: 5px;
+    font-size: 11px;
+    line-height: 1.35;
+  }
+
+  .screen--labeling .question-metadata .badge {
+    min-height: 22px;
+    padding: 3px 6px;
+    font-size: 10.5px;
+    line-height: 1.3;
+  }
+
+  .screen--labeling .experimental-proposal,
+  .screen--labeling .proposal-load-warning {
+    min-height: 28px;
+    max-height: 28px;
+    flex: 0 0 28px;
+    margin-top: 2px;
+    padding: 4px 6px;
+    font-size: 11px;
+    line-height: 1.25;
+  }
+
+  .screen--labeling .experimental-proposal svg,
+  .screen--labeling .proposal-load-warning svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  .screen--labeling .experimental-proposal strong,
+  .screen--labeling .proposal-load-warning strong {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .screen--labeling
+    .question-card:has(> .experimental-proposal)
+    > .experimental-proposal {
+    margin-top: 1px;
+  }
+
+  .screen--labeling .question-card .compact-field {
+    gap: 7px;
+    margin-top: 4px;
+  }
+
+  .screen--labeling
+    .question-card:has(> .experimental-proposal)
+    > .compact-field {
+    margin-top: 2px;
+  }
+
+  .screen--labeling .question-card .compact-field > span {
+    max-width: 150px;
+    font-size: 11.5px;
+    line-height: 1.35;
+  }
+
+  .screen--labeling .compact-field select,
+  .screen--labeling .compact-field input {
+    min-height: 32px;
+    padding-inline: 9px;
+    font-size: 11.5px;
+    line-height: 1.35;
+  }
+
+  .screen--labeling .answer-grid {
+    gap: 5px;
+    margin-top: 4px;
+  }
+
+  .screen--labeling
+    .question-card:has(> .experimental-proposal)
+    > .answer-grid {
+    margin-top: 2px;
+  }
+
+  .screen--labeling .answer {
+    min-height: 46px;
+    padding: 7px 6px;
+  }
+
+  .screen--labeling .answer strong {
+    font-size: 13.5px;
+    line-height: 1.3;
+  }
+
+  .screen--labeling .explanation {
+    min-height: 34px;
+    max-height: 34px;
+    flex: 0 0 34px;
+    margin: 4px 0 2px;
+    padding: 5px 7px;
+    font-size: 11px;
+    line-height: 1.35;
+  }
+
+  .screen--labeling .explanation p {
+    display: -webkit-box;
+    white-space: normal;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 1;
+  }
+
+  .screen--labeling .experimental-proposal ~ .explanation {
+    min-height: 50px;
+    max-height: none;
+    flex: 0 0 auto;
+    margin: 2px 0 1px;
+    padding: 3px 6px;
+    overflow: visible;
+    font-family: var(--font-sans);
+    font-size: 11px;
+    line-height: 1.3;
+  }
+
+  .screen--labeling .experimental-proposal ~ .explanation p {
+    display: block;
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    -webkit-line-clamp: unset;
+  }
+
+  .screen--labeling .question-card > .button {
+    min-height: 30px;
+    padding-block: 5px;
+    font-size: 11px;
+    line-height: 1.35;
+  }
+
+  .screen--labeling .label-progress {
+    min-height: 46px;
+    padding: 7px 9px;
+  }
+
+  .screen--labeling .progress-summary {
+    gap: 2px;
+    font-size: 10.5px;
+    line-height: 1.35;
+  }
+}
+
+@media (min-width: 961px) and (max-height: 780px) {
+  :is(
+      .screen--history,
+      .screen--review,
+      .screen--export,
+      .screen--import,
+      .screen--report
+    )
+    > .screen-header {
+    min-height: 50px;
+  }
+
+  :is(
+      .screen--history,
+      .screen--review,
+      .screen--export,
+      .screen--import,
+      .screen--report
+    )
+    > .screen-header
+    h1 {
+    font-size: 24px;
+    line-height: 1.24;
+  }
+
+  :is(
+      .screen--history,
+      .screen--review,
+      .screen--export,
+      .screen--import,
+      .screen--report
+    )
+    > .screen-header
+    p:not(.eyebrow) {
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  .screen--history {
+    grid-template-rows:
+      auto
+      minmax(215px, 1.12fr)
+      62px
+      minmax(178px, 0.88fr);
+  }
+
+  .screen--history .timeline-panel {
+    height: 62px;
+    padding: 7px 11px;
+  }
+
+  .screen--history .history-map-unavailable > p,
+  .screen--history .incident-list button,
+  .screen--history .evidence-title {
+    font-size: 11px;
+    line-height: 1.4;
+  }
+
+  .screen--history .evidence-details {
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+  }
+
+  .screen--history .evidence-details .definition-list > div {
+    grid-template-columns: 76px minmax(0, 1fr);
+    padding: 4px 0;
+  }
+
+  .screen--history .evidence-details .definition-list dt,
+  .screen--history .evidence-details .definition-list dd {
+    font-size: 10.5px;
+    line-height: 1.35;
+  }
+
+  .screen--review .review-evidence-column {
+    grid-template-rows: minmax(280px, 1fr) 204px;
+  }
+
+  .screen--review .review-evidence-cards p,
+  .screen--review .review-evidence-cards .definition-list dt,
+  .screen--review .review-evidence-cards .definition-list dd,
+  .screen--review .review-table {
+    font-size: 11px;
+    line-height: 1.35;
+  }
+
+  .screen--review .review-table thead th,
+  .screen--review .review-table tbody th,
+  .screen--review .review-table tbody td {
+    height: 28px;
+    padding: 5px 6px;
+    line-height: 1.35;
+  }
+
+  .screen--export
+    .artifact-table-panel--completed
+    .artifact-table
+    :is(th, td) {
+    font-size: 10.5px;
+    line-height: 1.3;
+  }
+}
+
+/*
+ * Evidence metadata stays compact, but not microscopic. These rules are kept
+ * after every short-window override so DPR 1.25 does not fall back to the
+ * legacy 8–10px labels.
+ */
+@media (min-width: 961px) {
+  .question-list small,
+  .trip-evidence-tile__copy small,
+  .screen--labeling .workbench-toolbar .mono,
+  .screen--labeling .candidate-preview > div > span,
+  .screen--labeling .question-metadata,
+  .screen--labeling .question-metadata .badge,
+  .screen--labeling .progress-summary,
+  .screen--history .incident-list .mono,
+  .screen--history .incident-list small,
+  .screen--history .evidence-details .definition-list dt,
+  .screen--history .evidence-details .definition-list dd {
+    font-size: 11.5px;
+    line-height: 1.35;
+  }
+
+  .question-list small,
+  .trip-evidence-tile__copy small,
+  .screen--labeling .question-metadata,
+  .screen--labeling .question-metadata .badge,
+  .screen--labeling .progress-summary,
+  .screen--history .incident-list small {
+    font-family: var(--font-sans);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+
+  .screen--labeling .question-metadata > * {
+    white-space: nowrap;
+  }
+
+  .screen--labeling .detection-box span {
+    font-size: 11.5px;
+    line-height: 1.3;
+  }
+
+  .screen--history .timeline-event {
+    width: 48px;
+  }
+
+  .screen--history .timeline-event::after {
+    top: 19px;
+    height: calc(100% - 19px);
+  }
+
+  .screen--history .timeline-event span {
+    top: 0;
+    max-width: 56px;
+    padding: 2px 5px;
+    font-family: var(--font-sans);
+    font-size: 11.5px;
+    font-variant-numeric: tabular-nums;
+    font-weight: 650;
+    letter-spacing: -0.015em;
+    line-height: 1.3;
+  }
+
+  .screen--history .history-bottom {
+    min-height: 0;
+  }
+
+  .screen--history .incident-list-panel,
+  .screen--history .evidence-card-panel,
+  .screen--history .evidence-card-content {
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .screen--history .incident-list {
+    min-height: 0;
+    flex: 1 1 auto;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+  }
+
+  .screen--history .evidence-variants,
+  .screen--history .evidence-still,
+  .screen--history .evidence-details {
+    min-height: 0;
+  }
+
+  .screen--history .evidence-still img {
+    min-height: 0;
+  }
+
+  .screen--history .evidence-details {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+}

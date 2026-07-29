@@ -1,0 +1,56 @@
+{
+  "schema_version": "trafficvisson.vision-model-pack.v1",
+  "pack_id": "vinothvikas1987-rdd-yolov8s-eval",
+  "pack_version": "b001687.review-only",
+  "engine": "onnx_yolo_v8",
+  "license": {
+    "runtime_spdx": "MIT",
+    "weights_spdx": "Apache-2.0",
+    "commercial_use_confirmed": false,
+    "redistribution_allowed": false,
+    "notice": "Evaluation-only intake. The model card declares Apache-2.0, but does not identify an exact RDD release and the linked training script is absent. RDD upstream sources disagree between CC-BY-4.0 and CC-BY-SA-4.0, and the YOLOv8 base-weight redistribution right is not documented. Do not bundle, promote, redistribute, or treat commercial use as cleared until provenance, attribution, base-weight rights, Korean-road validation, and legal review are recorded."
+  },
+  "artifacts": [
+    {
+      "path": "best.onnx",
+      "size_bytes": 44752195,
+      "sha256": "590a20e8c4a7bcbdb32e8a3b7b3a3c1d57d1fa8a7dde5c83fcec8928a4aa753f"
+    }
+  ],
+  "model": {
+    "file": "best.onnx",
+    "input_width": 640,
+    "input_height": 640,
+    "labels": [
+      {
+        "class_id": 0,
+        "issue_type": "road_surface_damage",
+        "display_name": "종방향 균열"
+      },
+      {
+        "class_id": 1,
+        "issue_type": "road_surface_damage",
+        "display_name": "횡방향 균열"
+      },
+      {
+        "class_id": 2,
+        "issue_type": "road_surface_damage",
+        "display_name": "거북등 균열"
+      },
+      {
+        "class_id": 3,
+        "issue_type": "pothole",
+        "display_name": "포트홀"
+      },
+      {
+        "class_id": 4,
+        "issue_type": "other",
+        "display_name": "기타 노면 물체·패치"
+      }
+    ],
+    "confidence_threshold": 0.4,
+    "nms_iou_threshold": 0.5,
+    "max_detections": 16,
+    "execution_provider": "auto"
+  }
+}

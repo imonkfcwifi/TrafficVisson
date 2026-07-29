@@ -1,0 +1,8 @@
+﻿detection_id,trip_id,video_id,timestamp_ms,frame_index,type,confidence,severity,bbox,mask_ref,ocr_observation_id,latitude,longitude,model_version_id,source
+fd7842b8b7d38aa2360c,1ca29d0d-7dd7-4024-9f98-6d0ffa1d6984,2033afc70dfc0db8bfdd281607f4300f0bcb4d2e831e66c04458ae0ed10e8bb2,0,,UNCLASSIFIED_SCENE_CANDIDATE,,,,,,,,,scene_change_and_sharpness_non_classifying
+48fa6926fc992cefefe3,1ca29d0d-7dd7-4024-9f98-6d0ffa1d6984,2033afc70dfc0db8bfdd281607f4300f0bcb4d2e831e66c04458ae0ed10e8bb2,708530,,UNCLASSIFIED_SCENE_CANDIDATE,,,,,,,,,scene_change_and_sharpness_non_classifying
+c7d78382d32f148b7505,1ca29d0d-7dd7-4024-9f98-6d0ffa1d6984,2033afc70dfc0db8bfdd281607f4300f0bcb4d2e831e66c04458ae0ed10e8bb2,1417090,,UNCLASSIFIED_SCENE_CANDIDATE,,,,,,,,,scene_change_and_sharpness_non_classifying
+649e1674394aa6938817,1ca29d0d-7dd7-4024-9f98-6d0ffa1d6984,2033afc70dfc0db8bfdd281607f4300f0bcb4d2e831e66c04458ae0ed10e8bb2,2125650,,UNCLASSIFIED_SCENE_CANDIDATE,,,,,,,,,scene_change_and_sharpness_non_classifying
+5efc322d9843c2cfc6a0,1ca29d0d-7dd7-4024-9f98-6d0ffa1d6984,2033afc70dfc0db8bfdd281607f4300f0bcb4d2e831e66c04458ae0ed10e8bb2,2834200,,UNCLASSIFIED_SCENE_CANDIDATE,,,,,,,,,scene_change_and_sharpness_non_classifying
+2bb80e99bed71945b293,1ca29d0d-7dd7-4024-9f98-6d0ffa1d6984,2033afc70dfc0db8bfdd281607f4300f0bcb4d2e831e66c04458ae0ed10e8bb2,3542760,,UNCLASSIFIED_SCENE_CANDIDATE,,,,,,,,,scene_change_and_sharpness_non_classifying
+8e464a9c730088208225,1ca29d0d-7dd7-4024-9f98-6d0ffa1d6984,2033afc70dfc0db8bfdd281607f4300f0bcb4d2e831e66c04458ae0ed10e8bb2,4251320,,UNCLASSIFIED_SCENE_CANDIDATE,,,,,,,,,scene_change_and_sharpness_non_classifying

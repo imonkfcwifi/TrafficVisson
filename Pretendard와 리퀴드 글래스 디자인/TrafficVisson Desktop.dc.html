@@ -1,0 +1,1456 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pretendard@1.3.9/dist/web/variable/pretendardvariable.min.css">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap">
+  <style>
+    html,body{margin:0;padding:0;background:#e7eaf4}
+    body{font-family:"Pretendard Variable",Pretendard,-apple-system,system-ui,sans-serif;font-feature-settings:"tnum" 1,"case" 1;letter-spacing:-0.006em;text-wrap:pretty;-webkit-font-smoothing:antialiased;color:#11131b}
+    *{box-sizing:border-box}
+    a{color:oklch(0.52 0.19 262);text-decoration:none}
+    a:hover{color:oklch(0.42 0.2 262);text-decoration:underline}
+    ::-webkit-scrollbar{width:9px;height:9px}
+    ::-webkit-scrollbar-thumb{background:rgba(42,56,104,.2);border-radius:6px}
+    ::-webkit-scrollbar-track{background:transparent}
+    @keyframes tvpulse{0%,100%{opacity:1}50%{opacity:.3}}
+  </style>
+</helmet>
+<svg width="0" height="0" style="position:absolute;pointer-events:none" aria-hidden="true">
+  <filter id="lgWarp" x="-12%" y="-12%" width="124%" height="124%" color-interpolation-filters="sRGB">
+    <feTurbulence type="fractalNoise" baseFrequency="0.006 0.011" numOctaves="2" seed="7" result="n"></feTurbulence>
+    <feGaussianBlur in="n" stdDeviation="7" result="ns"></feGaussianBlur>
+    <feDisplacementMap in="SourceGraphic" in2="ns" scale="26" xChannelSelector="R" yChannelSelector="G"></feDisplacementMap>
+  </filter>
+  <filter id="lgWarpSoft" x="-8%" y="-8%" width="116%" height="116%" color-interpolation-filters="sRGB">
+    <feTurbulence type="fractalNoise" baseFrequency="0.01 0.016" numOctaves="2" seed="3" result="n"></feTurbulence>
+    <feGaussianBlur in="n" stdDeviation="5" result="ns"></feGaussianBlur>
+    <feDisplacementMap in="SourceGraphic" in2="ns" scale="14" xChannelSelector="R" yChannelSelector="G"></feDisplacementMap>
+  </filter>
+</svg>
+<div style="width:1920px;height:1080px;overflow:hidden;display:flex;flex-direction:column;background:radial-gradient(820px 760px at 18% 88%, oklch(0.72 0.12 278 / .55) 0%, transparent 68%),radial-gradient(780px 720px at 76% 6%, oklch(0.74 0.13 250 / .55) 0%, transparent 68%),radial-gradient(1240px 900px at 0% -14%, oklch(0.85 0.08 272 / .85) 0%, transparent 64%),radial-gradient(1000px 740px at 100% -6%, oklch(0.88 0.07 226 / .8) 0%, transparent 62%),radial-gradient(1040px 780px at 94% 104%, oklch(0.86 0.06 268 / .7) 0%, transparent 62%),radial-gradient(900px 680px at 4% 104%, oklch(0.92 0.04 200 / .6) 0%, transparent 62%),linear-gradient(158deg,#eceff8 0%,#e7ebf5 55%,#e2e7f2 100%);color:#11131b;font-size:15px;position:relative">
+
+  <div style="height:50px;flex:none;display:flex;align-items:center;gap:14px;padding:0 12px 0 18px;background:linear-gradient(180deg,rgba(255,255,255,.78),rgba(255,255,255,.52));backdrop-filter:blur(34px) saturate(210%);-webkit-backdrop-filter:blur(34px) saturate(210%);border-bottom:1px solid rgba(28,36,78,.09);box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 1px 14px rgba(58,70,135,.09)">
+    <div style="display:flex;align-items:center;gap:8px">
+      <div style="width:16px;height:16px;border-radius:5px;background:linear-gradient(160deg,oklch(0.7 0.18 268),oklch(0.5 0.21 278));box-shadow:0 3px 10px rgba(74,108,247,.4)"></div>
+      <span style="font-size:15px;font-weight:620;letter-spacing:-0.018em">TrafficVisson</span>
+      <span style="font-size:12px;color:#565b6a;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">v2.0 · Windows</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:7px;padding:3px 9px 3px 7px;border-radius:8px;background:rgba(255,255,255,.72);backdrop-filter:blur(18px) saturate(200%);-webkit-backdrop-filter:blur(18px) saturate(200%);border:1px solid rgba(255,255,255,.95);box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 1px 3px rgba(58,70,135,.07)">
+      <span style="width:5px;height:5px;border-radius:50%;background:oklch(0.46 0.14 158)"></span>
+      <span style="font-size:13.5px;font-weight:500">고속국도 1호선 상행 점검</span>
+      <span style="font-size:12px;color:#7a7d86;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">P-2026-014</span>
+    </div>
+    <div style="flex:1"></div>
+    <div style="display:flex;align-items:center;gap:6px"><sc-for list="{{ checks }}" as="c" hint-placeholder-count="6"><div style="display:flex;align-items:center;gap:5px;padding:3px 8px;border-radius:7px;background:rgba(255,255,255,.72);backdrop-filter:blur(18px) saturate(200%);-webkit-backdrop-filter:blur(18px) saturate(200%);border:1px solid rgba(255,255,255,.95);box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 1px 3px rgba(58,70,135,.07)"><span style="width:5px;height:5px;border-radius:50%;background:{{ c.dot }}"></span><span style="font-size:12.5px;color:rgba(22,28,44,.82);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">{{ c.label }}</span></div></sc-for></div>
+    <div style="display:flex;align-items:center;gap:2px;margin-left:6px">
+      <div style="width:40px;height:30px;display:grid;place-items:center;border-radius:6px;color:rgba(30,36,56,.68);font-size:14px" style-hover="background:rgba(36,48,96,.09)">─</div>
+      <div style="width:40px;height:30px;display:grid;place-items:center;border-radius:6px;color:rgba(30,36,56,.68);font-size:12px" style-hover="background:rgba(36,48,96,.09)">◻</div>
+      <div style="width:40px;height:30px;display:grid;place-items:center;border-radius:6px;color:rgba(30,36,56,.68);font-size:14px" style-hover="background:oklch(0.55 0.2 25);color:#fff">✕</div>
+    </div>
+  </div>
+
+  <div style="flex:1;min-height:0;display:flex;gap:12px;padding:12px">
+
+    <div style="width:262px;flex:none;display:flex;flex-direction:column;gap:3px;padding:13px 11px;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(30px) saturate(200%);-webkit-backdrop-filter:blur(30px) saturate(200%);border:1px solid rgba(255,255,255,.92);border-radius:24px;box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.55),inset 1px 0 0 rgba(255,255,255,.6),0 18px 44px rgba(58,70,135,.15),0 2px 6px rgba(58,70,135,.06)">
+      <div style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640;padding:4px 8px 8px">화면 · SCREENS</div>
+      <sc-for list="{{ nav }}" as="n" hint-placeholder-count="9">
+        <div onClick="{{ n.go }}" style="display:flex;align-items:center;gap:9px;padding:8px 11px;border-radius:999px;cursor:pointer;background:{{ n.bg }};border:1px solid {{ n.bd }}" style-hover="background:rgba(255,255,255,.74)">
+          <span style="font-size:11.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:{{ n.numColor }};min-width:32px">{{ n.num }}</span>
+          <span style="font-size:14.5px;font-weight:500;color:{{ n.fg }};flex:1;white-space:nowrap">{{ n.label }}</span>
+          <sc-if value="{{ n.badge }}" hint-placeholder-val="{{ false }}"><span style="font-size:12px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;padding:1px 6px;border-radius:20px;background:{{ n.badgeBg }};color:{{ n.badgeFg }}">{{ n.badge }}</span></sc-if>
+        </div>
+      </sc-for>
+      <div style="flex:1"></div>
+      <div style="padding:10px;border-radius:11px;background:rgba(255,255,255,.62);border:1px solid rgba(255,255,255,.88);box-shadow:inset 0 1px 0 rgba(255,255,255,.9);display:flex;flex-direction:column;gap:7px">
+        <div style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">단축키 · KEYS</div>
+        <div style="display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:rgba(24,30,48,.76);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">
+          <div style="display:flex;justify-content:space-between"><span>1–9</span><span>화면 이동</span></div>
+          <div style="display:flex;justify-content:space-between"><span>Space</span><span>재생·정지</span></div>
+          <div style="display:flex;justify-content:space-between"><span>← →</span><span>5초 탐색</span></div>
+        </div>
+      </div>
+    </div>
+
+    <main style="flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden">
+
+      <sc-if value="{{ isHistory }}" hint-placeholder-val="{{ false }}">
+        <div data-screen-label="16.7 GPS 히스토리" style="flex:1;min-height:0;display:flex;flex-direction:column;gap:12px;padding:0">
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="font-size:25px;font-weight:640;letter-spacing:-0.03em;line-height:1.12">GPS 주행 히스토리</div>
+            <span style="font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(26,32,52,.7);padding:2px 7px;border-radius:6px;background:rgba(255,255,255,.72)">16.7 · playback_time_ms 단일 동기화</span>
+            <div style="flex:1"></div>
+            <div style="display:flex;gap:4px;padding:3px;border-radius:999px;background:rgba(255,255,255,.72);backdrop-filter:blur(18px) saturate(200%);-webkit-backdrop-filter:blur(18px) saturate(200%);border:1px solid rgba(255,255,255,.95);box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 1px 3px rgba(58,70,135,.07)">
+              <sc-for list="{{ rates }}" as="r" hint-placeholder-count="4"><div onClick="{{ r.set }}" style="padding:5px 13px;border-radius:999px;cursor:pointer;font-size:13px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;background:{{ r.bg }};color:{{ r.fg }}">{{ r.label }}</div></sc-for>
+            </div>
+            <div onClick="{{ toggleFollow }}" style="padding:6px 14px;border-radius:999px;cursor:pointer;font-size:13.5px;background:{{ followBg }};color:{{ followFg }};border:1px solid rgba(28,36,78,.08)">차량 추적</div>
+          </div>
+
+          <div style="flex:1;min-height:0;display:flex;gap:14px">
+            <div style="width:744px;flex:none;display:flex;flex-direction:column;gap:10px;padding:12px;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);border:1px solid rgba(255,255,255,.9);border-radius:22px;box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.55),inset 1px 0 0 rgba(255,255,255,.6),0 18px 44px rgba(58,70,135,.15),0 2px 6px rgba(58,70,135,.06)">
+              <div style="flex:1;min-height:0;position:relative;border-radius:16px;overflow:hidden;background:rgba(255,255,255,.42);background-image:repeating-linear-gradient(135deg,rgba(60,74,130,.1) 0 10px,transparent 10px 20px)">
+                <div style="position:absolute;inset:0;display:grid;place-items:center;gap:6px;text-align:center">
+                  <div style="display:flex;flex-direction:column;gap:5px;align-items:center">
+                    <div style="font-size:13px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(28,34,56,.62);letter-spacing:.04em">[ VIDEO FRAME · 1920×1080 · 30fps ]</div>
+                    <div style="font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:#44474f">input/videos/trip_002_2026-07-14.mp4</div>
+                  </div>
+                </div>
+                <sc-for list="{{ boxes }}" as="b" hint-placeholder-count="0">
+                  <div style="position:absolute;left:{{ b.x }}%;top:{{ b.y }}%;width:{{ b.w }}%;height:{{ b.h }}%;border:2px solid {{ b.color }};border-radius:4px;box-shadow:0 0 0 1px rgba(0,0,0,.55),0 0 18px {{ b.glow }}">
+                    <div style="position:absolute;left:-2px;top:-20px;display:flex;gap:4px;align-items:center;padding:2px 6px;border-radius:5px;background:{{ b.color }};color:#ffffff;font-size:11.5px;font-weight:700;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;white-space:nowrap">{{ b.label }}</div>
+                  </div>
+                </sc-for>
+                <div style="position:absolute;left:12px;top:12px;display:flex;gap:6px;align-items:center;padding:4px 11px;border-radius:999px;background:rgba(255,255,255,.76);backdrop-filter:blur(20px) saturate(200%);-webkit-backdrop-filter:blur(20px) saturate(200%);border:1px solid rgba(255,255,255,.92);box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 2px 8px rgba(58,70,135,.12);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;font-size:13px">
+                  <span style="width:6px;height:6px;border-radius:50%;background:oklch(0.49 0.2 26);animation:tvpulse 1.6s ease-in-out infinite"></span>
+                  <span>{{ tc }}</span><span style="color:#565b6a">/ 00:24:12</span>
+                </div>
+                <div style="position:absolute;right:12px;top:12px;display:flex;flex-direction:column;gap:4px;align-items:flex-end;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;font-size:12.5px;color:rgba(22,28,44,.82)">
+                  <div style="padding:3px 8px;border-radius:7px;background:rgba(255,255,255,.76);backdrop-filter:blur(20px) saturate(200%);-webkit-backdrop-filter:blur(20px) saturate(200%);border:1px solid rgba(255,255,255,.92);box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 2px 8px rgba(58,70,135,.12)">{{ latlng }}</div>
+                  <div style="padding:3px 8px;border-radius:7px;background:rgba(255,255,255,.76);backdrop-filter:blur(20px) saturate(200%);-webkit-backdrop-filter:blur(20px) saturate(200%);border:1px solid rgba(255,255,255,.92);box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 2px 8px rgba(58,70,135,.12)">{{ headSpeed }}</div>
+                  <div style="padding:3px 8px;border-radius:7px;background:rgba(255,255,255,.76);backdrop-filter:blur(20px) saturate(200%);-webkit-backdrop-filter:blur(20px) saturate(200%);border:1px solid rgba(255,255,255,.92);box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 2px 8px rgba(58,70,135,.12)">비식별화 ON · 얼굴 2 / 번호판 3</div>
+                </div>
+              </div>
+              <div style="display:flex;align-items:center;gap:12px">
+                <div onClick="{{ togglePlay }}" style="width:46px;height:46px;flex:none;border-radius:50%;display:grid;place-items:center;cursor:pointer;background:linear-gradient(180deg,#2b2f3a,#0d1016);color:#ffffff;box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 8px 20px rgba(16,20,44,.3);font-size:15px;box-shadow:0 3px 14px rgba(74,108,247,.35)">{{ playGlyph }}</div>
+                <div onClick="{{ seekBack }}" style="padding:6px 10px;border-radius:8px;cursor:pointer;background:rgba(255,255,255,.74);font-size:13px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">−5s</div>
+                <div onClick="{{ seekFwd }}" style="padding:6px 10px;border-radius:8px;cursor:pointer;background:rgba(255,255,255,.74);font-size:13px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">+5s</div>
+                <div onClick="{{ scrub }}" style="flex:1;height:26px;display:flex;align-items:center;cursor:pointer">
+                  <div style="position:relative;width:100%;height:5px;border-radius:3px;background:rgba(36,48,96,.11)">
+                    <div style="position:absolute;left:0;top:0;bottom:0;width:{{ pct }}%;border-radius:3px;background:{{ accentColor }}"></div>
+                    <div style="position:absolute;left:{{ pct }}%;top:-4px;width:13px;height:13px;margin-left:-6.5px;border-radius:50%;background:#fff;box-shadow:0 1px 5px rgba(58,70,135,.4)"></div>
+                    <sc-for list="{{ gapMarks }}" as="g" hint-placeholder-count="1"><div style="position:absolute;left:{{ g.left }}%;top:-2px;height:9px;width:{{ g.w }}%;background:repeating-linear-gradient(90deg,oklch(0.56 0.14 74) 0 3px,transparent 3px 6px)"></div></sc-for>
+                  </div>
+                </div>
+                <div style="font-size:13px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(24,30,48,.76)">{{ tc }} · frame {{ frameNo }}</div>
+              </div>
+            </div>
+
+            <div style="flex:1;min-width:0;position:relative;overflow:hidden;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(170%);-webkit-backdrop-filter:blur(40px) saturate(170%);border:1px solid rgba(255,255,255,.82);border-radius:22px;box-shadow:inset 0 1.5px 0 rgba(255,255,255,.9),inset 0 -1px 0 rgba(255,255,255,.5),0 18px 44px rgba(58,70,135,.14)">
+              <svg viewBox="0 0 560 470" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%">
+                <defs>
+                  <pattern id="tvgrid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0H0V40" fill="none" stroke="rgba(46,60,116,.09)" stroke-width="1"></path></pattern>
+                </defs>
+                <rect x="0" y="0" width="560" height="470" fill="url(#tvgrid)"></rect>
+                <path d="{{ routeD }}" fill="none" stroke="rgba(46,60,116,.14)" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"></path>
+                <path d="{{ routeD }}" fill="none" stroke="{{ accentColor }}" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="{{ routeLen }}" stroke-dashoffset="{{ routeOffset }}"></path>
+                <sc-for list="{{ mapPins }}" as="p" hint-placeholder-count="0">
+                  <circle cx="{{ p.x }}" cy="{{ p.y }}" r="{{ p.r }}" fill="{{ p.fill }}" stroke="#ffffff" stroke-width="2.5"></circle>
+                </sc-for>
+                <circle cx="{{ carX }}" cy="{{ carY }}" r="11" fill="rgba(74,108,247,.18)"></circle>
+                <circle cx="{{ carX }}" cy="{{ carY }}" r="5.5" fill="#fff" stroke="{{ accentColor }}" stroke-width="3"></circle>
+              </svg>
+              <div style="position:absolute;left:12px;top:12px;display:flex;flex-direction:column;gap:6px">
+                <div style="padding:4px 11px;border-radius:999px;background:rgba(255,255,255,.76);backdrop-filter:blur(20px) saturate(200%);-webkit-backdrop-filter:blur(20px) saturate(200%);border:1px solid rgba(255,255,255,.92);box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 2px 8px rgba(58,70,135,.12);font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(22,28,44,.82)">MapLibre GL JS · 타일 캐시 사용</div>
+                <div style="padding:4px 11px;border-radius:999px;background:rgba(255,255,255,.76);backdrop-filter:blur(20px) saturate(200%);-webkit-backdrop-filter:blur(20px) saturate(200%);border:1px solid rgba(255,255,255,.92);box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 2px 8px rgba(58,70,135,.12);font-size:12.5px;color:rgba(22,28,44,.82)">{{ roadNow }}</div>
+              </div>
+              <div style="position:absolute;right:12px;bottom:12px;display:flex;flex-direction:column;gap:5px;padding:10px 13px;border-radius:16px;background:rgba(255,255,255,.76);backdrop-filter:blur(20px) saturate(200%);-webkit-backdrop-filter:blur(20px) saturate(200%);border:1px solid rgba(255,255,255,.92);box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 2px 8px rgba(58,70,135,.12)">
+                <div style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">범례 · LEGEND</div>
+                <div style="display:flex;gap:10px;font-size:12.5px;color:rgba(22,28,44,.82)">
+                  <div style="display:flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:50%;background:oklch(0.49 0.2 26)"></span>긴급</div>
+                  <div style="display:flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:50%;background:oklch(0.51 0.16 45)"></span>심</div>
+                  <div style="display:flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:50%;background:oklch(0.52 0.12 72)"></span>중</div>
+                  <div style="display:flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:50%;background:oklch(0.47 0.06 258)"></span>경</div>
+                </div>
+                <div style="display:flex;align-items:center;gap:5px;font-size:12.5px;color:rgba(22,28,44,.82)"><span style="width:14px;height:3px;background:repeating-linear-gradient(90deg,oklch(0.56 0.14 74) 0 3px,transparent 3px 6px)"></span>GPS_MISSING 구간 (직선 보간 금지)</div>
+              </div>
+            </div>
+          </div>
+
+          <div style="height:120px;flex:none;padding:12px 16px;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);border:1px solid rgba(255,255,255,.9);border-radius:22px;box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.55),inset 1px 0 0 rgba(255,255,255,.6),0 18px 44px rgba(58,70,135,.15),0 2px 6px rgba(58,70,135,.06);display:flex;flex-direction:column;gap:8px">
+            <div style="display:flex;align-items:center;gap:10px">
+              <span style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">사건 타임라인 · INCIDENT TIMELINE</span>
+              <span style="font-size:12.5px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">9건 · 필터: 전체 유형</span>
+              <div style="flex:1"></div>
+              <span style="font-size:12.5px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">00:00:00 ─────────── 00:24:12</span>
+            </div>
+            <div onClick="{{ scrub }}" style="position:relative;flex:1;border-radius:9px;background:linear-gradient(180deg,rgba(255,255,255,.05),rgba(255,255,255,.02));cursor:pointer;overflow:hidden">
+              <sc-for list="{{ gapMarks }}" as="g" hint-placeholder-count="1"><div style="position:absolute;top:0;bottom:0;left:{{ g.left }}%;width:{{ g.w }}%;background:repeating-linear-gradient(115deg,oklch(0.66 0.15 78 / .3) 0 5px,transparent 5px 10px)"></div></sc-for>
+              <sc-for list="{{ ticks }}" as="k" hint-placeholder-count="0">
+                <div onClick="{{ k.go }}" style="position:absolute;left:{{ k.left }}%;top:{{ k.top }}px;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer">
+                  <div style="padding:1px 5px;border-radius:5px;background:{{ k.chipBg }};color:{{ k.chipFg }};font-size:11px;font-weight:700;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;white-space:nowrap;opacity:{{ k.op }}">{{ k.code }}</div>
+                  <div style="width:2px;height:{{ k.h }}px;background:{{ k.chipBg }}"></div>
+                </div>
+              </sc-for>
+              <div style="position:absolute;top:0;bottom:0;left:{{ pct }}%;width:2px;background:#fff;box-shadow:0 0 10px rgba(255,255,255,.7)"></div>
+            </div>
+          </div>
+
+          <div style="height:298px;flex:none;display:flex;gap:14px">
+            <div style="width:462px;flex:none;display:flex;flex-direction:column;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);border:1px solid rgba(255,255,255,.9);border-radius:22px;box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.55),inset 1px 0 0 rgba(255,255,255,.6),0 18px 44px rgba(58,70,135,.15),0 2px 6px rgba(58,70,135,.06);overflow:hidden">
+              <div style="padding:9px 12px;display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(28,36,78,.08)">
+                <span style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">사건 목록 · INCIDENTS</span>
+                <div style="flex:1"></div>
+                <span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">review_status</span>
+              </div>
+              <div style="flex:1;overflow-y:auto;overflow-x:hidden">
+                <sc-for list="{{ list }}" as="i" hint-placeholder-count="6">
+                  <div onClick="{{ i.go }}" style="display:flex;align-items:center;gap:9px;padding:8px 12px;cursor:pointer;border-left:3px solid {{ i.edge }};background:{{ i.bg }};border-bottom:1px solid rgba(28,36,78,.06)" style-hover="background:rgba(255,255,255,.72)">
+                    <span style="font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(24,30,48,.76);min-width:62px">{{ i.tc }}</span>
+                    <span style="width:7px;height:7px;border-radius:50%;background:{{ i.sevColor }};flex:none"></span>
+                    <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:1px">
+                      <div style="font-size:14px;font-weight:550;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ i.name }}</div>
+                      <div style="font-size:12px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ i.code }} · {{ i.road }}</div>
+                    </div>
+                    <span style="font-size:11.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;padding:2px 6px;border-radius:5px;background:{{ i.stBg }};color:{{ i.stFg }};flex:none">{{ i.status }}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+
+            <div style="flex:1;min-width:0;display:flex;flex-direction:column;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);border:1px solid rgba(255,255,255,.9);border-radius:22px;box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.55),inset 1px 0 0 rgba(255,255,255,.6),0 18px 44px rgba(58,70,135,.15),0 2px 6px rgba(58,70,135,.06);overflow:hidden">
+              <div style="padding:9px 12px;display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(28,36,78,.08)">
+                <span style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">증거 카드 · EVIDENCE CARD</span>
+                <span style="font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:{{ accentColor }}">{{ cur.id }}</span>
+                <div style="flex:1"></div>
+                <span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">촬영하지 않은 검토자용 · 10.4</span>
+              </div>
+              <div style="flex:1;min-height:0;display:flex;gap:10px;padding:10px">
+                <div style="width:308px;flex:none;display:flex;flex-direction:column;gap:6px">
+                  <div style="flex:1;border-radius:9px;background:rgba(255,255,255,.42);background-image:repeating-linear-gradient(135deg,rgba(60,74,130,.1) 0 8px,transparent 8px 16px);position:relative;display:grid;place-items:center">
+                    <span style="font-size:12px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(28,34,56,.62);text-align:center">[ 대표 프레임 · AI 마스크 표시 ]<br/>evidence/internal/{{ cur.id }}_ai.png</span>
+                    <div style="position:absolute;left:8px;bottom:8px;padding:2px 6px;border-radius:5px;background:rgba(255,255,255,.82);font-size:11.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(22,28,44,.82)">AI 표시</div>
+                  </div>
+                  <div style="display:flex;gap:6px;height:62px">
+                    <div style="flex:1;border-radius:8px;background:rgba(255,255,255,.42);background-image:repeating-linear-gradient(135deg,rgba(60,74,130,.1) 0 8px,transparent 8px 16px);display:grid;place-items:center;font-size:11.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(28,34,56,.62);text-align:center">원본<br/>frame</div>
+                    <div style="flex:1;border-radius:8px;background:rgba(255,255,255,.42);background-image:repeating-linear-gradient(135deg,rgba(60,74,130,.1) 0 8px,transparent 8px 16px);display:grid;place-items:center;font-size:11.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(28,34,56,.62);text-align:center">사용자<br/>최종 영역</div>
+                    <div style="flex:1;border-radius:8px;background:rgba(255,255,255,.42);background-image:repeating-linear-gradient(135deg,rgba(60,74,130,.1) 0 8px,transparent 8px 16px);display:grid;place-items:center;font-size:11.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(28,34,56,.62);text-align:center">공유용<br/>blur</div>
+                    <div style="flex:1;border-radius:8px;background:rgba(255,255,255,.42);background-image:repeating-linear-gradient(135deg,rgba(60,74,130,.1) 0 8px,transparent 8px 16px);display:grid;place-items:center;font-size:11.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(28,34,56,.62);text-align:center">전후<br/>clip 5s</div>
+                  </div>
+                </div>
+                <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:7px;overflow-y:auto;overflow-x:hidden">
+                  <div style="display:flex;align-items:center;gap:7px">
+                    <span style="font-size:19px;font-weight:620;letter-spacing:-0.02em">{{ cur.name }}</span>
+                    <span style="font-size:12px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;padding:2px 6px;border-radius:5px;background:rgba(255,255,255,.78);color:rgba(22,28,44,.82)">{{ cur.code }}</span>
+                    <span style="font-size:12px;font-weight:700;padding:2px 7px;border-radius:5px;background:{{ cur.sevColor }};color:#ffffff">{{ cur.sevLabel }}</span>
+                  </div>
+                  <sc-for list="{{ cur.rows }}" as="r" hint-placeholder-count="8">
+                    <div style="display:flex;gap:10px;padding:4px 0;border-bottom:1px solid rgba(28,36,78,.07)">
+                      <span style="width:136px;flex:none;font-size:12.5px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">{{ r.k }}</span>
+                      <span style="flex:1;font-size:13.5px;color:{{ r.color }}">{{ r.v }}</span>
+                    </div>
+                  </sc-for>
+                  <div style="display:flex;gap:6px;margin-top:2px">
+                    <div style="padding:7px 15px;border-radius:999px;background:linear-gradient(180deg,#2b2f3a,#0d1016);color:#ffffff;box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 8px 20px rgba(16,20,44,.3);font-size:13.5px;font-weight:600;cursor:pointer">사건 검토 열기</div>
+                    <div style="padding:7px 15px;border-radius:999px;background:rgba(255,255,255,.78);font-size:13.5px;cursor:pointer">공유용 보기</div>
+                    <div style="padding:7px 15px;border-radius:999px;background:rgba(255,255,255,.78);font-size:13.5px;cursor:pointer">CSV 행 열기</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isHome }}" hint-placeholder-val="{{ true }}">
+        <div data-screen-label="16.1 프로젝트 홈" style="flex:1;min-height:0;display:flex;flex-direction:column;gap:12px;padding:0;overflow-y:auto;overflow-x:hidden">
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="font-size:25px;font-weight:640;letter-spacing:-0.03em;line-height:1.12">프로젝트 홈</div>
+            <span style="font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(26,32,52,.7);padding:2px 7px;border-radius:6px;background:rgba(255,255,255,.72)">16.1 · GET /projects/{project_id}</span>
+            <div style="flex:1"></div>
+            <div style="padding:7px 16px;border-radius:999px;background:rgba(255,255,255,.78);font-size:14px;cursor:pointer">프로젝트 열기</div>
+            <div style="padding:7px 16px;border-radius:999px;background:linear-gradient(180deg,#2b2f3a,#0d1016);color:#ffffff;box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 8px 20px rgba(16,20,44,.3);font-size:14px;font-weight:600;cursor:pointer">+ 새 프로젝트</div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px">
+            <div style="padding:13px 14px;border-radius:13px;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.5),0 14px 34px rgba(58,70,135,.13);border:1px solid rgba(255,255,255,.9);display:flex;flex-direction:column;gap:7px">
+              <div style="font-size:12.5px;color:rgba(26,32,52,.7)">분석 진행률</div>
+              <div style="font-size:36px;font-weight:600;letter-spacing:-0.04em;line-height:1">62<span style="font-size:16px;color:rgba(26,32,52,.7)">%</span></div>
+              <div style="height:4px;border-radius:3px;background:rgba(36,48,96,.11);overflow:hidden"><div style="width:62%;height:100%;background:oklch(0.49 0.19 262)"></div></div>
+              <div style="font-size:12px;color:rgba(28,34,56,.64);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">trip_003 · 단계 7/15</div>
+            </div>
+            <div style="padding:13px 14px;border-radius:13px;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.5),0 14px 34px rgba(58,70,135,.13);border:1px solid rgba(255,255,255,.9);display:flex;flex-direction:column;gap:7px">
+              <div style="font-size:12.5px;color:rgba(26,32,52,.7)">승인 대기 질문</div>
+              <div style="font-size:36px;font-weight:600;letter-spacing:-0.04em;line-height:1">147<span style="font-size:16px;color:rgba(26,32,52,.7)">건</span></div>
+              <div style="display:flex;gap:3px;height:4px"><div style="flex:3;background:oklch(0.49 0.2 26);border-radius:3px"></div><div style="flex:5;background:oklch(0.52 0.12 72);border-radius:3px"></div><div style="flex:9;background:rgba(255,255,255,.74);border-radius:3px"></div></div>
+              <div style="font-size:12px;color:rgba(28,34,56,.64);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">강제 질문 18 · 경계 32</div>
+            </div>
+            <div style="padding:13px 14px;border-radius:13px;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.5),0 14px 34px rgba(58,70,135,.13);border:1px solid rgba(255,255,255,.9);display:flex;flex-direction:column;gap:7px">
+              <div style="font-size:12.5px;color:rgba(26,32,52,.7)">심각 · 긴급 사건</div>
+              <div style="font-size:36px;font-weight:600;letter-spacing:-0.04em;line-height:1;color:oklch(0.47 0.19 28)">6<span style="font-size:16px;color:rgba(26,32,52,.7)">건</span></div>
+              <div style="display:flex;gap:4px;font-size:11.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace"><span style="padding:1px 5px;border-radius:4px;background:oklch(0.49 0.2 26);color:#ffffff">긴급 2</span><span style="padding:1px 5px;border-radius:4px;background:oklch(0.51 0.16 45);color:#ffffff">심 4</span></div>
+              <div style="font-size:12px;color:rgba(28,34,56,.64);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">ROAD_DEBRIS 2 · POTHOLE 3</div>
+            </div>
+            <div style="padding:13px 14px;border-radius:13px;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.5),0 14px 34px rgba(58,70,135,.13);border:1px solid rgba(255,255,255,.9);display:flex;flex-direction:column;gap:7px">
+              <div style="font-size:12.5px;color:rgba(26,32,52,.7)">활성 모델</div>
+              <div style="font-size:22px;font-weight:620;letter-spacing:-0.025em;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">v7</div>
+              <div style="font-size:12px;color:rgba(22,28,44,.82);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">yolo26s-seg · 1280px</div>
+              <div style="font-size:12px;color:oklch(0.46 0.14 158);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">ACTIVE · 후보 v8 대기</div>
+            </div>
+            <div style="padding:13px 14px;border-radius:13px;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.5),0 14px 34px rgba(58,70,135,.13);border:1px solid rgba(255,255,255,.9);display:flex;flex-direction:column;gap:7px">
+              <div style="font-size:12.5px;color:rgba(26,32,52,.7)">보고서 상태</div>
+              <div style="font-size:18px;font-weight:600;letter-spacing:-0.015em">편집 계획 검토 중</div>
+              <div style="font-size:12px;color:rgba(22,28,44,.82);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">DocumentEditPlan · 24 ops</div>
+              <div style="font-size:12px;color:oklch(0.52 0.12 72);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">수락 11 / 거절 2 / 대기 11</div>
+            </div>
+          </div>
+
+          <div style="flex:1;min-height:0;display:flex;gap:14px">
+            <div style="flex:1;min-width:0;display:flex;flex-direction:column;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);border:1px solid rgba(255,255,255,.9);border-radius:22px;box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.55),inset 1px 0 0 rgba(255,255,255,.6),0 18px 44px rgba(58,70,135,.15),0 2px 6px rgba(58,70,135,.06);overflow:hidden">
+              <div style="padding:10px 13px;display:flex;align-items:center;gap:9px;border-bottom:1px solid rgba(28,36,78,.08)">
+                <span style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">최근 주행 · TRIPS</span>
+                <div style="flex:1"></div>
+                <span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">Trip · MediaAsset · GpsTrackPoint</span>
+              </div>
+              <div style="display:grid;grid-template-columns:112px 1fr 94px 90px 84px 104px 90px;gap:0;padding:7px 13px;font-size:12px;color:rgba(28,34,56,.64);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;border-bottom:1px solid rgba(28,36,78,.07)">
+                <div>trip_id</div><div>구간 · 영상</div><div>길이</div><div>GPS</div><div>사건</div><div>질문</div><div>상태</div>
+              </div>
+              <div style="flex:1;overflow-y:auto;overflow-x:hidden">
+                <sc-for list="{{ trips }}" as="t" hint-placeholder-count="5">
+                  <div style="display:grid;grid-template-columns:112px 1fr 94px 90px 84px 104px 90px;align-items:center;gap:0;padding:9px 13px;border-bottom:1px solid rgba(28,36,78,.06);font-size:13.5px" style-hover="background:rgba(255,255,255,.04)">
+                    <div style="font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(22,28,44,.82);font-size:12.5px">{{ t.id }}</div>
+                    <div style="display:flex;flex-direction:column;gap:1px;min-width:0"><span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ t.route }}</span><span style="font-size:12px;color:rgba(28,34,56,.64);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">{{ t.file }}</span></div>
+                    <div style="font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(22,28,44,.82);font-size:12.5px">{{ t.dur }}</div>
+                    <div style="font-size:12px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:{{ t.gpsColor }}">{{ t.gps }}</div>
+                    <div style="font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;font-size:12.5px">{{ t.inc }}</div>
+                    <div style="font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;font-size:12.5px;color:{{ t.qColor }}">{{ t.q }}</div>
+                    <div><span style="font-size:11.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;padding:2px 6px;border-radius:5px;background:{{ t.stBg }};color:{{ t.stFg }}">{{ t.st }}</span></div>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+            <div style="width:400px;flex:none;display:flex;flex-direction:column;gap:14px">
+              <div style="flex:1;min-height:0;display:flex;flex-direction:column;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);border:1px solid rgba(255,255,255,.9);border-radius:22px;box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.55),inset 1px 0 0 rgba(255,255,255,.6),0 18px 44px rgba(58,70,135,.15),0 2px 6px rgba(58,70,135,.06);overflow:hidden">
+                <div style="padding:10px 13px;display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(28,36,78,.08)">
+                  <span style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">승인 대기 큐 · QUESTIONS</span>
+                  <div style="flex:1"></div>
+                  <div onClick="{{ goLabel }}" style="font-size:13px;color:{{ accentColor }};cursor:pointer">라벨링 시작 →</div>
+                </div>
+                <div style="flex:1;overflow-y:auto;overflow-x:hidden;padding:4px 0">
+                  <sc-for list="{{ queue }}" as="q" hint-placeholder-count="5">
+                    <div style="display:flex;align-items:center;gap:9px;padding:8px 13px;border-bottom:1px solid rgba(28,36,78,.06)">
+                      <div style="width:54px;height:38px;flex:none;border-radius:6px;background:rgba(255,255,255,.42);background-image:repeating-linear-gradient(135deg,rgba(60,74,130,.1) 0 6px,transparent 6px 12px)"></div>
+                      <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:1px">
+                        <span style="font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ q.text }}</span>
+                        <span style="font-size:12px;color:rgba(28,34,56,.64);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">{{ q.code }} · conf {{ q.conf }}</span>
+                      </div>
+                      <sc-if value="{{ q.forced }}" hint-placeholder-val="{{ false }}"><span style="font-size:11px;font-weight:700;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;padding:2px 5px;border-radius:4px;background:oklch(0.49 0.2 26);color:#ffffff;flex:none">강제</span></sc-if>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+              <div style="flex:none;padding:12px 13px;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);border:1px solid rgba(255,255,255,.9);border-radius:22px;box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.55),inset 1px 0 0 rgba(255,255,255,.6),0 18px 44px rgba(58,70,135,.15),0 2px 6px rgba(58,70,135,.06);display:flex;flex-direction:column;gap:8px">
+                <div style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">첫 실행 점검 · SELF-CHECK (4.3)</div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 12px">
+                  <sc-for list="{{ selfcheck }}" as="s" hint-placeholder-count="8">
+                    <div style="display:flex;align-items:center;gap:6px;font-size:13px"><span style="width:6px;height:6px;border-radius:50%;background:{{ s.dot }};flex:none"></span><span style="color:rgba(18,22,36,.92)">{{ s.label }}</span><span style="flex:1"></span><span style="font-size:11.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:{{ s.dot }}">{{ s.st }}</span></div>
+                  </sc-for>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isImport }}" hint-placeholder-val="{{ false }}">
+        <div data-screen-label="16.2 영상 가져오기" style="flex:1;min-height:0;display:flex;flex-direction:column;gap:12px;padding:0">
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="font-size:25px;font-weight:640;letter-spacing:-0.03em;line-height:1.12">영상 가져오기 · 링크 검증</div>
+            <span style="font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(26,32,52,.7);padding:2px 7px;border-radius:6px;background:rgba(255,255,255,.72)">16.2 · POST /imports/inspect → POST /imports</span>
+          </div>
+          <div style="flex:1;min-height:0;display:flex;gap:14px">
+            <div style="width:418px;flex:none;display:flex;flex-direction:column;gap:14px">
+              <div style="padding:13px;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);border:1px solid rgba(255,255,255,.9);border-radius:22px;box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.55),inset 1px 0 0 rgba(255,255,255,.6),0 18px 44px rgba(58,70,135,.15),0 2px 6px rgba(58,70,135,.06);display:flex;flex-direction:column;gap:10px">
+                <div style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">입력 · SOURCE</div>
+                <div style="display:flex;gap:8px">
+                  <div style="flex:1;padding:9px;border-radius:10px;border:1px dashed rgba(48,60,120,.28);text-align:center;font-size:13.5px;color:rgba(18,22,36,.92);cursor:pointer" style-hover="border-color:rgba(74,108,247,.5)">로컬 파일 선택<div style="font-size:12px;color:rgba(28,34,56,.64);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;margin-top:2px">MP4 · MOV</div></div>
+                  <div style="flex:1;padding:9px;border-radius:10px;border:1px dashed rgba(48,60,120,.28);text-align:center;font-size:13.5px;color:rgba(18,22,36,.92);cursor:pointer" style-hover="border-color:rgba(74,108,247,.5)">GPX 선택<div style="font-size:12px;color:rgba(28,34,56,.64);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;margin-top:2px">.gpx</div></div>
+                </div>
+                <div style="display:flex;gap:7px;align-items:center;padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.72);border:1px solid rgba(74,108,247,.28)">
+                  <span style="font-size:12.5px;color:rgba(28,34,56,.64);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">URL</span>
+                  <span style="flex:1;font-size:13px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:#1b1f2a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">https://drive.google.com/file/d/1x9K…/view</span>
+                  <span style="width:1.5px;height:14px;background:#4a6cf7;animation:tvpulse 1.1s steps(1) infinite"></span>
+                </div>
+                <div style="font-size:12.5px;color:rgba(26,32,52,.7);line-height:1.5">붙여넣은 링크는 공급자·유형을 판별한 뒤 파일명·용량·길이·해상도·저장 위치를 <b style="color:rgba(18,22,36,.92)">다운로드 전에</b> 표시합니다. (5.3)</div>
+              </div>
+              <div style="flex:1;min-height:0;display:flex;flex-direction:column;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);border:1px solid rgba(255,255,255,.9);border-radius:22px;box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.55),inset 1px 0 0 rgba(255,255,255,.6),0 18px 44px rgba(58,70,135,.15),0 2px 6px rgba(58,70,135,.06);overflow:hidden">
+                <div style="padding:10px 13px;border-bottom:1px solid rgba(28,36,78,.08);font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">지원 등급 · SUPPORT TIER (5.2)</div>
+                <div style="flex:1;overflow-y:auto;overflow-x:hidden">
+                  <sc-for list="{{ tiers }}" as="x" hint-placeholder-count="6">
+                    <div style="display:flex;gap:9px;align-items:flex-start;padding:9px 13px;border-bottom:1px solid rgba(28,36,78,.06)">
+                      <span style="font-size:11.5px;font-weight:700;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;padding:2px 6px;border-radius:5px;background:{{ x.bg }};color:{{ x.fg }};flex:none;min-width:46px;text-align:center">{{ x.tier }}</span>
+                      <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:1px">
+                        <span style="font-size:13.5px">{{ x.label }}</span>
+                        <span style="font-size:12px;color:rgba(26,32,52,.7)">{{ x.policy }}</span>
+                      </div>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+            </div>
+
+            <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:14px">
+              <div style="padding:14px;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);border:1px solid rgba(255,255,255,.9);border-radius:22px;box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.55),inset 1px 0 0 rgba(255,255,255,.6),0 18px 44px rgba(58,70,135,.15),0 2px 6px rgba(58,70,135,.06);display:flex;flex-direction:column;gap:11px">
+                <div style="display:flex;align-items:center;gap:9px">
+                  <span style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">검사 결과 · INSPECT</span>
+                  <span style="font-size:11.5px;font-weight:700;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;padding:2px 7px;border-radius:5px;background:oklch(0.46 0.14 158);color:#ffffff">공식 · Drive 공유 링크</span>
+                  <div style="flex:1"></div>
+                  <span style="font-size:12.5px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">provider=google_drive · resumable</span>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px 18px">
+                  <sc-for list="{{ inspect }}" as="r" hint-placeholder-count="8">
+                    <div style="display:flex;gap:9px;padding:5px 0;border-bottom:1px solid rgba(28,36,78,.07)">
+                      <span style="width:120px;flex:none;font-size:12.5px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">{{ r.k }}</span>
+                      <span style="flex:1;font-size:13.5px;color:{{ r.color }};font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;word-break:break-all">{{ r.v }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+                <div style="display:flex;align-items:center;gap:9px;padding:10px 13px;border-radius:16px;background:rgba(206,142,32,.12);border:1px solid rgba(206,142,32,.3)">
+                  <span style="width:15px;height:15px;border-radius:4px;border:1.5px solid oklch(0.52 0.12 72);display:grid;place-items:center;font-size:12px;color:oklch(0.52 0.12 72)">✓</span>
+                  <span style="font-size:13.5px;color:oklch(0.38 0.1 68)">이 영상을 다운로드·분석할 권리가 있음을 확인합니다.</span>
+                  <div style="flex:1"></div>
+                  <span style="font-size:12px;color:oklch(0.43 0.08 68);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">필수 · 5.3-4</span>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:6px">
+                  <div style="display:flex;align-items:center;gap:9px;font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(22,28,44,.82)">
+                    <span>다운로드 68% · 1.42 / 2.08 GB · 18.4 MB/s</span><div style="flex:1"></div><span>이어받기 지원 · Range</span>
+                  </div>
+                  <div style="height:6px;border-radius:4px;background:rgba(36,48,96,.09);overflow:hidden"><div style="width:68%;height:100%;background:linear-gradient(90deg,oklch(0.49 0.19 262),oklch(0.66 0.16 230))"></div></div>
+                  <div style="display:flex;gap:7px">
+                    <div style="padding:6px 14px;border-radius:999px;background:rgba(255,255,255,.78);font-size:13px;cursor:pointer">일시정지</div>
+                    <div style="padding:6px 14px;border-radius:999px;background:rgba(255,255,255,.78);font-size:13px;cursor:pointer">취소</div>
+                    <div style="flex:1"></div>
+                    <div style="padding:6px 14px;border-radius:999px;background:linear-gradient(180deg,#2b2f3a,#0d1016);color:#ffffff;box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 8px 20px rgba(16,20,44,.3);font-size:13px;font-weight:600;cursor:pointer">검증 후 프로젝트에 등록</div>
+                  </div>
+                </div>
+              </div>
+              <div style="flex:1;min-height:0;display:flex;flex-direction:column;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);border:1px solid rgba(255,255,255,.9);border-radius:22px;box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.55),inset 1px 0 0 rgba(255,255,255,.6),0 18px 44px rgba(58,70,135,.15),0 2px 6px rgba(58,70,135,.06);overflow:hidden">
+                <div style="padding:10px 13px;border-bottom:1px solid rgba(28,36,78,.08);display:flex;align-items:center;gap:8px">
+                  <span style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">보안 검사 · 19.2</span>
+                  <div style="flex:1"></div>
+                  <span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">확장자 대신 파일 시그니처 기준</span>
+                </div>
+                <div style="flex:1;overflow-y:auto;overflow-x:hidden;padding:4px 0">
+                  <sc-for list="{{ secChecks }}" as="s" hint-placeholder-count="6">
+                    <div style="display:flex;align-items:center;gap:9px;padding:7px 13px;border-bottom:1px solid rgba(28,36,78,.06)">
+                      <span style="width:14px;height:14px;border-radius:4px;background:{{ s.bg }};color:#ffffff;display:grid;place-items:center;font-size:11px;font-weight:700;flex:none">{{ s.mark }}</span>
+                      <span style="font-size:13.5px;flex:1">{{ s.label }}</span>
+                      <span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">{{ s.detail }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+            </div>
+
+            <div style="width:360px;flex:none;display:flex;flex-direction:column;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);border:1px solid rgba(255,255,255,.9);border-radius:22px;box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.55),inset 1px 0 0 rgba(255,255,255,.6),0 18px 44px rgba(58,70,135,.15),0 2px 6px rgba(58,70,135,.06);overflow:hidden">
+              <div style="padding:10px 13px;border-bottom:1px solid rgba(28,36,78,.08);font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">GPS 시간 동기화 · 7.3</div>
+              <div style="padding:12px;display:flex;flex-direction:column;gap:11px">
+                <div style="height:140px;border-radius:10px;background:rgba(255,255,255,.42);background-image:repeating-linear-gradient(135deg,rgba(60,74,130,.1) 0 9px,transparent 9px 18px);display:grid;place-items:center;font-size:12px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(28,34,56,.62);text-align:center">[ 영상 첫 프레임 ]<br/>사용자가 지도 위치와 비교</div>
+                <div style="height:104px;border-radius:10px;background:rgba(255,255,255,.4);backdrop-filter:blur(26px);border:1px solid rgba(255,255,255,.82);position:relative;overflow:hidden">
+                  <svg viewBox="0 0 320 96" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%">
+                    <path d="M12 78 C60 66 78 34 128 30 C176 26 208 52 258 40 C286 33 300 22 308 16" fill="none" stroke="rgba(46,60,116,.16)" stroke-width="6" stroke-linecap="round"></path>
+                    <circle cx="128" cy="30" r="5" fill="#4a6cf7" stroke="#ffffff" stroke-width="2.5"></circle>
+                  </svg>
+                  <div style="position:absolute;left:9px;bottom:7px;font-size:11.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(26,32,52,.7)">GPX 시작 14:22:03+09:00</div>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:7px">
+                  <div style="display:flex;align-items:center;justify-content:space-between;font-size:13px"><span style="color:rgba(22,28,44,.82)">오프셋 보정</span><span style="font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:#1b1f2a">−1.8 s</span></div>
+                  <div style="position:relative;height:5px;border-radius:3px;background:rgba(36,48,96,.11)">
+                    <div style="position:absolute;left:0;top:0;bottom:0;width:42%;border-radius:3px;background:{{ accentColor }}"></div>
+                    <div style="position:absolute;left:42%;top:-4px;width:13px;height:13px;margin-left:-6.5px;border-radius:50%;background:#fff;box-shadow:0 1px 5px rgba(58,70,135,.4)"></div>
+                  </div>
+                  <div style="display:flex;justify-content:space-between;font-size:11.5px;color:rgba(28,34,56,.64);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace"><span>−10s</span><span>0</span><span>+10s</span></div>
+                </div>
+                <div style="padding:10px 13px;border-radius:16px;background:rgba(206,142,32,.12);border:1px solid rgba(206,142,32,.3);display:flex;flex-direction:column;gap:3px">
+                  <span style="font-size:13px;color:oklch(0.38 0.1 68);font-weight:600">GPS_MISSING 1구간</span>
+                  <span style="font-size:12.5px;color:oklch(0.43 0.08 68);line-height:1.45">12:05–13:12 · 표본 간격 67초 &gt; 10초. 직선 보간하지 않고 점선·경고로 표시합니다.</span>
+                </div>
+                <div style="padding:8px 15px;border-radius:999px;background:linear-gradient(180deg,#2b2f3a,#0d1016);color:#ffffff;box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 8px 20px rgba(16,20,44,.3);font-size:13.5px;font-weight:600;text-align:center;cursor:pointer">동기화 확정 · POST /sync-gps</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isLabel }}" hint-placeholder-val="{{ false }}">
+        <div data-screen-label="16.3 질문형 라벨링" style="flex:1;min-height:0;display:flex;flex-direction:column;gap:12px;padding:0">
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="font-size:25px;font-weight:640;letter-spacing:-0.03em;line-height:1.12">질문형 라벨링</div>
+            <span style="font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(26,32,52,.7);padding:2px 7px;border-radius:6px;background:rgba(255,255,255,.72)">16.3 · POST /questions/{question_id}/answer</span>
+            <div style="flex:1"></div>
+            <div style="display:flex;gap:4px;padding:3px;border-radius:999px;background:rgba(255,255,255,.72);backdrop-filter:blur(18px) saturate(200%);-webkit-backdrop-filter:blur(18px) saturate(200%);border:1px solid rgba(255,255,255,.95);box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 1px 3px rgba(58,70,135,.07)">
+              <sc-for list="{{ modes }}" as="m" hint-placeholder-count="3"><div onClick="{{ m.set }}" style="padding:5px 14px;border-radius:999px;cursor:pointer;font-size:13px;background:{{ m.bg }};color:{{ m.fg }}">{{ m.label }}</div></sc-for>
+            </div>
+            <span style="font-size:12.5px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">policy_mode</span>
+          </div>
+
+          <div style="flex:1;min-height:0;display:flex;gap:14px">
+            <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:10px;padding:12px;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);border:1px solid rgba(255,255,255,.9);border-radius:22px;box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.55),inset 1px 0 0 rgba(255,255,255,.6),0 18px 44px rgba(58,70,135,.15),0 2px 6px rgba(58,70,135,.06)">
+              <div style="flex:1;min-height:0;position:relative;border-radius:16px;overflow:hidden;background:rgba(255,255,255,.42);background-image:repeating-linear-gradient(135deg,rgba(60,74,130,.1) 0 10px,transparent 10px 20px)">
+                <div style="position:absolute;inset:0;display:grid;place-items:center"><span style="font-size:13px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(28,34,56,.62);text-align:center">[ 대표 프레임 · 1920×1080 ]<br/>analysis/frames/trip_002/f_00418.jpg</span></div>
+                <div style="position:absolute;left:31%;top:56%;width:22%;height:22%;border:2px solid oklch(0.52 0.12 72);border-radius:5px;box-shadow:0 0 22px rgba(206,142,32,.35)">
+                  <div style="position:absolute;left:-2px;top:-21px;padding:2px 7px;border-radius:5px;background:oklch(0.52 0.12 72);color:#ffffff;font-size:12px;font-weight:700;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;white-space:nowrap">AI 제안 · LANE_MARKING_FADED 0.61</div>
+                  <div style="position:absolute;right:-1px;bottom:-1px;width:9px;height:9px;background:oklch(0.52 0.12 72)"></div>
+                </div>
+                <div style="position:absolute;left:12px;top:12px;padding:4px 11px;border-radius:999px;background:rgba(255,255,255,.8);backdrop-filter:blur(16px) saturate(180%);font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(18,22,36,.92)">Q-8834 · 00:07:14 · 지속 9프레임 · 5fps→10fps 재분석</div>
+              </div>
+              <div style="height:92px;flex:none;display:flex;gap:8px">
+                <sc-for list="{{ strip }}" as="f" hint-placeholder-count="7">
+                  <div style="flex:1;border-radius:8px;background:rgba(255,255,255,.42);background-image:repeating-linear-gradient(135deg,rgba(60,74,130,.1) 0 7px,transparent 7px 14px);border:1.5px solid {{ f.bd }};display:flex;flex-direction:column;justify-content:flex-end;padding:5px">
+                    <span style="font-size:11px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:{{ f.fg }}">{{ f.label }}</span>
+                  </div>
+                </sc-for>
+                <div style="width:164px;flex:none;border-radius:8px;background:rgba(255,255,255,.5);border:1px solid rgba(28,36,78,.07);position:relative;overflow:hidden">
+                  <svg viewBox="0 0 150 82" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%"><path d="M8 70 C40 58 46 30 82 26 C112 22 130 14 142 8" fill="none" stroke="rgba(46,60,116,.15)" stroke-width="5" stroke-linecap="round"></path><circle cx="82" cy="26" r="4.5" fill="oklch(0.52 0.12 72)" stroke="#ffffff" stroke-width="2.5"></circle></svg>
+                  <span style="position:absolute;left:7px;top:6px;font-size:11px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(26,32,52,.7)">GPS 위치</span>
+                </div>
+              </div>
+            </div>
+
+            <div style="width:478px;flex:none;display:flex;flex-direction:column;gap:12px">
+              <div style="padding:15px;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);border:1px solid rgba(74,108,247,.3);border-radius:22px;box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.55),inset 1px 0 0 rgba(255,255,255,.6),0 18px 44px rgba(58,70,135,.15),0 2px 6px rgba(58,70,135,.06);display:flex;flex-direction:column;gap:12px">
+                <div style="display:flex;align-items:center;gap:8px">
+                  <span style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">질문 카드 · LabelQuestion</span>
+                  <div style="flex:1"></div>
+                  <span style="font-size:12px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(26,32,52,.7)">{{ qIndex }} / 147</span>
+                </div>
+                <div style="font-size:28px;font-weight:600;line-height:1.3;letter-spacing:-0.028em;text-wrap:pretty">{{ qText }}</div>
+                <div style="display:flex;gap:7px;flex-wrap:wrap">
+                  <span style="font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;padding:3px 8px;border-radius:6px;background:rgba(255,255,255,.74);color:rgba(22,28,44,.82)">{{ qCode }}</span>
+                  <span style="font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;padding:3px 8px;border-radius:6px;background:rgba(255,255,255,.74);color:rgba(22,28,44,.82)">AI 심각도 {{ qSev }}</span>
+                  <span style="font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;padding:3px 8px;border-radius:6px;background:rgba(255,255,255,.74);color:rgba(22,28,44,.82)">conf {{ qConf }}</span>
+                  <span style="font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;padding:3px 8px;border-radius:6px;background:{{ qForcedBg }};color:{{ qForcedFg }}">{{ qForcedLabel }}</span>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                  <div onClick="{{ ansYes }}" style="padding:13px;border-radius:11px;background:rgba(40,180,120,.15);border:1px solid rgba(40,180,120,.36);cursor:pointer;display:flex;flex-direction:column;gap:2px" style-hover="background:rgba(40,180,120,.22)">
+                    <span style="font-size:17px;font-weight:620;letter-spacing:-0.015em;color:oklch(0.4 0.13 158)">예</span>
+                    <span style="font-size:12px;color:oklch(0.38 0.1 158);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">ANSWERED_ACCEPT → 승인 라벨</span>
+                  </div>
+                  <div onClick="{{ ansNo }}" style="padding:13px;border-radius:11px;background:rgba(226,80,58,.11);border:1px solid rgba(226,80,58,.28);cursor:pointer;display:flex;flex-direction:column;gap:2px" style-hover="background:rgba(255,110,90,.17)">
+                    <span style="font-size:17px;font-weight:620;letter-spacing:-0.015em;color:oklch(0.47 0.19 28)">아니오</span>
+                    <span style="font-size:12px;color:oklch(0.42 0.14 28);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">ANSWERED_REJECT → hard negative</span>
+                  </div>
+                  <div onClick="{{ ansUnsure }}" style="padding:13px;border-radius:11px;background:rgba(255,255,255,.72);border:1px solid rgba(255,255,255,.8);cursor:pointer;display:flex;flex-direction:column;gap:2px" style-hover="background:rgba(36,48,96,.09)">
+                    <span style="font-size:17px;font-weight:620;letter-spacing:-0.015em;color:rgba(18,22,36,.92)">판단 어려움</span>
+                    <span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">UNSURE → 보류 큐 · 학습 제외</span>
+                  </div>
+                  <div onClick="{{ ansEdit }}" style="padding:13px;border-radius:11px;background:rgba(74,108,247,.13);border:1px solid rgba(74,108,247,.3);cursor:pointer;display:flex;flex-direction:column;gap:2px" style-hover="background:rgba(74,108,247,.2)">
+                    <span style="font-size:17px;font-weight:620;letter-spacing:-0.015em;color:oklch(0.42 0.19 262)">영역 수정</span>
+                    <span style="font-size:12px;color:oklch(0.4 0.13 262);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">클릭 → InteractiveSegmenter 재분할</span>
+                  </div>
+                </div>
+                <div style="display:flex;gap:7px">
+                  <div style="flex:1;padding:8px;border-radius:999px;background:rgba(255,255,255,.72);font-size:13px;text-align:center;cursor:pointer;color:rgba(18,22,36,.92)">유형 변경</div>
+                  <div style="flex:1;padding:8px;border-radius:999px;background:rgba(255,255,255,.72);font-size:13px;text-align:center;cursor:pointer;color:rgba(18,22,36,.92)">고급 편집기</div>
+                  <div style="flex:1;padding:8px;border-radius:999px;background:rgba(255,255,255,.72);font-size:13px;text-align:center;cursor:pointer;color:rgba(18,22,36,.92)">건너뛰기</div>
+                </div>
+                <div style="padding:10px 13px;border-radius:16px;background:rgba(255,255,255,.62);border:1px solid rgba(255,255,255,.88);box-shadow:inset 0 1px 0 rgba(255,255,255,.9);font-size:12.5px;color:rgba(24,30,48,.76);line-height:1.5">이 답변은 <b style="color:rgba(18,22,36,.92)">Annotation</b>으로 저장되며 다음 데이터셋 버전에 포함됩니다. 모델 재학습은 자동으로 시작되지 않습니다. (2.1)</div>
+              </div>
+
+              <div style="flex:1;min-height:0;display:flex;flex-direction:column;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);border:1px solid rgba(255,255,255,.9);border-radius:22px;box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.55),inset 1px 0 0 rgba(255,255,255,.6),0 18px 44px rgba(58,70,135,.15),0 2px 6px rgba(58,70,135,.06);overflow:hidden">
+                <div style="padding:10px 13px;border-bottom:1px solid rgba(28,36,78,.08);display:flex;align-items:center;gap:8px">
+                  <span style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">유형별 진행률 · 초기 30건 전수</span>
+                  <div style="flex:1"></div>
+                  <span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">일치율 92% · 8.4</span>
+                </div>
+                <div style="flex:1;overflow-y:auto;overflow-x:hidden;padding:9px 13px;display:flex;flex-direction:column;gap:9px">
+                  <sc-for list="{{ progress }}" as="g" hint-placeholder-count="7">
+                    <div style="display:flex;flex-direction:column;gap:4px">
+                      <div style="display:flex;align-items:center;gap:8px;font-size:13px"><span style="color:rgba(18,22,36,.92);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ g.label }}</span><span style="font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(26,32,52,.7);font-size:12px">{{ g.n }}</span></div>
+                      <div style="height:5px;border-radius:3px;background:rgba(255,255,255,.62);overflow:hidden"><div style="width:{{ g.pct }}%;height:100%;background:{{ g.color }}"></div></div>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isAnalysis }}" hint-placeholder-val="{{ false }}">
+        <div data-screen-label="16.4 분석 진행" style="flex:1;min-height:0;display:flex;flex-direction:column;gap:12px;padding:0">
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="font-size:25px;font-weight:640;letter-spacing:-0.03em;line-height:1.12">분석 진행</div>
+            <span style="font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(26,32,52,.7);padding:2px 7px;border-radius:6px;background:rgba(255,255,255,.72)">16.4 · POST /analysis · WS jobs/{job_id}</span>
+            <div style="flex:1"></div>
+            <div style="padding:7px 16px;border-radius:999px;background:rgba(255,255,255,.78);font-size:14px;cursor:pointer">일시정지</div>
+            <div style="padding:7px 16px;border-radius:999px;background:rgba(226,80,58,.14);border:1px solid rgba(226,80,58,.32);color:oklch(0.47 0.19 28);font-size:14px;cursor:pointer">취소</div>
+          </div>
+          <div style="flex:1;min-height:0;display:flex;gap:14px">
+            <div style="width:586px;flex:none;display:flex;flex-direction:column;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);border:1px solid rgba(255,255,255,.9);border-radius:22px;box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.55),inset 1px 0 0 rgba(255,255,255,.6),0 18px 44px rgba(58,70,135,.15),0 2px 6px rgba(58,70,135,.06);overflow:hidden">
+              <div style="padding:10px 13px;border-bottom:1px solid rgba(28,36,78,.08);display:flex;align-items:center;gap:8px">
+                <span style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">파이프라인 15단계 · 7.2</span>
+                <div style="flex:1"></div>
+                <span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">중단 시 마지막 완료 단계에서 재개</span>
+              </div>
+              <div style="flex:1;overflow-y:auto;overflow-x:hidden">
+                <sc-for list="{{ steps }}" as="s" hint-placeholder-count="15">
+                  <div style="display:flex;align-items:center;gap:10px;padding:7px 13px;border-bottom:1px solid rgba(28,36,78,.06);background:{{ s.rowBg }}">
+                    <span style="width:19px;height:19px;flex:none;border-radius:50%;display:grid;place-items:center;font-size:11.5px;font-weight:700;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;background:{{ s.dotBg }};color:{{ s.dotFg }};border:1px solid {{ s.dotBd }}">{{ s.n }}</span>
+                    <span style="flex:1;font-size:13.5px;color:{{ s.fg }}">{{ s.label }}</span>
+                    <span style="width:150px;flex:none;font-size:12px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;text-align:right">{{ s.meta }}</span>
+                    <span style="width:62px;flex:none;font-size:11.5px;font-weight:700;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;text-align:right;color:{{ s.stFg }}">{{ s.st }}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+            <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:14px">
+              <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+                <sc-for list="{{ analysisKpis }}" as="k" hint-placeholder-count="4">
+                  <div style="padding:12px 13px;border-radius:13px;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.5),0 14px 34px rgba(58,70,135,.13);border:1px solid rgba(255,255,255,.9);display:flex;flex-direction:column;gap:5px">
+                    <span style="font-size:12.5px;color:rgba(26,32,52,.7)">{{ k.label }}</span>
+                    <span style="font-size:29px;font-weight:600;letter-spacing:-0.038em;line-height:1;color:{{ k.color }}">{{ k.value }}</span>
+                    <span style="font-size:12px;color:rgba(28,34,56,.64);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">{{ k.sub }}</span>
+                  </div>
+                </sc-for>
+              </div>
+              <div style="padding:13px;border-radius:14px;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.5),0 14px 34px rgba(58,70,135,.13);border:1px solid rgba(255,255,255,.9);display:flex;flex-direction:column;gap:9px">
+                <div style="display:flex;align-items:center;gap:8px"><span style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">GPU · RTX A2000 12GB</span><div style="flex:1"></div><span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">20.5 · 1시간 영상 ≤ 2시간 목표</span></div>
+                <div style="display:flex;gap:14px">
+                  <div style="flex:1;display:flex;flex-direction:column;gap:5px"><div style="display:flex;justify-content:space-between;font-size:12.5px;color:rgba(22,28,44,.82);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace"><span>VRAM</span><span>8.4 / 12.0 GB</span></div><div style="height:6px;border-radius:4px;background:rgba(36,48,96,.09);overflow:hidden"><div style="width:70%;height:100%;background:oklch(0.49 0.19 262)"></div></div></div>
+                  <div style="flex:1;display:flex;flex-direction:column;gap:5px"><div style="display:flex;justify-content:space-between;font-size:12.5px;color:rgba(22,28,44,.82);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace"><span>GPU 사용률</span><span>91%</span></div><div style="height:6px;border-radius:4px;background:rgba(36,48,96,.09);overflow:hidden"><div style="width:91%;height:100%;background:oklch(0.52 0.12 72)"></div></div></div>
+                  <div style="flex:1;display:flex;flex-direction:column;gap:5px"><div style="display:flex;justify-content:space-between;font-size:12.5px;color:rgba(22,28,44,.82);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace"><span>디스크 쓰기</span><span>142 MB/s</span></div><div style="height:6px;border-radius:4px;background:rgba(36,48,96,.09);overflow:hidden"><div style="width:44%;height:100%;background:oklch(0.46 0.14 158)"></div></div></div>
+                </div>
+                <div style="font-size:12.5px;color:rgba(24,30,48,.76);line-height:1.5">VRAM 부족 시 입력 크기와 batch를 안전하게 낮추고 <b style="color:rgba(18,22,36,.92)">작업을 재개</b>합니다. 큐는 분석 / 학습 / 문서 편집으로 분리됩니다. (3.3)</div>
+              </div>
+              <div style="flex:1;min-height:0;display:flex;flex-direction:column;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(170%);-webkit-backdrop-filter:blur(40px) saturate(170%);border:1px solid rgba(255,255,255,.82);border-radius:22px;box-shadow:inset 0 1.5px 0 rgba(255,255,255,.9),inset 0 -1px 0 rgba(255,255,255,.5),0 18px 44px rgba(58,70,135,.14);overflow:hidden">
+                <div style="padding:9px 13px;border-bottom:1px solid rgba(28,36,78,.08);display:flex;align-items:center;gap:8px"><span style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">작업 로그 · logs/</span><div style="flex:1"></div><span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">WS jobs/j_5512</span></div>
+                <div style="flex:1;overflow-y:auto;overflow-x:hidden;padding:9px 13px;display:flex;flex-direction:column;gap:3px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;font-size:12.5px;line-height:1.6">
+                  <sc-for list="{{ logs }}" as="l" hint-placeholder-count="10">
+                    <div style="display:flex;gap:9px"><span style="color:rgba(28,34,56,.62);flex:none">{{ l.t }}</span><span style="color:{{ l.color }};flex:none;width:52px">{{ l.lvl }}</span><span style="color:rgba(22,28,44,.82);flex:1">{{ l.msg }}</span></div>
+                  </sc-for>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isReview }}" hint-placeholder-val="{{ false }}">
+        <div data-screen-label="16.5 사건 검토" style="flex:1;min-height:0;display:flex;flex-direction:column;gap:12px;padding:0">
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="font-size:25px;font-weight:640;letter-spacing:-0.03em;line-height:1.12">사건 검토</div>
+            <span style="font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(26,32,52,.7);padding:2px 7px;border-radius:6px;background:rgba(255,255,255,.72)">16.5 · 11장 · ReviewAction 감사 이력</span>
+            <div style="flex:1"></div>
+            <span style="font-size:13px;color:rgba(26,32,52,.7)">INC-0423 · 3 / 9</span>
+            <div style="display:flex;gap:5px"><div style="padding:7px 15px;border-radius:999px;background:rgba(255,255,255,.78);font-size:14px;cursor:pointer">← 이전</div><div style="padding:7px 15px;border-radius:999px;background:rgba(255,255,255,.78);font-size:14px;cursor:pointer">다음 →</div></div>
+          </div>
+          <div style="flex:1;min-height:0;display:flex;gap:14px">
+            <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:12px">
+              <div style="flex:1;min-height:0;position:relative;border-radius:18px;overflow:hidden;background:rgba(255,255,255,.42);background-image:repeating-linear-gradient(135deg,rgba(60,74,130,.1) 0 10px,transparent 10px 20px);border:1px solid rgba(28,36,78,.08)">
+                <div style="position:absolute;inset:0;display:grid;place-items:center"><span style="font-size:13px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(28,34,56,.62);text-align:center">[ 영상 오버레이 · 대표 프레임 00:06:28 ]<br/>낙하물 (타이어 파편) · 주행 영역 내부</span></div>
+                <div style="position:absolute;left:46%;top:54%;width:13%;height:12%;border:2px solid oklch(0.49 0.2 26);border-radius:5px;box-shadow:0 0 26px rgba(214,70,48,.35)">
+                  <div style="position:absolute;left:-2px;top:-21px;padding:2px 7px;border-radius:5px;background:oklch(0.49 0.2 26);color:#ffffff;font-size:12px;font-weight:700;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;white-space:nowrap">ROAD_DEBRIS 0.84 · 긴급</div>
+                </div>
+                <div style="position:absolute;left:18%;top:66%;width:64%;height:30%;border:1.5px dashed rgba(74,108,247,.55);border-radius:6px">
+                  <div style="position:absolute;left:0;bottom:-19px;font-size:11.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(140,180,255,.85)">drivable_area mask · 주행 영역 분할</div>
+                </div>
+                <div style="position:absolute;right:12px;top:12px;display:flex;gap:6px">
+                  <div style="padding:4px 11px;border-radius:999px;background:rgba(255,255,255,.76);backdrop-filter:blur(20px) saturate(200%);-webkit-backdrop-filter:blur(20px) saturate(200%);border:1px solid rgba(255,255,255,.92);box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 2px 8px rgba(58,70,135,.12);font-size:12.5px;cursor:pointer;color:rgba(18,22,36,.92)">AI 원본</div>
+                  <div style="padding:4px 11px;border-radius:999px;background:linear-gradient(180deg,#2b2f3a,#0d1016);color:#ffffff;box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 8px 20px rgba(16,20,44,.3);font-size:12.5px;font-weight:600;cursor:pointer">사용자 최종</div>
+                  <div style="padding:4px 11px;border-radius:999px;background:rgba(255,255,255,.76);backdrop-filter:blur(20px) saturate(200%);-webkit-backdrop-filter:blur(20px) saturate(200%);border:1px solid rgba(255,255,255,.92);box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 2px 8px rgba(58,70,135,.12);font-size:12.5px;cursor:pointer;color:rgba(18,22,36,.92)">비식별화</div>
+                </div>
+              </div>
+              <div style="height:208px;flex:none;display:flex;gap:12px">
+                <div style="flex:1;padding:12px;border-radius:14px;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.5),0 14px 34px rgba(58,70,135,.13);border:1px solid rgba(255,255,255,.9);display:flex;flex-direction:column;gap:8px">
+                  <div style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">병합 · MERGE (7.5)</div>
+                  <div style="font-size:13px;color:rgba(22,28,44,.82);line-height:1.55">같은 유형 · 3초 이내 · GPS 20m 이내 검지 <b style="color:#1b1f2a">7건</b>을 사건 1건으로 병합. 추적 ID track_881 유지.</div>
+                  <div style="display:flex;gap:5px;flex-wrap:wrap">
+                    <sc-for list="{{ mergeChips }}" as="c" hint-placeholder-count="7"><span style="font-size:11.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;padding:2px 6px;border-radius:5px;background:rgba(255,255,255,.74);color:rgba(22,28,44,.82)">{{ c.label }}</span></sc-for>
+                  </div>
+                  <div style="flex:1"></div>
+                  <div style="display:flex;gap:6px"><div style="flex:1;padding:7px;border-radius:999px;background:rgba(255,255,255,.74);font-size:13px;text-align:center;cursor:pointer">사건 분리</div><div style="flex:1;padding:7px;border-radius:999px;background:rgba(255,255,255,.74);font-size:13px;text-align:center;cursor:pointer">대표 캡처 변경</div></div>
+                </div>
+                <div style="flex:1;padding:12px;border-radius:14px;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.5),0 14px 34px rgba(58,70,135,.13);border:1px solid rgba(255,255,255,.9);display:flex;flex-direction:column;gap:8px">
+                  <div style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">OCR · 위치 검증 (7.4)</div>
+                  <div style="display:flex;flex-direction:column;gap:5px">
+                    <div style="display:flex;gap:8px;font-size:13px"><span style="width:74px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">ocr_text</span><span style="flex:1;color:#1b1f2a">해당 없음 (낙하물 사건)</span></div>
+                    <div style="display:flex;gap:8px;font-size:13px"><span style="width:74px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">인접 사건</span><span style="flex:1;color:#1b1f2a">INC-0438 「죽령터널」 VERIFIED</span></div>
+                    <div style="display:flex;gap:8px;font-size:13px"><span style="width:74px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">기준 자료</span><span style="flex:1;color:#1b1f2a">ReferenceAsset · 터널 인덱스 v3</span></div>
+                  </div>
+                  <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:2px">
+                    <sc-for list="{{ verifyStates }}" as="v" hint-placeholder-count="5"><span style="font-size:11.5px;font-weight:700;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;padding:2px 7px;border-radius:5px;background:{{ v.bg }};color:{{ v.fg }}">{{ v.label }}</span></sc-for>
+                  </div>
+                  <div style="flex:1"></div>
+                  <div style="font-size:12px;color:rgba(28,34,56,.64);line-height:1.5">명판이 가려지면 보이지 않는 글자를 복원하지 않고 OCR 사건 + 가림 사건을 동시에 생성합니다.</div>
+                </div>
+              </div>
+            </div>
+
+            <div style="width:628px;flex:none;display:flex;flex-direction:column;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);border:1px solid rgba(255,255,255,.9);border-radius:22px;box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.55),inset 1px 0 0 rgba(255,255,255,.6),0 18px 44px rgba(58,70,135,.15),0 2px 6px rgba(58,70,135,.06);overflow:hidden">
+              <div style="padding:10px 13px;border-bottom:1px solid rgba(28,36,78,.08);display:flex;align-items:center;gap:8px">
+                <span style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">AI 원본 · 사용자 답변 · 최종값</span>
+                <div style="flex:1"></div>
+                <span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">덮어쓰지 않고 함께 보존 (2.1)</span>
+              </div>
+              <div style="display:grid;grid-template-columns:134px 1fr 1fr 1fr;padding:7px 13px;gap:8px;border-bottom:1px solid rgba(28,36,78,.07);font-size:12px;color:rgba(28,34,56,.64);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">
+                <div>field</div><div>ai_*</div><div>answer</div><div>final_*</div>
+              </div>
+              <div style="flex:1;overflow-y:auto;overflow-x:hidden">
+                <sc-for list="{{ compare }}" as="c" hint-placeholder-count="9">
+                  <div style="display:grid;grid-template-columns:134px 1fr 1fr 1fr;gap:8px;padding:9px 13px;border-bottom:1px solid rgba(28,36,78,.06);align-items:center">
+                    <div style="font-size:12.5px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">{{ c.field }}</div>
+                    <div style="font-size:13px;color:rgba(24,30,48,.76)">{{ c.ai }}</div>
+                    <div style="font-size:13px;color:rgba(18,22,36,.92)">{{ c.answer }}</div>
+                    <div style="font-size:13px;font-weight:600;color:{{ c.finalColor }}">{{ c.final }}</div>
+                  </div>
+                </sc-for>
+              </div>
+              <div style="padding:11px 13px;border-top:1px solid rgba(28,36,78,.08);display:flex;flex-direction:column;gap:9px">
+                <div style="display:flex;gap:6px">
+                  <div style="flex:1;padding:10px;border-radius:999px;background:rgba(40,180,120,.16);border:1px solid rgba(40,180,120,.36);color:oklch(0.4 0.13 158);font-size:14px;font-weight:600;text-align:center;cursor:pointer">승인 · CONFIRMED</div>
+                  <div style="flex:1;padding:10px;border-radius:999px;background:rgba(226,80,58,.12);border:1px solid rgba(226,80,58,.28);color:oklch(0.47 0.19 28);font-size:14px;text-align:center;cursor:pointer">반려</div>
+                  <div style="padding:9px 13px;border-radius:9px;background:rgba(255,255,255,.74);font-size:14px;text-align:center;cursor:pointer;color:rgba(18,22,36,.92)">학습 제외</div>
+                  <div style="padding:9px 13px;border-radius:9px;background:rgba(255,255,255,.74);font-size:14px;text-align:center;cursor:pointer;color:rgba(18,22,36,.92)">추가 흐림</div>
+                </div>
+                <div style="font-size:12px;color:rgba(28,34,56,.64);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">ReviewAction 기록: user=kim · 2026-07-22T09:41+09:00 · from ANSWERED_ACCEPT → CONFIRMED</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isModel }}" hint-placeholder-val="{{ false }}">
+        <div data-screen-label="16.6 모델 관리" style="flex:1;min-height:0;display:flex;flex-direction:column;gap:12px;padding:0">
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="font-size:25px;font-weight:640;letter-spacing:-0.03em;line-height:1.12">모델 관리</div>
+            <span style="font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(26,32,52,.7);padding:2px 7px;border-radius:6px;background:rgba(255,255,255,.72)">16.6 · 9장 · project_id 격리</span>
+            <div style="flex:1"></div>
+            <div style="padding:7px 16px;border-radius:999px;background:rgba(255,255,255,.78);font-size:14px;cursor:pointer">데이터셋 생성</div>
+            <div style="padding:7px 16px;border-radius:999px;background:linear-gradient(180deg,#2b2f3a,#0d1016);color:#ffffff;box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 8px 20px rgba(16,20,44,.3);font-size:14px;font-weight:600;cursor:pointer">새 모델 학습</div>
+          </div>
+          <div style="flex:1;min-height:0;display:flex;gap:14px">
+            <div style="width:452px;flex:none;display:flex;flex-direction:column;gap:14px">
+              <div style="padding:13px;border-radius:14px;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.5),0 14px 34px rgba(58,70,135,.13);border:1px solid rgba(255,255,255,.9);display:flex;flex-direction:column;gap:10px">
+                <div style="display:flex;align-items:center;gap:8px"><span style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">학습 가능 조건 · 9.4</span><div style="flex:1"></div><span style="font-size:12px;font-weight:700;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;padding:2px 7px;border-radius:5px;background:oklch(0.46 0.14 158);color:#ffffff">충족</span></div>
+                <sc-for list="{{ gates }}" as="g" hint-placeholder-count="4">
+                  <div style="display:flex;align-items:center;gap:9px;padding:6px 0;border-bottom:1px solid rgba(28,36,78,.07)">
+                    <span style="width:15px;height:15px;border-radius:4px;background:{{ g.bg }};color:#ffffff;display:grid;place-items:center;font-size:11px;font-weight:700;flex:none">{{ g.mark }}</span>
+                    <span style="flex:1;font-size:13.5px;color:rgba(18,22,36,.92)">{{ g.label }}</span>
+                    <span style="font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:{{ g.color }}">{{ g.value }}</span>
+                  </div>
+                </sc-for>
+                <div style="font-size:12.5px;color:rgba(24,30,48,.76);line-height:1.5">조건이 부족하면 학습 대신 <b style="color:rgba(18,22,36,.92)">추가 질문 수집</b>을 제안합니다. 예상 시간 1시간 42분 · VRAM 10.2GB · 디스크 24GB.</div>
+              </div>
+              <div style="flex:1;min-height:0;display:flex;flex-direction:column;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);border:1px solid rgba(255,255,255,.9);border-radius:22px;box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.55),inset 1px 0 0 rgba(255,255,255,.6),0 18px 44px rgba(58,70,135,.15),0 2px 6px rgba(58,70,135,.06);overflow:hidden">
+                <div style="padding:10px 13px;border-bottom:1px solid rgba(28,36,78,.08);display:flex;align-items:center;gap:8px"><span style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">클래스 분포 · ds_014</span><div style="flex:1"></div><span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">60/20/20 · 촬영일·노선 분리</span></div>
+                <div style="flex:1;overflow-y:auto;overflow-x:hidden;padding:10px 13px;display:flex;flex-direction:column;gap:9px">
+                  <sc-for list="{{ dist }}" as="d" hint-placeholder-count="8">
+                    <div style="display:flex;flex-direction:column;gap:4px">
+                      <div style="display:flex;align-items:center;gap:8px;font-size:13px"><span style="flex:1;color:rgba(18,22,36,.92);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ d.code }}</span><span style="font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:{{ d.color }};font-size:12px">{{ d.n }}</span></div>
+                      <div style="height:5px;border-radius:3px;background:rgba(255,255,255,.62);overflow:hidden"><div style="width:{{ d.pct }}%;height:100%;background:{{ d.color }}"></div></div>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+            </div>
+            <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:14px">
+              <div style="flex:1;min-height:0;display:flex;flex-direction:column;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);border:1px solid rgba(255,255,255,.9);border-radius:22px;box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.55),inset 1px 0 0 rgba(255,255,255,.6),0 18px 44px rgba(58,70,135,.15),0 2px 6px rgba(58,70,135,.06);overflow:hidden">
+                <div style="padding:10px 13px;border-bottom:1px solid rgba(28,36,78,.08);display:flex;align-items:center;gap:9px">
+                  <span style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">성능 비교 · 같은 검증 세트 (9.5)</span>
+                  <div style="flex:1"></div>
+                  <span style="font-size:11.5px;font-weight:700;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;padding:2px 7px;border-radius:5px;background:rgba(40,180,120,.18);color:oklch(0.4 0.13 158)">v7 ACTIVE</span>
+                  <span style="font-size:11.5px;font-weight:700;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;padding:2px 7px;border-radius:5px;background:rgba(74,108,247,.18);color:oklch(0.42 0.19 262)">v8 CANDIDATE</span>
+                </div>
+                <div style="display:grid;grid-template-columns:1.6fr 94px 94px 94px 94px 100px;padding:7px 13px;gap:8px;border-bottom:1px solid rgba(28,36,78,.07);font-size:12px;color:rgba(28,34,56,.64);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">
+                  <div>class</div><div style="text-align:right">v7 recall</div><div style="text-align:right">v8 recall</div><div style="text-align:right">Δ</div><div style="text-align:right">v8 prec</div><div style="text-align:right">중복률</div>
+                </div>
+                <div style="flex:1;overflow-y:auto;overflow-x:hidden">
+                  <sc-for list="{{ perf }}" as="p" hint-placeholder-count="8">
+                    <div style="display:grid;grid-template-columns:1.6fr 94px 94px 94px 94px 100px;gap:8px;padding:8px 13px;border-bottom:1px solid rgba(28,36,78,.06);align-items:center;background:{{ p.rowBg }}">
+                      <div style="font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(18,22,36,.92);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ p.code }}</div>
+                      <div style="font-size:13px;text-align:right;color:rgba(24,30,48,.76);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">{{ p.v7 }}</div>
+                      <div style="font-size:13px;text-align:right;color:#1b1f2a;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">{{ p.v8 }}</div>
+                      <div style="font-size:13px;text-align:right;font-weight:700;color:{{ p.dColor }};font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">{{ p.delta }}</div>
+                      <div style="font-size:13px;text-align:right;color:rgba(22,28,44,.82);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">{{ p.prec }}</div>
+                      <div style="font-size:13px;text-align:right;color:{{ p.dupColor }};font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">{{ p.dup }}</div>
+                    </div>
+                  </sc-for>
+                </div>
+                <div style="padding:11px 13px;border-top:1px solid rgba(28,36,78,.08);display:flex;flex-direction:column;gap:9px">
+                  <div style="display:flex;align-items:center;gap:9px;padding:10px 13px;border-radius:16px;background:rgba(226,80,58,.1);border:1px solid rgba(226,80,58,.28)">
+                    <span style="font-size:13px;color:oklch(0.45 0.15 28);line-height:1.5">SIGN_DAMAGE 재현율 <b>−3.1%p</b> (기준 −2%p 초과) → <b>자동 승격 차단</b>. 사용자 승인 없이 ACTIVE 전환 불가.</span>
+                  </div>
+                  <div style="display:flex;gap:6px">
+                    <div style="flex:1;padding:10px;border-radius:999px;background:rgba(40,180,120,.16);border:1px solid rgba(40,180,120,.36);color:oklch(0.4 0.13 158);font-size:14px;font-weight:600;text-align:center;cursor:pointer">v8 승격 · PROMOTE</div>
+                    <div style="flex:1;padding:10px;border-radius:999px;background:rgba(255,255,255,.74);font-size:14px;text-align:center;cursor:pointer;color:rgba(18,22,36,.92)">거부 · REJECTED</div>
+                    <div style="flex:1;padding:10px;border-radius:999px;background:rgba(255,255,255,.74);font-size:14px;text-align:center;cursor:pointer;color:rgba(18,22,36,.92)">v6으로 롤백</div>
+                  </div>
+                </div>
+              </div>
+              <div style="height:136px;flex:none;display:flex;gap:12px">
+                <sc-for list="{{ modelCards }}" as="m" hint-placeholder-count="4">
+                  <div style="flex:1;padding:11px 12px;border-radius:13px;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.5),0 14px 34px rgba(58,70,135,.13);border:1px solid {{ m.bd }};display:flex;flex-direction:column;gap:4px">
+                    <div style="display:flex;align-items:center;gap:6px"><span style="font-size:17px;font-weight:620;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">{{ m.ver }}</span><span style="font-size:11px;font-weight:700;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;padding:1px 6px;border-radius:4px;background:{{ m.bg }};color:{{ m.fg }}">{{ m.state }}</span></div>
+                    <span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">{{ m.ds }}</span>
+                    <span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">{{ m.date }}</span>
+                    <div style="flex:1"></div>
+                    <span style="font-size:12px;color:rgba(24,30,48,.76);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;word-break:break-all">{{ m.hash }}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isReport }}" hint-placeholder-val="{{ false }}">
+        <div data-screen-label="16.8 보고서" style="flex:1;min-height:0;display:flex;flex-direction:column;gap:12px;padding:0">
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="font-size:25px;font-weight:640;letter-spacing:-0.03em;line-height:1.12">HWP/HWPX 보고서 편집 미리보기</div>
+            <span style="font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(26,32,52,.7);padding:2px 7px;border-radius:6px;background:rgba(255,255,255,.72)">16.8 · 14장 · DocumentEditPlan</span>
+            <div style="flex:1"></div>
+            <div style="display:flex;gap:6px">
+              <div style="display:flex;align-items:center;gap:6px;padding:6px 13px;border-radius:999px;background:rgba(255,255,255,.72);backdrop-filter:blur(18px) saturate(200%);-webkit-backdrop-filter:blur(18px) saturate(200%);border:1px solid rgba(255,255,255,.95);box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 1px 3px rgba(58,70,135,.07);font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace"><span style="width:5px;height:5px;border-radius:50%;background:oklch(0.46 0.14 158)"></span>한/글 COM · STA worker</div>
+              <div style="display:flex;align-items:center;gap:6px;padding:6px 13px;border-radius:999px;background:rgba(255,255,255,.72);backdrop-filter:blur(18px) saturate(200%);-webkit-backdrop-filter:blur(18px) saturate(200%);border:1px solid rgba(255,255,255,.95);box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 1px 3px rgba(58,70,135,.07);font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace"><span style="width:5px;height:5px;border-radius:50%;background:oklch(0.52 0.12 72)"></span>Codex CLI · 재로그인 필요</div>
+              <div style="display:flex;align-items:center;gap:6px;padding:6px 13px;border-radius:999px;background:rgba(255,255,255,.72);backdrop-filter:blur(18px) saturate(200%);-webkit-backdrop-filter:blur(18px) saturate(200%);border:1px solid rgba(255,255,255,.95);box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 1px 3px rgba(58,70,135,.07);font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace"><span style="width:5px;height:5px;border-radius:50%;background:oklch(0.46 0.14 158)"></span>Claude Code · 연결됨</div>
+            </div>
+          </div>
+          <div style="flex:1;min-height:0;display:flex;gap:14px">
+            <div style="width:544px;flex:none;display:flex;flex-direction:column;gap:12px">
+              <div style="padding:12px 13px;border-radius:14px;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.5),0 14px 34px rgba(58,70,135,.13);border:1px solid rgba(255,255,255,.9);display:flex;flex-direction:column;gap:8px">
+                <div style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">전송 데이터 확인 · 15.3</div>
+                <div style="display:flex;gap:5px;flex-wrap:wrap">
+                  <sc-for list="{{ sendData }}" as="s" hint-placeholder-count="5"><span style="font-size:12px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;padding:3px 7px;border-radius:6px;background:{{ s.bg }};color:{{ s.fg }}">{{ s.label }}</span></sc-for>
+                </div>
+                <div style="font-size:12.5px;color:rgba(24,30,48,.76);line-height:1.5">원본 영상과 불필요한 개인정보는 전송하지 않습니다. CLI는 제한된 임시 경로에서 실행되고, 출력은 스키마 검증 후에만 사용합니다.</div>
+              </div>
+              <div style="flex:1;min-height:0;display:flex;flex-direction:column;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);border:1px solid rgba(255,255,255,.9);border-radius:22px;box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.55),inset 1px 0 0 rgba(255,255,255,.6),0 18px 44px rgba(58,70,135,.15),0 2px 6px rgba(58,70,135,.06);overflow:hidden">
+                <div style="padding:10px 13px;border-bottom:1px solid rgba(28,36,78,.08);display:flex;align-items:center;gap:8px">
+                  <span style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">편집 계획 · 24 ops</span>
+                  <div style="flex:1"></div>
+                  <span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">{{ planCount }}</span>
+                </div>
+                <div style="flex:1;overflow-y:auto;overflow-x:hidden">
+                  <sc-for list="{{ plan }}" as="o" hint-placeholder-count="8">
+                    <div style="padding:9px 13px;border-bottom:1px solid rgba(28,36,78,.06);display:flex;flex-direction:column;gap:6px;background:{{ o.rowBg }}">
+                      <div style="display:flex;align-items:center;gap:8px">
+                        <span style="font-size:11.5px;font-weight:700;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;padding:2px 6px;border-radius:5px;background:rgba(255,255,255,.78);color:rgba(22,28,44,.82)">{{ o.op }}</span>
+                        <span style="font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(26,32,52,.7);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ o.target }}</span>
+                        <span style="font-size:11.5px;font-weight:700;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;padding:2px 6px;border-radius:5px;background:{{ o.stBg }};color:{{ o.stFg }}">{{ o.st }}</span>
+                      </div>
+                      <div style="font-size:13.5px;color:#1b1f2a;line-height:1.5">{{ o.value }}</div>
+                      <div style="display:flex;align-items:center;gap:6px">
+                        <span style="font-size:12px;color:rgba(28,34,56,.64);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;flex:1">{{ o.src }}</span>
+                        <div onClick="{{ o.accept }}" style="padding:3px 10px;border-radius:6px;background:rgba(40,180,120,.16);color:oklch(0.4 0.13 158);font-size:12.5px;cursor:pointer">수락</div>
+                        <div onClick="{{ o.reject }}" style="padding:3px 10px;border-radius:6px;background:rgba(226,80,58,.12);color:oklch(0.47 0.19 28);font-size:12.5px;cursor:pointer">거절</div>
+                      </div>
+                    </div>
+                  </sc-for>
+                </div>
+                <div style="padding:10px 13px;border-top:1px solid rgba(28,36,78,.08);display:flex;gap:6px">
+                  <div onClick="{{ acceptAll }}" style="flex:1;padding:9px;border-radius:999px;background:linear-gradient(180deg,#2b2f3a,#0d1016);color:#ffffff;box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 8px 20px rgba(16,20,44,.3);font-size:13.5px;font-weight:600;text-align:center;cursor:pointer">수락 항목 적용 · COM 쓰기</div>
+                  <div onClick="{{ resetPlan }}" style="padding:8px 12px;border-radius:9px;background:rgba(255,255,255,.74);font-size:13.5px;text-align:center;cursor:pointer;color:rgba(18,22,36,.92)">원본으로 롤백</div>
+                </div>
+              </div>
+            </div>
+            <div style="flex:1;min-width:0;display:flex;flex-direction:column;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);border:1px solid rgba(255,255,255,.9);border-radius:22px;box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.55),inset 1px 0 0 rgba(255,255,255,.6),0 18px 44px rgba(58,70,135,.15),0 2px 6px rgba(58,70,135,.06);overflow:hidden">
+              <div style="padding:10px 13px;border-bottom:1px solid rgba(28,36,78,.08);display:flex;align-items:center;gap:8px">
+                <span style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">문서 미리보기 · 작업본</span>
+                <span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">reports/hwpx/점검보고서_2026-07.hwpx · snapshot #a19f</span>
+                <div style="flex:1"></div>
+                <span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">1 / 12 페이지</span>
+              </div>
+              <div style="flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;padding:16px;display:flex;justify-content:center;background:rgba(224,229,243,.5)">
+                <div style="width:520px;flex:none;background:#f4f4f2;border-radius:3px;box-shadow:0 16px 40px rgba(58,70,135,.2);padding:34px 38px;display:flex;flex-direction:column;gap:13px;color:#1a1b1e;font-size:13px">
+                  <div style="text-align:center;display:flex;flex-direction:column;gap:5px">
+                    <div style="font-size:11px;letter-spacing:.3em;color:#565b6a">도 로 시 설 물 점 검 보 고 서</div>
+                    <div style="height:1px;background:#1a1b1e"></div>
+                  </div>
+                  <div style="display:grid;grid-template-columns:74px 1fr 74px 1fr;border:1px solid #1a1b1e;font-size:12px">
+                    <div style="padding:5px 7px;background:#e6e6e3;border-right:1px solid #1a1b1e;border-bottom:1px solid #1a1b1e">점검일자</div>
+                    <div style="padding:5px 7px;border-right:1px solid #1a1b1e;border-bottom:1px solid #1a1b1e;background:rgba(74,108,247,.18);outline:1.5px solid #4a6cf7;outline-offset:-1.5px">2026-07-14</div>
+                    <div style="padding:5px 7px;background:#e6e6e3;border-right:1px solid #1a1b1e;border-bottom:1px solid #1a1b1e">점검구간</div>
+                    <div style="padding:5px 7px;border-bottom:1px solid #1a1b1e;background:rgba(74,108,247,.18);outline:1.5px solid #4a6cf7;outline-offset:-1.5px">고속국도 1호선 320k→288k</div>
+                    <div style="padding:5px 7px;background:#e6e6e3;border-right:1px solid #1a1b1e">주행거리</div>
+                    <div style="padding:5px 7px;border-right:1px solid #1a1b1e;background:rgba(74,108,247,.18);outline:1.5px solid #4a6cf7;outline-offset:-1.5px">32.4 km</div>
+                    <div style="padding:5px 7px;background:#e6e6e3;border-right:1px solid #1a1b1e">검지건수</div>
+                    <div style="padding:5px 7px;background:rgba(206,142,32,.3);outline:1.5px solid #c98a20;outline-offset:-1.5px">9 건 (긴급 1)</div>
+                  </div>
+                  <div style="font-size:12px;font-weight:700">1. 조사 개요</div>
+                  <div style="font-size:12px;line-height:1.75;color:#33353a;background:rgba(74,108,247,.14);outline:1.5px solid #4a6cf7;outline-offset:2px;padding:2px">차량 고정 촬영 영상과 GPS 기록을 기반으로 노면·시설물·식생·차선 상태를 점검하였다. 검지 결과는 검토자 확인을 거쳐 확정하였으며, 미확인 구간은 별도로 표기하였다.</div>
+                  <div style="display:flex;gap:9px">
+                    <div style="flex:1;height:104px;background:#dcdcd8;border:1px solid #9a9a95;display:grid;place-items:center;font-size:11px;color:#565b6a;text-align:center;outline:1.5px solid #4a6cf7;outline-offset:-1.5px">[ GPS 경로 지도<br/>image slot ]</div>
+                    <div style="flex:1;height:104px;background:#dcdcd8;border:1px solid #9a9a95;display:grid;place-items:center;font-size:11px;color:#565b6a;text-align:center;outline:1.5px solid #4a6cf7;outline-offset:-1.5px">[ 대표 근거 사진<br/>비식별화 ]</div>
+                  </div>
+                  <div style="font-size:12px;font-weight:700">2. 유형별 집계</div>
+                  <div style="display:grid;grid-template-columns:1fr 52px 52px 1fr;border:1px solid #1a1b1e;font-size:11.5px">
+                    <div style="padding:4px 6px;background:#e6e6e3;border-right:1px solid #1a1b1e;border-bottom:1px solid #1a1b1e">유형</div>
+                    <div style="padding:4px 6px;background:#e6e6e3;border-right:1px solid #1a1b1e;border-bottom:1px solid #1a1b1e">건수</div>
+                    <div style="padding:4px 6px;background:#e6e6e3;border-right:1px solid #1a1b1e;border-bottom:1px solid #1a1b1e">심각</div>
+                    <div style="padding:4px 6px;background:#e6e6e3;border-bottom:1px solid #1a1b1e">조치</div>
+                    <div style="padding:4px 6px;border-right:1px solid #1a1b1e;border-bottom:1px solid #d0d0cc;background:rgba(74,108,247,.18)">포트홀</div>
+                    <div style="padding:4px 6px;border-right:1px solid #1a1b1e;border-bottom:1px solid #d0d0cc;background:rgba(74,108,247,.18)">3</div>
+                    <div style="padding:4px 6px;border-right:1px solid #1a1b1e;border-bottom:1px solid #d0d0cc;background:rgba(74,108,247,.18)">심 1</div>
+                    <div style="padding:4px 6px;border-bottom:1px solid #d0d0cc;background:rgba(74,108,247,.18)">노면 보수</div>
+                    <div style="padding:4px 6px;border-right:1px solid #1a1b1e;border-bottom:1px solid #d0d0cc">낙하물</div>
+                    <div style="padding:4px 6px;border-right:1px solid #1a1b1e;border-bottom:1px solid #d0d0cc">1</div>
+                    <div style="padding:4px 6px;border-right:1px solid #1a1b1e;border-bottom:1px solid #d0d0cc">긴급 1</div>
+                    <div style="padding:4px 6px;border-bottom:1px solid #d0d0cc">긴급 제거</div>
+                    <div style="padding:4px 6px;border-right:1px solid #1a1b1e;color:#9a9a95">— 표 행 추가 대기 —</div>
+                    <div style="padding:4px 6px;border-right:1px solid #1a1b1e"></div>
+                    <div style="padding:4px 6px;border-right:1px solid #1a1b1e"></div>
+                    <div style="padding:4px 6px"></div>
+                  </div>
+                  <div style="display:flex;gap:8px;font-size:8.5px;color:#565b6a;margin-top:2px">
+                    <span style="display:flex;align-items:center;gap:4px"><span style="width:9px;height:9px;background:rgba(74,108,247,.3);outline:1.5px solid #4a6cf7;outline-offset:-1.5px"></span>변경 대상 (수락 대기)</span>
+                    <span style="display:flex;align-items:center;gap:4px"><span style="width:9px;height:9px;background:rgba(206,142,32,.3);outline:1.5px solid #c98a20;outline-offset:-1.5px"></span>충돌 · 사용자 선택 필요</span>
+                  </div>
+                </div>
+              </div>
+              <div style="padding:10px 13px;border-top:1px solid rgba(28,36,78,.08);display:flex;align-items:center;gap:9px">
+                <span style="font-size:12.5px;color:rgba(24,30,48,.76);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">저장 후 재읽기 · 전 페이지 렌더 검증 · 표 잘림/사진 누락/페이지 넘침 검사</span>
+                <div style="flex:1"></div>
+                <div style="padding:7px 15px;border-radius:999px;background:rgba(255,255,255,.74);font-size:13.5px;cursor:pointer;color:rgba(18,22,36,.92)">HWPX 저장</div>
+                <div style="padding:7px 15px;border-radius:999px;background:rgba(255,255,255,.74);font-size:13.5px;cursor:pointer;color:rgba(18,22,36,.92)">HWP 저장</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isExport }}" hint-placeholder-val="{{ false }}">
+        <div data-screen-label="16.9 내보내기" style="flex:1;min-height:0;display:flex;flex-direction:column;gap:12px;padding:0">
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="font-size:25px;font-weight:640;letter-spacing:-0.03em;line-height:1.12">내보내기</div>
+            <span style="font-size:12.5px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;color:rgba(26,32,52,.7);padding:2px 7px;border-radius:6px;background:rgba(255,255,255,.72)">16.9 · 13장 · POST /exports</span>
+            <div style="flex:1"></div>
+            <div style="padding:7px 16px;border-radius:999px;background:linear-gradient(180deg,#2b2f3a,#0d1016);color:#ffffff;box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 8px 20px rgba(16,20,44,.3);font-size:14px;font-weight:600;cursor:pointer">선택 항목 내보내기</div>
+          </div>
+          <div style="flex:1;min-height:0;display:flex;gap:14px">
+            <div style="width:440px;flex:none;display:flex;flex-direction:column;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(170%);-webkit-backdrop-filter:blur(40px) saturate(170%);border:1px solid rgba(255,255,255,.82);border-radius:22px;box-shadow:inset 0 1.5px 0 rgba(255,255,255,.9),inset 0 -1px 0 rgba(255,255,255,.5),0 18px 44px rgba(58,70,135,.14);overflow:hidden">
+              <div style="padding:10px 13px;border-bottom:1px solid rgba(28,36,78,.08);font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">프로젝트 구조 · 13장</div>
+              <div style="flex:1;overflow-y:auto;overflow-x:hidden;padding:10px 13px;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;font-size:12.5px;line-height:1.85">
+                <sc-for list="{{ tree }}" as="t" hint-placeholder-count="20">
+                  <div style="display:flex;gap:7px;color:{{ t.color }};padding-left:{{ t.indent }}px"><span>{{ t.name }}</span><div style="flex:1"></div><span style="color:rgba(28,34,56,.62)">{{ t.note }}</span></div>
+                </sc-for>
+              </div>
+            </div>
+            <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:14px">
+              <div style="display:flex;gap:12px">
+                <div style="flex:1;padding:13px;border-radius:14px;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.5),0 14px 34px rgba(58,70,135,.13);border:1px solid rgba(255,255,255,.9);display:flex;flex-direction:column;gap:9px">
+                  <div style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">CSV 원칙 · 13.1</div>
+                  <sc-for list="{{ csvRules }}" as="c" hint-placeholder-count="6">
+                    <div style="display:flex;align-items:center;gap:8px;font-size:13px"><span style="width:14px;height:14px;border-radius:4px;background:oklch(0.46 0.14 158);color:#ffffff;display:grid;place-items:center;font-size:11px;font-weight:700;flex:none">✓</span><span style="color:rgba(18,22,36,.92)">{{ c.label }}</span></div>
+                  </sc-for>
+                </div>
+                <div style="flex:1;padding:13px;border-radius:14px;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.5),0 14px 34px rgba(58,70,135,.13);border:1px solid rgba(255,255,255,.9);display:flex;flex-direction:column;gap:9px">
+                  <div style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">Trip Package · 13.2</div>
+                  <sc-for list="{{ pkg }}" as="p" hint-placeholder-count="6">
+                    <div style="display:flex;align-items:center;gap:8px;font-size:13px"><span style="width:14px;height:14px;border-radius:4px;background:{{ p.bg }};color:#ffffff;display:grid;place-items:center;font-size:11px;font-weight:700;flex:none">{{ p.mark }}</span><span style="color:rgba(18,22,36,.92);flex:1">{{ p.label }}</span><span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">{{ p.size }}</span></div>
+                  </sc-for>
+                </div>
+              </div>
+              <div style="flex:1;min-height:0;display:flex;flex-direction:column;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(255,255,255,.46));backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);border:1px solid rgba(255,255,255,.9);border-radius:22px;box-shadow:inset 0 1.5px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(255,255,255,.55),inset 1px 0 0 rgba(255,255,255,.6),0 18px 44px rgba(58,70,135,.15),0 2px 6px rgba(58,70,135,.06);overflow:hidden">
+                <div style="padding:10px 13px;border-bottom:1px solid rgba(28,36,78,.08);display:flex;align-items:center;gap:8px"><span style="font-size:12px;letter-spacing:.06em;color:rgba(26,32,52,.7);font-weight:640">산출물 · SHA-256 provenance</span><div style="flex:1"></div><span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">모든 주요 파일에 해시와 생성 주체 기록 (3.4)</span></div>
+                <div style="display:grid;grid-template-columns:1.5fr 84px 108px 1fr;padding:7px 13px;gap:8px;border-bottom:1px solid rgba(28,36,78,.07);font-size:12px;color:rgba(28,34,56,.64);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace"><div>file</div><div style="text-align:right">rows</div><div style="text-align:right">size</div><div>sha-256 / 생성 주체</div></div>
+                <div style="flex:1;overflow-y:auto;overflow-x:hidden">
+                  <sc-for list="{{ artifacts }}" as="f" hint-placeholder-count="9">
+                    <div style="display:grid;grid-template-columns:1.5fr 84px 108px 1fr;gap:8px;padding:8px 13px;border-bottom:1px solid rgba(28,36,78,.06);align-items:center;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">
+                      <div style="font-size:12.5px;color:#1b1f2a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ f.name }}</div>
+                      <div style="font-size:12.5px;text-align:right;color:rgba(22,28,44,.82)">{{ f.rows }}</div>
+                      <div style="font-size:12.5px;text-align:right;color:rgba(22,28,44,.82)">{{ f.size }}</div>
+                      <div style="font-size:12px;color:rgba(26,32,52,.7);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ f.hash }}</div>
+                    </div>
+                  </sc-for>
+                </div>
+                <div style="padding:10px 13px;border-top:1px solid rgba(28,36,78,.08);display:flex;align-items:center;gap:9px">
+                  <span style="width:15px;height:15px;border-radius:4px;border:1.5px solid rgba(28,36,78,.28);flex:none"></span>
+                  <span style="font-size:13.5px;color:rgba(18,22,36,.92)">원본 영상 포함 (2.08 GB) — 기본 제외, 사용자 선택</span>
+                  <div style="flex:1"></div>
+                  <span style="font-size:12px;color:rgba(26,32,52,.7);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">공유 자료는 얼굴·번호판 비식별화 후 생성</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+    </main>
+
+    <sc-if value="{{ specOn }}" hint-placeholder-val="{{ true }}">
+      <div style="width:338px;flex:none;display:flex;flex-direction:column;overflow:hidden;background:linear-gradient(180deg,rgba(255,255,255,.6),rgba(255,255,255,.38));backdrop-filter:blur(26px) saturate(180%);-webkit-backdrop-filter:blur(30px) saturate(180%);border:1px solid rgba(255,255,255,.88);border-radius:24px;box-shadow:inset 0 1.5px 0 rgba(255,255,255,.9),inset 0 -1px 0 rgba(255,255,255,.5),0 18px 44px rgba(58,70,135,.14)">
+        <div style="padding:11px 13px;display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(28,36,78,.08)">
+          <span style="width:6px;height:6px;border-radius:2px;background:oklch(0.52 0.12 72)"></span>
+          <span style="font-size:12px;letter-spacing:.06em;color:rgba(24,30,48,.74);font-weight:640">구현 스펙 · HANDOFF</span>
+          <div style="flex:1"></div>
+          <div onClick="{{ toggleSpec }}" style="font-size:12.5px;color:rgba(26,32,52,.7);cursor:pointer">숨기기</div>
+        </div>
+        <div style="flex:1;overflow-y:auto;overflow-x:hidden;padding:12px 13px;display:flex;flex-direction:column;gap:14px">
+          <sc-for list="{{ spec }}" as="s" hint-placeholder-count="5">
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <div style="font-size:13.5px;letter-spacing:.06em;color:rgba(234,240,252,.6);font-weight:640">{{ s.title }}</div>
+              <sc-for list="{{ s.rows }}" as="r" hint-placeholder-count="3">
+                <div style="display:flex;flex-direction:column;gap:2px;padding:6px 8px;border-radius:8px;background:rgba(255,255,255,.62);border:1px solid rgba(255,255,255,.85)">
+                  <span style="font-size:11.5px;color:#7a7d86;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">{{ r.k }}</span>
+                  <span style="font-size:13px;color:rgba(18,22,36,.92);line-height:1.45;font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace;word-break:break-all">{{ r.v }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+
+  </div>
+
+  <div style="height:42px;flex:none;display:flex;align-items:center;gap:14px;padding:0 18px;background:linear-gradient(180deg,rgba(255,255,255,.52),rgba(255,255,255,.74));backdrop-filter:blur(34px) saturate(210%);-webkit-backdrop-filter:blur(34px) saturate(210%);border-top:1px solid rgba(28,36,78,.09);box-shadow:inset 0 1px 0 rgba(255,255,255,.9);font-size:12.5px;color:rgba(24,30,48,.76);font-family:'JetBrains Mono',ui-monospace,'SF Mono','Pretendard Variable',monospace">
+    <span style="width:6px;height:6px;border-radius:50%;background:oklch(0.49 0.19 262);animation:tvpulse 1.8s ease-in-out infinite"></span>
+    <span>JOB analysis · trip_003 · 62%</span>
+    <div style="width:120px;height:4px;border-radius:3px;background:rgba(36,48,96,.11);overflow:hidden"><div style="width:62%;height:100%;background:oklch(0.49 0.19 262)"></div></div>
+    <span style="color:rgba(28,34,56,.64)">|</span><span>VRAM 8.4 / 12.0 GB</span>
+    <span style="color:rgba(28,34,56,.64)">|</span><span>model tv-seg/v7 ACTIVE</span>
+    <span style="color:rgba(28,34,56,.64)">|</span><span>bridge 127.0.0.1:8731 연결됨</span>
+    <div style="flex:1"></div>
+    <div onClick="{{ toggleSpec }}" style="padding:3px 9px;border-radius:6px;background:rgba(255,255,255,.74);cursor:pointer;color:rgba(18,22,36,.92)">스펙 패널 {{ specLabel }}</div>
+    <span>SQLite project.sqlite3 · schema v2</span>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1920,&quot;height&quot;:1080},&quot;startScreen&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;home&quot;,&quot;import&quot;,&quot;label&quot;,&quot;analysis&quot;,&quot;review&quot;,&quot;model&quot;,&quot;history&quot;,&quot;report&quot;,&quot;export&quot;],&quot;default&quot;:&quot;history&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;화면&quot;},&quot;showSpec&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;화면&quot;},&quot;codeLabels&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;표기&quot;},&quot;accent&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;options&quot;:[&quot;#4a6cf7&quot;,&quot;#0f9d8a&quot;,&quot;#7a5cf0&quot;,&quot;#c98a20&quot;],&quot;default&quot;:&quot;#4a6cf7&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;테마&quot;}}">
+const SEV = {
+  경: 'oklch(0.47 0.06 258)', 중: 'oklch(0.52 0.12 72)', 심: 'oklch(0.51 0.16 45)', 긴급: 'oklch(0.49 0.2 26)'
+};
+const ROUTE = [[38,432],[86,404],[118,362],[132,308],[168,270],[214,258],[252,232],[266,188],[300,152],[344,140],[382,158],[404,196],[430,224],[470,232],[506,208],[528,166],[540,118],[522,78],[482,58],[440,50]];
+const INCIDENTS = [
+  { id: 'INC-0412', t: 96000, code: 'POTHOLE', name: '포트홀', sev: '심', road: '고속국도 1호선 하행 312.4k', conf: 0.91, status: 'CONFIRMED', boxes: [[0.42, 0.62, 0.15, 0.13]] },
+  { id: 'INC-0417', t: 214000, code: 'LANE_MARKING_FADED', name: '차선 마모·소실', sev: '중', road: '고속국도 1호선 하행 309.1k', conf: 0.78, status: 'ANSWERED', boxes: [[0.2, 0.68, 0.5, 0.2]] },
+  { id: 'INC-0423', t: 388000, code: 'ROAD_DEBRIS', name: '낙하물 (타이어 파편)', sev: '긴급', road: '고속국도 1호선 하행 305.8k', conf: 0.84, status: 'CONFIRMED', boxes: [[0.47, 0.56, 0.11, 0.1]] },
+  { id: 'INC-0431', t: 505000, code: 'SIGN_VEGETATION_OCCLUSION', name: '표지판 식생 가림', sev: '중', road: '고속국도 1호선 하행 303.2k', conf: 0.73, status: 'QUEUED', boxes: [[0.62, 0.24, 0.22, 0.26]] },
+  { id: 'INC-0438', t: 660000, code: 'TUNNEL_IDENTITY', name: '터널명 식별 (OCR)', sev: '경', road: '고속국도 1호선 하행 300.5k', conf: 0.88, status: 'VERIFIED', boxes: [[0.36, 0.3, 0.3, 0.14]] },
+  { id: 'INC-0445', t: 812000, code: 'ROAD_SURFACE_DAMAGE', name: '노면 균열 (망상)', sev: '중', road: '고속국도 1호선 하행 297.9k', conf: 0.69, status: 'ANSWERED', boxes: [[0.28, 0.6, 0.34, 0.22]] },
+  { id: 'INC-0452', t: 1010000, code: 'MEDIAN_BARRIER_DAMAGE', name: '방호울타리 파손', sev: '심', road: '고속국도 1호선 하행 294.1k', conf: 0.81, status: 'CONFIRMED', boxes: [[0.08, 0.44, 0.19, 0.18]] },
+  { id: 'INC-0460', t: 1188000, code: 'COLORED_GUIDANCE_FADED', name: '색깔유도선 마모 (분홍)', sev: '중', road: '고속국도 1호선 분기 291.6k', conf: 0.75, status: 'QUEUED', boxes: [[0.3, 0.66, 0.42, 0.18]] },
+  { id: 'INC-0468', t: 1352000, code: 'ROADSIDE_MOWING_REQUIRED', name: '도로변 과성장 (삭초 필요)', sev: '경', road: '고속국도 1호선 하행 288.2k', conf: 0.66, status: 'ANSWERED', boxes: [[0.66, 0.5, 0.3, 0.3]] }
+];
+const DUR = 1452000;
+const GAP = { from: 725000, to: 792000 };
+
+const SPEC = {
+  home: [
+    { title: '화면 ID', rows: [{ k: 'screen', v: '16.1 프로젝트 홈' }, { k: 'route', v: '/projects/:project_id' }] },
+    { title: 'API', rows: [{ k: 'GET', v: '/projects/{project_id}' }, { k: 'GET', v: '/projects/{id}/questions?status=QUEUED' }, { k: 'WS', v: 'jobs 진행 이벤트' }] },
+    { title: '엔터티', rows: [{ k: 'read', v: 'Project · Trip · Incident · LabelQuestion · ModelVersion · ReportDraft' }] },
+    { title: '규칙', rows: [{ k: 'self-check', v: '실패 항목은 앱 전체를 막지 않고 해당 기능만 비활성화 + 해결 방법 표시 (4.3)' }, { k: 'badge', v: '강제 질문(낙하물·긴급)은 정책 모드와 무관하게 항상 큐에 남음 (8.4)' }] }
+  ],
+  history: [
+    { title: '화면 ID', rows: [{ k: 'screen', v: '16.7 GPS 히스토리 · 10장' }, { k: 'state', v: 'playback_time_ms 하나로 4개 패널 동기화' }] },
+    { title: 'API', rows: [{ k: 'GET', v: '/projects/{id}/history?trip_id=' }, { k: 'GET', v: '/projects/{id}/incidents/{incident_id}' }] },
+    { title: '동기화 규칙', rows: [{ k: '10.3', v: '지도 마커 · 타임라인 · 영상 오버레이 · 목록 클릭이 모두 같은 시각으로 이동' }, { k: '10.2', v: '경로는 진행 방향으로 채워짐 · 0.5/1/2/4배 · 차량 추적 또는 자유 이동' }, { k: '10.2', v: 'GPS_MISSING 구간은 직선 보간 금지 · 점선 + 경고 상태' }, { k: '20.4', v: '오프셋 보정 후 영상·지도 시각차 ≤ 2초' }] },
+    { title: '증거 카드 (10.4)', rows: [{ k: 'assets', v: '원본 프레임 · AI 표시 · 사용자 최종 영역 · 비식별화 공유본 · 전후 클립' }, { k: 'trace', v: 'model_version · dataset_version · question_id · answer_id' }] }
+  ]
+};
+
+class Component extends DCLogic {
+  state = { screen: null, t: 0, playing: false, rate: 1, follow: true, sel: 2, spec: null };
+
+  componentDidMount() {
+    let last = performance.now();
+    const loop = (now) => {
+      const dt = now - last; last = now;
+      if (this.state.playing) {
+        let t = this.state.t + dt * this.state.rate;
+        if (t >= DUR) { t = DUR; this.setState({ t, playing: false }); }
+        else this.setState({ t, sel: this.nearest(t) });
+      }
+      this._raf = requestAnimationFrame(loop);
+    };
+    this._raf = requestAnimationFrame(loop);
+    this._key = (e) => {
+      const keys = ['home', 'import', 'label', 'analysis', 'review', 'model', 'history', 'report', 'export'];
+      if (e.key >= '1' && e.key <= '9') this.setState({ screen: keys[+e.key - 1] });
+      else if (e.code === 'Space') { e.preventDefault(); this.setState(s => ({ playing: !s.playing })); }
+      else if (e.key === 'ArrowRight') this.seek(5000);
+      else if (e.key === 'ArrowLeft') this.seek(-5000);
+    };
+    window.addEventListener('keydown', this._key);
+  }
+  componentWillUnmount() { cancelAnimationFrame(this._raf); window.removeEventListener('keydown', this._key); }
+
+  get screen() { return this.state.screen || this.props.startScreen || 'home'; }
+  get accent() { return this.props.accent || '#4a6cf7'; }
+  get codes() { return this.props.codeLabels !== false; }
+  seek(d) { this.setState(s => { const t = Math.max(0, Math.min(DUR, s.t + d)); return { t, sel: this.nearest(t) }; }); }
+  nearest(t) { let b = 0; INCIDENTS.forEach((i, k) => { if (t >= i.t - 4000) b = k; }); return b; }
+  pointAt(p) {
+    const segs = [];
+    let total = 0;
+    for (let i = 1; i < ROUTE.length; i++) { const d = Math.hypot(ROUTE[i][0] - ROUTE[i - 1][0], ROUTE[i][1] - ROUTE[i - 1][1]); segs.push(d); total += d; }
+    let want = Math.max(0, Math.min(1, p)) * total, i = 0;
+    while (i < segs.length && want > segs[i]) { want -= segs[i]; i++; }
+    if (i >= segs.length) return ROUTE[ROUTE.length - 1];
+    const f = segs[i] ? want / segs[i] : 0;
+    return [ROUTE[i][0] + (ROUTE[i + 1][0] - ROUTE[i][0]) * f, ROUTE[i][1] + (ROUTE[i + 1][1] - ROUTE[i][1]) * f];
+  }
+  fmt(ms) {
+    const s = Math.floor(ms / 1000);
+    return `${String(Math.floor(s / 3600)).padStart(2, '0')}:${String(Math.floor(s / 60) % 60).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+  }
+
+  renderVals() {
+    const sc = this.screen, a = this.accent, t = this.state.t, p = t / DUR;
+    const cur = INCIDENTS[this.state.sel] || INCIDENTS[0];
+    const nav = [
+      ['home', '16.1', '프로젝트 홈', ''], ['import', '16.2', '영상 가져오기', ''], ['label', '16.3', '질문 라벨링', '147'],
+      ['analysis', '16.4', '분석', '62%'], ['review', '16.5', '사건 검토', '9'], ['model', '16.6', '모델 관리', 'v8'],
+      ['history', '16.7', 'GPS 히스토리', ''], ['report', '16.8', '보고서', '24'], ['export', '16.9', '내보내기', '']
+    ].map(([k, num, label, badge]) => ({
+      num, label, badge, go: () => this.setState({ screen: k }),
+      bg: sc === k ? 'linear-gradient(180deg,#ffffff,rgba(255,255,255,.88))' : 'transparent',
+      bd: sc === k ? 'rgba(255,255,255,.95)' : 'transparent',
+      fg: sc === k ? '#11131b' : 'rgba(22,28,44,.82)',
+      numColor: sc === k ? a : 'rgba(28,34,56,.62)',
+      badgeBg: sc === k ? a : 'rgba(36,48,96,.09)',
+      badgeFg: sc === k ? '#ffffff' : 'rgba(26,32,52,.74)'
+    }));
+    const pt = this.pointAt(p);
+    let total = 0;
+    for (let i = 1; i < ROUTE.length; i++) total += Math.hypot(ROUTE[i][0] - ROUTE[i - 1][0], ROUTE[i][1] - ROUTE[i - 1][1]);
+    return {
+      accentColor: a, codes: this.codes,
+      specOn: (this.state.spec === null ? this.props.showSpec !== false : this.state.spec),
+      specLabel: (this.state.spec === null ? this.props.showSpec !== false : this.state.spec) ? '숨기기' : '표시',
+      toggleSpec: () => this.setState(s => ({ spec: !(s.spec === null ? this.props.showSpec !== false : s.spec) })),
+      spec: SPEC[sc] || SPEC.home,
+      isHome: sc === 'home', isImport: sc === 'import', isLabel: sc === 'label', isAnalysis: sc === 'analysis',
+      isReview: sc === 'review', isModel: sc === 'model', isHistory: sc === 'history', isReport: sc === 'report', isExport: sc === 'export',
+      nav, goLabel: () => this.setState({ screen: 'label' }),
+      checks: [
+        { label: 'GPU RTX A2000', dot: 'oklch(0.46 0.14 158)' }, { label: 'FFmpeg', dot: 'oklch(0.46 0.14 158)' },
+        { label: 'bridge', dot: 'oklch(0.46 0.14 158)' }, { label: '한/글 COM', dot: 'oklch(0.46 0.14 158)' },
+        { label: 'Codex CLI', dot: 'oklch(0.52 0.12 72)' }, { label: 'Claude Code', dot: 'oklch(0.46 0.14 158)' }
+      ],
+      selfcheck: [
+        { label: 'GPU · VRAM', st: '12.0GB', dot: 'oklch(0.46 0.14 158)' }, { label: 'FFmpeg 동봉', st: 'OK', dot: 'oklch(0.46 0.14 158)' },
+        { label: 'Python bridge', st: '8731', dot: 'oklch(0.46 0.14 158)' }, { label: '디스크 여유', st: '412GB', dot: 'oklch(0.46 0.14 158)' },
+        { label: '한컴오피스 COM', st: '등록됨', dot: 'oklch(0.46 0.14 158)' }, { label: 'Codex CLI', st: '재로그인', dot: 'oklch(0.52 0.12 72)' },
+        { label: 'Claude Code', st: '연결', dot: 'oklch(0.46 0.14 158)' }, { label: '지도·역지오코딩', st: '온라인', dot: 'oklch(0.46 0.14 158)' }
+      ],
+      trips: [
+        { id: 'trip_003', route: '고속국도 1호선 하행 · 312k→288k', file: 'trip_003_2026-07-21.mp4', dur: '00:31:04', gps: 'GPX OK', gpsColor: 'oklch(0.46 0.14 158)', inc: '분석 중', q: '—', st: '분석 62%', stBg: 'rgba(74,108,247,.18)', stFg: 'oklch(0.42 0.19 262)', qColor: 'rgba(26,32,52,.7)' },
+        { id: 'trip_002', route: '고속국도 1호선 하행 · 320k→288k', file: 'trip_002_2026-07-14.mp4', dur: '00:24:12', gps: '1구간 누락', gpsColor: 'oklch(0.52 0.12 72)', inc: '9', q: '147 대기', st: '검토 중', stBg: 'rgba(206,142,32,.18)', stFg: 'oklch(0.52 0.12 72)', qColor: 'oklch(0.52 0.12 72)' },
+        { id: 'trip_001', route: '지방도 302호선 · 전 구간', file: 'trip_001_2026-07-08.mp4', dur: '00:18:47', gps: 'GPX OK', gpsColor: 'oklch(0.46 0.14 158)', inc: '14', q: '완료', st: '보고서', stBg: 'rgba(40,180,120,.17)', stFg: 'oklch(0.46 0.14 158)', qColor: 'rgba(22,28,44,.82)' },
+        { id: 'trip_000', route: '국도 42호선 · 터널 구간', file: 'trip_000_2026-06-30.mov', dur: '00:09:22', gps: 'GPS 없음', gpsColor: 'oklch(0.65 0.19 25)', inc: '6', q: '완료', st: '위치 제한', stBg: 'rgba(255,110,90,.15)', stFg: 'oklch(0.47 0.19 28)', qColor: 'rgba(22,28,44,.82)' },
+        { id: 'trip_dl_01', route: 'Drive 공유 링크 가져오기', file: 'url · drive.google.com/…', dur: '00:12:40', gps: '동기화 대기', gpsColor: 'oklch(0.52 0.12 72)', inc: '—', q: '—', st: '해시 검증', stBg: 'rgba(255,255,255,.08)', stFg: 'rgba(22,28,44,.82)', qColor: 'rgba(26,32,52,.7)' }
+      ],
+      queue: [
+        { text: '도로 위 물체가 낙하물인가요?', code: 'ROAD_DEBRIS', conf: '0.84', forced: true },
+        { text: '차선 재도색이 필요한 상태인가요?', code: 'LANE_MARKING_FADED', conf: '0.61', forced: false },
+        { text: '표지판이 식생에 의해 가려졌나요?', code: 'SIGN_VEGETATION_OCCLUSION', conf: '0.73', forced: false },
+        { text: '이 글자는 「죽령터널」이 맞나요?', code: 'TUNNEL_IDENTITY', conf: '0.88', forced: false },
+        { text: '이 구간은 삭초가 필요한가요?', code: 'ROADSIDE_MOWING_REQUIRED', conf: '0.66', forced: false },
+        { text: 'AI가 표시한 영역이 정확한가요?', code: 'POTHOLE', conf: '0.91', forced: false },
+        { text: '색깔유도선이 지워졌나요?', code: 'COLORED_GUIDANCE_FADED', conf: '0.75', forced: false }
+      ],
+      tc: this.fmt(t), pct: p * 100, frameNo: Math.floor(t / 1000 * 30),
+      playGlyph: this.state.playing ? '❚❚' : '▶',
+      togglePlay: () => this.setState(s => ({ playing: !s.playing })),
+      seekBack: () => this.seek(-5000), seekFwd: () => this.seek(5000),
+      scrub: (e) => { const r = e.currentTarget.getBoundingClientRect(); const x = (e.clientX - r.left) / r.width; const t2 = Math.max(0, Math.min(DUR, x * DUR)); this.setState({ t: t2, sel: this.nearest(t2) }); },
+      rates: [0.5, 1, 2, 4].map(r => ({ label: r + '×', set: () => this.setState({ rate: r }), bg: this.state.rate === r ? a : 'transparent', fg: this.state.rate === r ? '#ffffff' : 'rgba(22,28,44,.82)' })),
+      toggleFollow: () => this.setState(s => ({ follow: !s.follow })),
+      followBg: this.state.follow ? 'rgba(74,108,247,.16)' : 'rgba(255,255,255,.05)',
+      followFg: this.state.follow ? '#ffffff' : 'rgba(24,30,48,.76)',
+      routeD: 'M' + ROUTE.map(pt2 => pt2.join(' ')).join(' L '),
+      routeLen: total, routeOffset: total * (1 - Math.max(0.001, p)),
+      carX: pt[0], carY: pt[1],
+      mapPins: INCIDENTS.map((i, k) => { const q = this.pointAt(i.t / DUR); return { x: q[0], y: q[1], r: k === this.state.sel ? 8 : 5.5, fill: SEV[i.sev] }; }),
+      gapMarks: [{ left: GAP.from / DUR * 100, w: (GAP.to - GAP.from) / DUR * 100 }],
+      ticks: INCIDENTS.map((i, k) => ({
+        left: i.t / DUR * 100, code: this.codes ? i.code.slice(0, 12) : i.name, go: () => this.setState({ t: i.t, sel: k }),
+        chipBg: SEV[i.sev], chipFg: '#ffffff', op: k === this.state.sel ? 1 : 0.72, h: k === this.state.sel ? 22 : 12, top: k % 2 ? 26 : 2
+      })),
+      list: INCIDENTS.map((i, k) => ({
+        tc: this.fmt(i.t), name: i.name, code: this.codes ? i.code : '유형', road: i.road.replace('고속국도 1호선 ', ''), status: i.status,
+        sevColor: SEV[i.sev], go: () => this.setState({ t: i.t, sel: k, playing: false }),
+        bg: k === this.state.sel ? 'linear-gradient(90deg,rgba(74,108,247,.16),rgba(74,108,247,.03))' : 'transparent',
+        edge: k === this.state.sel ? a : 'transparent',
+        stBg: i.status === 'QUEUED' ? 'rgba(206,142,32,.18)' : 'rgba(255,255,255,.07)',
+        stFg: i.status === 'QUEUED' ? 'oklch(0.52 0.12 72)' : 'rgba(22,28,44,.82)'
+      })),
+      boxes: (t >= cur.t - 3000 && t <= cur.t + 6000 ? cur.boxes : []).map(b => ({
+        x: b[0] * 100, y: b[1] * 100, w: b[2] * 100, h: b[3] * 100,
+        color: SEV[cur.sev], glow: 'rgba(255,255,255,.18)',
+        label: (this.codes ? cur.code : cur.name) + ' ' + cur.conf
+      })),
+      latlng: '36.9412°N 128.4177°E',
+      headSpeed: 'heading 214° · 97 km/h',
+      roadNow: cur.road,
+      cur: {
+        id: cur.id, name: cur.name, code: this.codes ? cur.code : '유형 코드', sevColor: SEV[cur.sev], sevLabel: cur.sev,
+        rows: [
+          { k: 'time / tc', v: `2026-07-14T14:22:${String(Math.floor(cur.t / 1000) % 60).padStart(2, '0')}+09:00 · ${this.fmt(cur.t)}`, color: 'rgba(18,22,36,.92)' },
+          { k: 'gps', v: '36.9412, 128.4177 · WGS84 · heading 214°', color: 'rgba(18,22,36,.92)' },
+          { k: 'road_name', v: cur.road, color: 'rgba(18,22,36,.92)' },
+          { k: 'ai_severity', v: `${cur.sev} · conf ${cur.conf} · 지속 7프레임`, color: 'rgba(18,22,36,.92)' },
+          { k: 'final_severity', v: `${cur.sev} · 사용자 확정`, color: 'oklch(0.4 0.13 158)' },
+          { k: 'action', v: 'AI 제안: 노면 보수 → 사용자 확정: 긴급 제거·안전 확인', color: 'rgba(18,22,36,.92)' },
+          { k: 'ocr / place', v: cur.code === 'TUNNEL_IDENTITY' ? '「죽령터널 / Jungnyeong Tunnel」 · VERIFIED' : '해당 없음', color: 'rgba(18,22,36,.92)' },
+          { k: 'answer', v: '예 (승인) · 영역 수정 1회 · 검토자 kim', color: 'rgba(18,22,36,.92)' },
+          { k: 'provenance', v: 'model tv-seg/v7 · dataset ds_014 · question Q-8821', color: 'rgba(24,30,48,.76)' },
+          { k: 'merge', v: '검지 7건 병합 (3초·20m 규칙) · 분리 이력 없음', color: 'rgba(24,30,48,.76)' }
+        ]
+      },
+      ...this.screens2()
+    };
+  }
+
+  screens2() {
+    const a = this.accent, sc = this.screen, C = this.codes;
+    const G = 'oklch(0.46 0.14 158)', Y = 'oklch(0.52 0.12 72)', R = 'oklch(0.47 0.19 28)', B = 'oklch(0.42 0.19 262)';
+    const SPEC2 = {
+      import: [
+        { title: '화면 ID', rows: [{ k: 'screen', v: '16.2 영상 가져오기 · 5장' }] },
+        { title: 'API', rows: [{ k: 'POST', v: '/projects/{id}/imports/inspect' }, { k: 'POST', v: '/projects/{id}/imports' }, { k: 'POST', v: '/projects/{id}/trips/{trip_id}/sync-gps' }] },
+        { title: '검증 순서 (5.3)', rows: [{ k: '1-4', v: '공급자 판별 → 메타 미리보기 → 권리 확인 → 이어받기 다운로드' }, { k: '5-9', v: '파일 시그니처·MIME 검사 → 실행파일/HTML 거부 → SHA-256·원본 URL 등록 → 입력 경로 이동' }] },
+        { title: '금지', rows: [{ k: 'security', v: '웹페이지 스크립트 자동 실행 금지 · 브라우저 세션/쿠키 무단 읽기 금지 · path traversal 거부' }] },
+        { title: 'GPS (7.3)', rows: [{ k: 'offset', v: '사용자가 첫 프레임과 지도 위치를 보며 수동 보정' }, { k: 'GPS_MISSING', v: '표본 간격 > 10초 또는 영상 범위 밖' }] }
+      ],
+      label: [
+        { title: '화면 ID', rows: [{ k: 'screen', v: '16.3 질문형 라벨링 · 8장' }] },
+        { title: 'API', rows: [{ k: 'GET', v: '/projects/{id}/questions' }, { k: 'POST', v: '/questions/{question_id}/answer' }, { k: 'POST', v: '/questions/{question_id}/segment' }] },
+        { title: '응답 → 라벨 (8.3)', rows: [{ k: '예', v: 'AI 영역·유형을 승인 라벨로 저장' }, { k: '아니오', v: '폐기 + 어려운 음성 예제(hard negative)' }, { k: '판단 어려움', v: '학습 제외 · 보류 큐' }, { k: '영역 수정', v: 'point-prompt 재분할 후 재확인' }] },
+        { title: '정책 (8.4)', rows: [{ k: 'modes', v: '학습 보조(기본, 유형별 초기 30건) / 전수 검토 / 빠른 검토' }, { k: '강제', v: '낙하물·긴급은 모든 모드에서 필수 질문' }, { k: '표본', v: '고신뢰 후보 10% 무작위 품질표본' }] },
+        { title: '상태 (8.5)', rows: [{ k: 'status', v: 'QUEUED · ANSWERED_ACCEPT · ANSWERED_REJECT · ANSWERED_UNSURE · EDITING_GEOMETRY · CONFIRMED · SUPERSEDED' }] }
+      ],
+      analysis: [
+        { title: '화면 ID', rows: [{ k: 'screen', v: '16.4 분석 · 7.2 15단계' }] },
+        { title: 'API', rows: [{ k: 'POST', v: '/projects/{id}/analysis' }, { k: 'GET', v: '/jobs/{job_id}' }, { k: 'POST', v: '/jobs/{job_id}/cancel' }, { k: 'WS', v: '작업 진행 이벤트만 전송' }] },
+        { title: '규칙', rows: [{ k: '기본', v: '5fps 분석 · 의심 구간 전후 2초는 10fps 재분석' }, { k: '큐', v: '분석 / 학습 / 문서 편집을 서로 다른 큐로 분리' }, { k: '복구', v: 'VRAM 부족 시 입력 크기·batch 하향 후 재개 · 마지막 완료 단계에서 재개' }] }
+      ],
+      review: [
+        { title: '화면 ID', rows: [{ k: 'screen', v: '16.5 사건 검토 · 11장' }] },
+        { title: '보존 원칙', rows: [{ k: '2.1', v: 'ai_* / answer / final_* 를 덮어쓰지 않고 별도 필드와 이력으로 보존' }, { k: 'ReviewAction', v: '승인·반려·수정·병합 감사 이력' }] },
+        { title: '병합 (7.5)', rows: [{ k: 'rule', v: '같은 유형 · 3초 이내 · GPS 20m 이내 → 사건 후보 1건' }, { k: 'no-gps', v: '추적이 이어진 프레임만 자동 병합' }, { k: 'never', v: '서로 다른 원본 영상은 같은 위치라도 자동 병합하지 않음' }] },
+        { title: '검증 상태 (7.4)', rows: [{ k: 'enum', v: 'VERIFIED · PROBABLE · UNVERIFIED · CONFLICT · MANUAL_CONFIRMED' }] }
+      ],
+      model: [
+        { title: '화면 ID', rows: [{ k: 'screen', v: '16.6 모델 관리 · 9장' }] },
+        { title: 'API', rows: [{ k: 'POST', v: '/projects/{id}/datasets' }, { k: 'POST', v: '/projects/{id}/models/train' }, { k: 'POST', v: '/models/{model_id}/promote' }, { k: 'POST', v: '/models/{model_id}/rollback' }] },
+        { title: '게이트 (9.4-9.5)', rows: [{ k: 'start', v: '새 확정 라벨 100건 이상 + 유형별 검증 표본 30건 이상' }, { k: 'block', v: '클래스별 재현율 −2%p 이상 하락 시 자동 승격 금지' }, { k: 'block', v: '중복 생성률·오탐률 증가 시 자동 승격 금지' }, { k: 'split', v: '촬영일·노선·영상 단위 60/20/20 · 인접 프레임 분할 금지' }] },
+        { title: '상태 (9.6)', rows: [{ k: 'enum', v: 'BASE · TRAINING · CANDIDATE · ACTIVE · REJECTED · ARCHIVED (1클릭 롤백)' }] }
+      ],
+      report: [
+        { title: '화면 ID', rows: [{ k: 'screen', v: '16.8 보고서 · 14·15장' }] },
+        { title: 'API', rows: [{ k: 'POST', v: '/reports/draft → /reports/plan' }, { k: 'POST', v: '/reports/apply · /accept · /reject' }, { k: 'GET', v: '/providers' }] },
+        { title: 'COM 안전 (14.4)', rows: [{ k: 'STA', v: 'HWP COM은 별도 STA worker에서 실행' }, { k: 'stale', v: '기대한 문서 스냅샷과 다르면 쓰기 거부' }, { k: 'journal', v: '작업본 + 복구 저널 · 실패 시 원본 미변경' }, { k: 'LLM', v: '언어모델은 COM 직접 호출 금지 · 검증된 DocumentEditPlan만 실행' }] },
+        { title: 'EditPlan (12.5)', rows: [{ k: 'ops', v: '텍스트 채우기 · 표 행 추가 · 셀 채우기 · 이미지 삽입 · 지도 삽입' }, { k: 'never', v: '임의 매크로 · 임의 COM 메서드 · 임의 파일 경로 불가' }] }
+      ],
+      export: [
+        { title: '화면 ID', rows: [{ k: 'screen', v: '16.9 내보내기 · 13장' }] },
+        { title: 'API', rows: [{ k: 'POST', v: '/projects/{id}/exports' }] },
+        { title: 'CSV (13.1)', rows: [{ k: 'encoding', v: 'UTF-8 BOM (Excel 한글 호환)' }, { k: 'time', v: 'ISO 8601 + 영상 타임코드 동시 저장' }, { k: 'split', v: 'AI 원본값과 사용자 최종값 분리 열' }] },
+        { title: '개인정보 (19.1)', rows: [{ k: 'share', v: '공유용 이미지·클립·보고서는 얼굴·번호판 흐림 처리' }, { k: 'raw', v: '원본 영상 포함은 사용자 선택 (기본 제외)' }] }
+      ]
+    };
+    const QS = [
+      { text: '이 차선은 재도색이 필요한 상태인가요?', code: 'LANE_MARKING_FADED', sev: '중', conf: '0.61', forced: false },
+      { text: '도로 위 이 물체가 낙하물인가요?', code: 'ROAD_DEBRIS', sev: '긴급', conf: '0.84', forced: true },
+      { text: '표지판이 식생에 의해 가려졌나요?', code: 'SIGN_VEGETATION_OCCLUSION', sev: '중', conf: '0.73', forced: false },
+      { text: '이 글자는 「죽령터널」이 맞나요?', code: 'TUNNEL_IDENTITY', sev: '경', conf: '0.88', forced: false },
+      { text: '이 구간은 삭초가 필요한가요?', code: 'ROADSIDE_MOWING_REQUIRED', sev: '경', conf: '0.66', forced: false },
+      { text: 'AI가 표시한 포트홀 영역이 정확한가요?', code: 'POTHOLE', sev: '심', conf: '0.91', forced: false },
+      { text: '색깔유도선이 지워졌나요?', code: 'COLORED_GUIDANCE_FADED', sev: '중', conf: '0.75', forced: false }
+    ];
+    const qi = (this.state.qi || 0) % QS.length, q = QS[qi];
+    const next = () => this.setState({ qi: qi + 1 });
+    const mode = this.state.mode || '학습 보조';
+    const OPS = [
+      { op: 'fill_text', target: '문단 §1 조사 개요', value: '차량 고정 촬영 영상과 GPS 기록을 기반으로 노면·시설물·식생·차선 상태를 점검하였다.', src: 'ClaudeCodeProvider · ReportDraft §1' },
+      { op: 'fill_cell', target: 'table[0].cell(0,1) 점검일자', value: '2026-07-14', src: 'Trip.start_time · 결정적 매핑' },
+      { op: 'fill_cell', target: 'table[0].cell(0,3) 점검구간', value: '고속국도 1호선 320k→288k', src: 'GpsTrackPoint 역지오코딩' },
+      { op: 'fill_cell', target: 'table[0].cell(1,3) 검지건수', value: '9 건 (긴급 1) — 후보 셀 2개 충돌: 사용자 선택 필요', src: '규칙 엔진 · 후보 다중' },
+      { op: 'add_row', target: 'table[1] 유형별 집계 +6행', value: '노면 균열 1 · 방호울타리 1 · 표지판 가림 1 · 차선 1 · 유도선 1 · 삭초 1', src: 'Incident 집계 · final_severity 기준' },
+      { op: 'insert_image', target: 'picture_slot[0] 경로 지도', value: 'reports/renders/route_trip_002.png (1600×900)', src: 'MapLibre 정적 렌더' },
+      { op: 'insert_image', target: 'picture_slot[1] 대표 근거', value: 'evidence/share/INC-0423_blur.png', src: '비식별화 자산만 삽입' },
+      { op: 'fill_text', target: '문단 §4 검토자 메모', value: 'INC-0423 낙하물은 촬영 당일 도로관리청에 즉시 통보하였다.', src: 'ReviewAction 메모 · 사용자 입력' }
+    ];
+    const st = this.state.planSt || {};
+    return {
+      spec: SPEC2[sc] || SPEC[sc] || SPEC.home,
+      tiers: [
+        { tier: '공식', label: '로컬 MP4 / MOV', policy: '항상 지원', bg: G, fg: '#ffffff' },
+        { tier: '공식', label: '직접 다운로드 URL', policy: 'HEAD·범위 요청 + MIME 검사 후 지원', bg: G, fg: '#ffffff' },
+        { tier: '공식', label: 'Drive · Dropbox · OneDrive 공유', policy: '공급자 어댑터로 지원', bg: G, fg: '#ffffff' },
+        { tier: '조건부', label: '권리 보유 YouTube 링크', policy: '다운로드 가능 여부 + 권리 확인 후', bg: Y, fg: '#ffffff' },
+        { tier: '최선형', label: '일반 웹페이지 URL', policy: '미디어 후보를 찾을 수 있을 때만', bg: 'rgba(255,255,255,.14)', fg: '#1b1f2a' },
+        { tier: '제외', label: 'DRM · 암호화 · 권한 없는 비공개', policy: '거부하고 대체 입력 안내', bg: R, fg: '#ffffff' }
+      ],
+      inspect: [
+        { k: 'provider', v: 'google_drive', color: '#1b1f2a' }, { k: 'filename', v: 'trip_dl_01.mp4', color: '#1b1f2a' },
+        { k: 'size', v: '2.08 GB', color: '#1b1f2a' }, { k: 'duration', v: '00:12:40', color: '#1b1f2a' },
+        { k: 'resolution', v: '1920×1080 · 30fps', color: '#1b1f2a' }, { k: 'container', v: 'mp4 · h264 / aac', color: '#1b1f2a' },
+        { k: 'mime', v: 'video/mp4 (signature 일치)', color: G }, { k: 'save_to', v: '…/projects/P-2026-014/input/videos/', color: 'rgba(22,28,44,.82)' },
+        { k: 'sha-256', v: '9f3c…b71a (다운로드 후 확정)', color: 'rgba(22,28,44,.82)' }, { k: 'downloaded_at', v: '2026-07-22T10:04:11+09:00', color: 'rgba(22,28,44,.82)' }
+      ],
+      secChecks: [
+        { label: 'MIME · 파일 시그니처 일치', detail: 'ftypisom', mark: '✓', bg: G },
+        { label: '최대 용량 제한 (8 GB)', detail: '2.08 GB', mark: '✓', bg: G },
+        { label: '경로 정규화 · path traversal 거부', detail: 'ok', mark: '✓', bg: G },
+        { label: '실행 가능 파일 거부', detail: '.exe .bat .ps1 .lnk', mark: '✓', bg: G },
+        { label: '웹페이지 스크립트 실행 금지', detail: 'never', mark: '✓', bg: G },
+        { label: 'DRM · 권한 없는 콘텐츠 거부', detail: '미검출', mark: '✓', bg: G },
+        { label: '브라우저 세션·쿠키 읽기', detail: '사용하지 않음', mark: '—', bg: 'rgba(255,255,255,.2)' }
+      ],
+      modes: ['학습 보조', '전수 검토', '빠른 검토'].map(m => ({ label: m, set: () => this.setState({ mode: m }), bg: mode === m ? a : 'transparent', fg: mode === m ? '#ffffff' : 'rgba(22,28,44,.82)' })),
+      strip: [-3, -2, -1, 0, 1, 2, 3].map(k => ({ label: k === 0 ? '대표 f_00418' : (k > 0 ? '+' : '') + k, bd: k === 0 ? Y : 'rgba(255,255,255,.07)', fg: k === 0 ? Y : 'rgba(28,34,56,.62)' })),
+      qIndex: qi + 1, qText: q.text, qCode: C ? q.code : '유형 코드', qSev: q.sev, qConf: q.conf,
+      qForcedLabel: q.forced ? '강제 질문 · 낙하물·긴급' : (mode === '빠른 검토' ? '불확실 후보' : '초기 30건 전수'),
+      qForcedBg: q.forced ? R : 'rgba(255,255,255,.06)', qForcedFg: q.forced ? '#ffffff' : 'rgba(22,28,44,.82)',
+      ansYes: next, ansNo: next, ansUnsure: next, ansEdit: next,
+      progress: [
+        { label: '포트홀 · POTHOLE', n: '30 / 30', pct: 100, color: G },
+        { label: '노면 파손 · ROAD_SURFACE_DAMAGE', n: '30 / 30', pct: 100, color: G },
+        { label: '낙하물 · ROAD_DEBRIS', n: '12 / 30', pct: 40, color: R },
+        { label: '차선 마모 · LANE_MARKING_FADED', n: '24 / 30', pct: 80, color: Y },
+        { label: '색깔유도선 · COLORED_GUIDANCE_FADED', n: '9 / 30', pct: 30, color: Y },
+        { label: '식생 가림 · SIGN_VEGETATION_OCCLUSION', n: '18 / 30', pct: 60, color: Y },
+        { label: '삭초 · ROADSIDE_MOWING_REQUIRED', n: '27 / 30', pct: 90, color: G },
+        { label: '터널명 OCR · TUNNEL_IDENTITY', n: '30 / 30', pct: 100, color: G },
+        { label: '방호시설 · MEDIAN_BARRIER_DAMAGE', n: '6 / 30', pct: 20, color: R }
+      ],
+      steps: ['영상·GPX 검증과 프로젝트 등록', '시간 동기화', '후보 프레임 추출 (장면·흔들림·선명도)', '기본 5fps 분석', '의심 구간 ±2초 10fps 재분석', '도로·차선·시설물·식생 분할', '결함·낙하물 검지', '이정표·터널명 OCR', 'GPS·도로·방향 기반 OCR 검증', '프레임 검지 → 사건 병합', '질문 후보 생성·중복 제거', '사용자 질문 응답 → 라벨 변환', '사건 재평가·대표 증거 생성', '사용자 최종 검토', 'CSV · Trip Package · HWP/HWPX 생성']
+        .map((label, i) => {
+          const n = i + 1, done = n < 7, active = n === 7;
+          return {
+            n, label, meta: done ? ['1.2s', '0.4s', '3m 12s', '48m 06s', '9m 41s', '12m 18s'][i] || '' : (active ? '진행 중 · 4m 22s' : ''),
+            st: done ? 'DONE' : active ? '62%' : 'WAIT',
+            stFg: done ? G : active ? B : 'rgba(28,34,56,.62)', fg: done ? 'rgba(22,28,44,.82)' : active ? '#ffffff' : 'rgba(28,34,56,.64)',
+            rowBg: active ? 'linear-gradient(90deg,rgba(74,108,247,.14),rgba(74,108,247,.02))' : 'transparent',
+            dotBg: done ? G : active ? a : 'transparent', dotFg: done || active ? '#ffffff' : 'rgba(28,34,56,.62)',
+            dotBd: done || active ? 'transparent' : 'rgba(255,255,255,.14)'
+          };
+        }),
+      analysisKpis: [
+        { label: '처리 프레임', value: '18,442', sub: '5fps + 재분석 2,106', color: '#11131b' },
+        { label: '원시 검지', value: '1,284', sub: 'Detection 행', color: '#11131b' },
+        { label: '병합 사건', value: '37', sub: '중복 생성률 3.1%', color: '#11131b' },
+        { label: '예상 남은 시간', value: '38분', sub: '1시간 영상 ≤ 2시간', color: B }
+      ],
+      logs: [
+        { t: '10:41:02', lvl: 'INFO', color: 'oklch(0.43 0.18 258)', msg: 'job j_5512 stage=7 detect start · model tv-seg/v7 · onnx cuda' },
+        { t: '10:41:44', lvl: 'INFO', color: 'oklch(0.43 0.18 258)', msg: 'batch 128/301 · 14.2 fps · vram 8.4GB' },
+        { t: '10:42:10', lvl: 'WARN', color: 'oklch(0.45 0.13 72)', msg: 'vram 11.6GB 근접 → imgsz 1280→1024, batch 8→6 하향 후 재개' },
+        { t: '10:42:11', lvl: 'INFO', color: 'oklch(0.43 0.18 258)', msg: 'resume from checkpoint stage7.batch128' },
+        { t: '10:43:29', lvl: 'INFO', color: 'oklch(0.43 0.18 258)', msg: 'incident merge rule 3s/20m · 1284 detections → 37 incidents' },
+        { t: '10:43:30', lvl: 'WARN', color: 'oklch(0.45 0.13 72)', msg: 'gps gap 12:05–13:12 (67s 간격) → GPS_MISSING 표시, 보간 생략' },
+        { t: '10:44:02', lvl: 'INFO', color: 'oklch(0.43 0.18 258)', msg: 'ocr paddle-ko 4건 · VERIFIED 3 · UNVERIFIED 1' },
+        { t: '10:44:18', lvl: 'ERROR', color: 'oklch(0.45 0.2 28)', msg: 'reverse geocode 429 · 좌표 유지 · road_name 비움 (7.6)' },
+        { t: '10:44:19', lvl: 'INFO', color: 'oklch(0.43 0.18 258)', msg: 'question candidates 147 · forced 18 (debris/urgent)' }
+      ],
+      mergeChips: [1, 2, 3, 4, 5, 6, 7].map(k => ({ label: 'det_' + (8810 + k) })),
+      verifyStates: [
+        { label: 'VERIFIED', bg: G, fg: '#ffffff' }, { label: 'PROBABLE', bg: 'rgba(40,180,120,.22)', fg: 'oklch(0.4 0.13 158)' },
+        { label: 'UNVERIFIED', bg: 'rgba(255,255,255,.12)', fg: 'rgba(18,22,36,.92)' }, { label: 'CONFLICT', bg: R, fg: '#ffffff' },
+        { label: 'MANUAL_CONFIRMED', bg: 'rgba(74,108,247,.22)', fg: B }
+      ],
+      compare: [
+        { field: 'incident_type', ai: 'ROAD_DEBRIS', answer: '예 (승인)', final: 'ROAD_DEBRIS', finalColor: '#11131b' },
+        { field: 'subtype', ai: 'UNKNOWN_DEBRIS', answer: '유형 변경', final: '타이어 파편', finalColor: 'oklch(0.42 0.19 262)' },
+        { field: 'severity', ai: '심 (0.84)', answer: '긴급으로 상향', final: '긴급', finalColor: 'oklch(0.78 0.16 30)' },
+        { field: 'action', ai: '긴급 제거·안전 확인', answer: '동일', final: '긴급 제거·안전 확인', finalColor: '#11131b' },
+        { field: 'geometry', ai: 'mask 0.42/0.62 · 1.8% 면적', answer: '영역 수정 1회', final: 'mask 2.1% · point-prompt', finalColor: 'oklch(0.42 0.19 262)' },
+        { field: 'lane_overlap', ai: '주행 경로와 직접 겹침', answer: '확인', final: '2차로 중앙', finalColor: '#11131b' },
+        { field: 'persist_frames', ai: '7 프레임', answer: '—', final: '7 프레임', finalColor: '#11131b' },
+        { field: 'gps_status', ai: 'OK · 20m 이내', answer: '—', final: 'OK', finalColor: '#11131b' },
+        { field: 'include_in_training', ai: '—', answer: '포함', final: 'true · CONFIRMED', finalColor: 'oklch(0.4 0.13 158)' },
+        { field: 'anonymize', ai: '얼굴 0 · 번호판 2', answer: '추가 흐림 1', final: '번호판 3 흐림', finalColor: 'oklch(0.42 0.19 262)' }
+      ],
+      gates: [
+        { label: '새 확정 라벨 100건 이상', value: '214건', mark: '✓', bg: G, color: G },
+        { label: '유형별 검증 표본 30건 이상', value: '7 / 9 유형', mark: '!', bg: Y, color: Y },
+        { label: '고정 검증·테스트 세트 존재', value: 'ds_014', mark: '✓', bg: G, color: G },
+        { label: '클래스 불균형 경고', value: 'DEBRIS 낮음', mark: '!', bg: Y, color: Y },
+        { label: '프로젝트 격리 (project_id 경로)', value: 'P-2026-014', mark: '✓', bg: G, color: G }
+      ],
+      dist: [
+        { code: 'POTHOLE', n: '412', pct: 100, color: G }, { code: 'ROAD_SURFACE_DAMAGE', n: '388', pct: 94, color: G },
+        { code: 'LANE_MARKING_FADED', n: '276', pct: 67, color: G }, { code: 'ROADSIDE_MOWING_REQUIRED', n: '241', pct: 58, color: G },
+        { code: 'SIGN_VEGETATION_OCCLUSION', n: '164', pct: 40, color: Y }, { code: 'COLORED_GUIDANCE_FADED', n: '121', pct: 29, color: Y },
+        { code: 'TUNNEL_IDENTITY', n: '96', pct: 23, color: Y }, { code: 'MEDIAN_BARRIER_DAMAGE', n: '58', pct: 14, color: R },
+        { code: 'ROAD_DEBRIS', n: '41', pct: 10, color: R }, { code: 'SIGN_DAMAGE', n: '33', pct: 8, color: R }
+      ],
+      perf: [
+        { code: 'POTHOLE', v7: '0.912', v8: '0.934', delta: '+2.2%p', dColor: G, prec: '0.871', dup: '2.8%', dupColor: 'rgba(22,28,44,.82)', rowBg: 'transparent' },
+        { code: 'ROAD_SURFACE_DAMAGE', v7: '0.884', v8: '0.901', delta: '+1.7%p', dColor: G, prec: '0.842', dup: '3.4%', dupColor: 'rgba(22,28,44,.82)', rowBg: 'transparent' },
+        { code: 'ROAD_DEBRIS', v7: '0.806', v8: '0.848', delta: '+4.2%p', dColor: G, prec: '0.794', dup: '4.1%', dupColor: 'rgba(22,28,44,.82)', rowBg: 'transparent' },
+        { code: 'LANE_MARKING_FADED', v7: '0.871', v8: '0.869', delta: '−0.2%p', dColor: 'rgba(22,28,44,.82)', prec: '0.818', dup: '3.0%', dupColor: 'rgba(22,28,44,.82)', rowBg: 'transparent' },
+        { code: 'COLORED_GUIDANCE_FADED', v7: '0.792', v8: '0.831', delta: '+3.9%p', dColor: G, prec: '0.776', dup: '4.6%', dupColor: 'rgba(22,28,44,.82)', rowBg: 'transparent' },
+        { code: 'SIGN_DAMAGE', v7: '0.834', v8: '0.803', delta: '−3.1%p', dColor: R, prec: '0.788', dup: '5.8%', dupColor: R, rowBg: 'rgba(226,80,58,.09)' },
+        { code: 'SIGN_VEGETATION_OCCLUSION', v7: '0.848', v8: '0.861', delta: '+1.3%p', dColor: G, prec: '0.802', dup: '3.2%', dupColor: 'rgba(22,28,44,.82)', rowBg: 'transparent' },
+        { code: 'ROADSIDE_MOWING_REQUIRED', v7: '0.902', v8: '0.914', delta: '+1.2%p', dColor: G, prec: '0.864', dup: '2.4%', dupColor: 'rgba(22,28,44,.82)', rowBg: 'transparent' },
+        { code: 'MEDIAN_BARRIER_DAMAGE', v7: '0.766', v8: '0.771', delta: '+0.5%p', dColor: G, prec: '0.742', dup: '4.9%', dupColor: 'rgba(22,28,44,.82)', rowBg: 'transparent' },
+        { code: 'TUNNEL_IDENTITY (OCR)', v7: '0.918', v8: '0.926', delta: '+0.8%p', dColor: G, prec: '0.941', dup: '1.2%', dupColor: 'rgba(22,28,44,.82)', rowBg: 'transparent' }
+      ],
+      modelCards: [
+        { ver: 'v8', state: 'CANDIDATE', ds: 'ds_014 · 1,830장', date: '2026-07-22 학습', hash: 'sha 4c1e…9d02', bd: 'rgba(74,108,247,.42)', bg: 'rgba(74,108,247,.2)', fg: B },
+        { ver: 'v7', state: 'ACTIVE', ds: 'ds_012 · 1,616장', date: '2026-07-09 승격', hash: 'sha 81ba…37f5', bd: 'rgba(40,180,120,.45)', bg: 'rgba(40,180,120,.22)', fg: 'oklch(0.4 0.13 158)' },
+        { ver: 'v6', state: 'ARCHIVED', ds: 'ds_009 · 1,204장', date: '2026-06-24', hash: 'sha 2f77…ac10', bd: 'rgba(255,255,255,.07)', bg: 'rgba(255,255,255,.1)', fg: 'rgba(22,28,44,.82)' },
+        { ver: 'base', state: 'BASE', ds: '공통 초기 모델 복제', ds2: '', date: 'yolo26s-seg 1280', hash: 'sha 0ab9…5511', bd: 'rgba(255,255,255,.07)', bg: 'rgba(255,255,255,.1)', fg: 'rgba(22,28,44,.82)' }
+      ],
+      sendData: [
+        { label: '승인 사건 JSON (9건)', bg: 'rgba(40,180,120,.18)', fg: 'oklch(0.4 0.13 158)' },
+        { label: 'OCR 결과 (4건)', bg: 'rgba(40,180,120,.18)', fg: 'oklch(0.4 0.13 158)' },
+        { label: '비식별화 이미지 (6장)', bg: 'rgba(40,180,120,.18)', fg: 'oklch(0.4 0.13 158)' },
+        { label: '문서 구조 요약', bg: 'rgba(40,180,120,.18)', fg: 'oklch(0.4 0.13 158)' },
+        { label: '원본 영상 — 전송하지 않음', bg: 'rgba(226,80,58,.13)', fg: 'oklch(0.47 0.19 28)' },
+        { label: '개인정보 원본 — 전송하지 않음', bg: 'rgba(226,80,58,.13)', fg: 'oklch(0.47 0.19 28)' }
+      ],
+      plan: OPS.map((o, i) => {
+        const s = st[i] || (i === 3 ? '충돌' : '대기');
+        return {
+          op: o.op, target: o.target, value: o.value, src: o.src, st: s,
+          stBg: s === '수락' ? 'rgba(40,180,120,.2)' : s === '거절' ? 'rgba(226,80,58,.14)' : s === '충돌' ? 'rgba(206,142,32,.2)' : 'rgba(255,255,255,.07)',
+          stFg: s === '수락' ? 'oklch(0.4 0.13 158)' : s === '거절' ? 'oklch(0.47 0.19 28)' : s === '충돌' ? Y : 'rgba(22,28,44,.82)',
+          rowBg: s === '수락' ? 'rgba(40,180,120,.08)' : s === '거절' ? 'rgba(226,80,58,.05)' : 'transparent',
+          accept: () => this.setState(p => ({ planSt: Object.assign({}, p.planSt, { [i]: '수락' }) })),
+          reject: () => this.setState(p => ({ planSt: Object.assign({}, p.planSt, { [i]: '거절' }) }))
+        };
+      }),
+      planCount: '수락 ' + Object.values(st).filter(v => v === '수락').length + ' / 거절 ' + Object.values(st).filter(v => v === '거절').length + ' / 대기 ' + (OPS.length - Object.keys(st).length),
+      acceptAll: () => this.setState({ planSt: { 0: '수락', 1: '수락', 2: '수락', 3: '충돌', 4: '수락', 5: '수락', 6: '수락', 7: '수락' } }),
+      resetPlan: () => this.setState({ planSt: {} }),
+      tree: [
+        { name: 'project.sqlite3', note: '데이터 계약 기준', indent: 0, color: 'rgba(18,22,36,.92)' },
+        { name: 'manifest.json', note: 'schema · provenance', indent: 0, color: 'rgba(18,22,36,.92)' },
+        { name: 'input/', note: 'videos · gps · sources.json', indent: 0, color: 'rgba(24,30,48,.76)' },
+        { name: 'analysis/', note: 'frames · clips · detections', indent: 0, color: 'rgba(24,30,48,.76)' },
+        { name: 'labels/', note: 'questions · annotations · datasets', indent: 0, color: 'rgba(24,30,48,.76)' },
+        { name: 'models/', note: 'base · candidates · active · archived', indent: 0, color: 'rgba(24,30,48,.76)' },
+        { name: 'evidence/', note: 'internal · share', indent: 0, color: 'rgba(24,30,48,.76)' },
+        { name: 'reports/', note: 'drafts · hwpx · hwp · renders', indent: 0, color: 'rgba(24,30,48,.76)' },
+        { name: 'exports/', note: '', indent: 0, color: '#11131b' },
+        { name: 'raw_detections.csv', note: 'AI 원시', indent: 14, color: 'rgba(18,22,36,.92)' },
+        { name: 'reviewed_incidents.csv', note: '사용자 최종', indent: 14, color: 'rgba(18,22,36,.92)' },
+        { name: 'label_questions.csv', note: '질문·정책', indent: 14, color: 'rgba(18,22,36,.92)' },
+        { name: 'annotations.csv', note: '학습 라벨', indent: 14, color: 'rgba(18,22,36,.92)' },
+        { name: 'ocr_observations.csv', note: '원문·검증', indent: 14, color: 'rgba(18,22,36,.92)' },
+        { name: 'route_points.csv', note: 'WGS84', indent: 14, color: 'rgba(18,22,36,.92)' },
+        { name: 'maintenance_actions.csv', note: '제안·확정', indent: 14, color: 'rgba(18,22,36,.92)' },
+        { name: 'report_payload.json', note: '보고서 입력', indent: 14, color: 'rgba(18,22,36,.92)' },
+        { name: 'logs/', note: 'job · com journal', indent: 0, color: 'rgba(24,30,48,.76)' }
+      ],
+      csvRules: [
+        { label: 'UTF-8 BOM · Excel 한글 호환' }, { label: 'ISO 8601 + 영상 타임코드 병기' },
+        { label: '위·경도 WGS84 원본 보존' }, { label: 'AI 원본값 / 사용자 최종값 열 분리' },
+        { label: '사건 행 ↔ 근거 이미지·클립 연결' }, { label: 'schema_version · dataset · model provenance' }
+      ],
+      pkg: [
+        { label: '검토 완료 사건 (9건)', size: '24 KB', mark: '✓', bg: G }, { label: '경로·지도 데이터', size: '1.1 MB', mark: '✓', bg: G },
+        { label: '비식별화 증거 이미지', size: '18.4 MB', mark: '✓', bg: G }, { label: '전후 클립 (5s × 9)', size: '96 MB', mark: '✓', bg: G },
+        { label: 'CSV 7종 + report_payload', size: '2.8 MB', mark: '✓', bg: G }, { label: '원본 영상', size: '2.08 GB', mark: '—', bg: 'rgba(255,255,255,.2)' }
+      ],
+      artifacts: [
+        { name: 'raw_detections.csv', rows: '1,284', size: '412 KB', hash: '7d21…a09c · bridge/exports' },
+        { name: 'reviewed_incidents.csv', rows: '9', size: '18 KB', hash: 'b13f…4e72 · user kim' },
+        { name: 'label_questions.csv', rows: '147', size: '54 KB', hash: '0c88…91da · bridge/labeling' },
+        { name: 'annotations.csv', rows: '214', size: '76 KB', hash: '4a5e…c330 · ds_014' },
+        { name: 'ocr_observations.csv', rows: '4', size: '6 KB', hash: 'e902…1b47 · paddle-ko' },
+        { name: 'route_points.csv', rows: '8,942', size: '1.2 MB', hash: '55c1…7fa8 · gpx 원본 해시 보존' },
+        { name: 'maintenance_actions.csv', rows: '9', size: '9 KB', hash: '3fd0…2c61 · final_action' },
+        { name: 'trip_package_P-2026-014.zip', rows: '—', size: '118 MB', hash: 'aa47…d115 · manifest 포함' },
+        { name: '점검보고서_2026-07.hwpx', rows: '12p', size: '4.4 MB', hash: '6b2c…8e90 · 렌더 검증 통과' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

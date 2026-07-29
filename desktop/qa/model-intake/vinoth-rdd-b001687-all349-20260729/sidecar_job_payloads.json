@@ -1,0 +1,374 @@
+{
+  "automatic_labeling_allowed": false,
+  "evaluation_id": "vinoth-rdd-b001687-all349-20260729",
+  "jobs": [
+    {
+      "analysis_job_id": "14b8a449-d52b-43d5-b540-cd9de55daf13",
+      "dataset": null,
+      "evaluation": {
+        "evaluation_id": "vinoth-rdd-b001687-all349-20260729",
+        "producer": "trafficvisson-candidate-evaluator",
+        "producer_version": "0.2.0"
+      },
+      "model": {
+        "manifest_sha256": "0cdba1051a59836170786d42c78b02f78bf480a23bf9aeb91ca5712e4e37a0b7",
+        "pack_id": "vinothvikas1987-rdd-yolov8s-eval",
+        "pack_version": "b001687.review-only",
+        "provider": "onnx_yolo_v8"
+      },
+      "project_id": "11111111-1111-4111-8111-111111111111",
+      "proposals": [
+        {
+          "candidate_id": "d9103ec21f1496d2824b",
+          "predictions": [
+            {
+              "box": {
+                "height": 0.20720413,
+                "width": 0.23691031,
+                "x": 0.40182781,
+                "y": 0.79228295
+              },
+              "calibration": "model_score",
+              "issue_type": "road_surface_damage",
+              "model_score": 0.71567941,
+              "relative_score": null,
+              "source_label": "거북등 균열"
+            }
+          ],
+          "status": "classified"
+        },
+        {
+          "candidate_id": "f4b7c403d11d65ef36d7",
+          "predictions": [
+            {
+              "box": {
+                "height": 0.45315244,
+                "width": 0.21241169,
+                "x": 0.61458588,
+                "y": 0.03610204
+              },
+              "calibration": "model_score",
+              "issue_type": "pothole",
+              "model_score": 0.43814194,
+              "relative_score": null,
+              "source_label": "포트홀"
+            }
+          ],
+          "status": "classified"
+        }
+      ]
+    },
+    {
+      "analysis_job_id": "1770c34a-0761-4b52-b5f5-e68885b8c8b0",
+      "dataset": null,
+      "evaluation": {
+        "evaluation_id": "vinoth-rdd-b001687-all349-20260729",
+        "producer": "trafficvisson-candidate-evaluator",
+        "producer_version": "0.2.0"
+      },
+      "model": {
+        "manifest_sha256": "0cdba1051a59836170786d42c78b02f78bf480a23bf9aeb91ca5712e4e37a0b7",
+        "pack_id": "vinothvikas1987-rdd-yolov8s-eval",
+        "pack_version": "b001687.review-only",
+        "provider": "onnx_yolo_v8"
+      },
+      "project_id": "11111111-1111-4111-8111-111111111111",
+      "proposals": [
+        {
+          "candidate_id": "02f5ae4b287313a8796d",
+          "predictions": [
+            {
+              "box": {
+                "height": 0.20029732,
+                "width": 0.03762293,
+                "x": 0.47544203,
+                "y": 0.79865875
+              },
+              "calibration": "model_score",
+              "issue_type": "road_surface_damage",
+              "model_score": 0.6138804,
+              "relative_score": null,
+              "source_label": "종방향 균열"
+            }
+          ],
+          "status": "classified"
+        }
+      ]
+    },
+    {
+      "analysis_job_id": "3ed1572a-cfdf-4009-86f0-9cc72b69c43d",
+      "dataset": null,
+      "evaluation": {
+        "evaluation_id": "vinoth-rdd-b001687-all349-20260729",
+        "producer": "trafficvisson-candidate-evaluator",
+        "producer_version": "0.2.0"
+      },
+      "model": {
+        "manifest_sha256": "0cdba1051a59836170786d42c78b02f78bf480a23bf9aeb91ca5712e4e37a0b7",
+        "pack_id": "vinothvikas1987-rdd-yolov8s-eval",
+        "pack_version": "b001687.review-only",
+        "provider": "onnx_yolo_v8"
+      },
+      "project_id": "11111111-1111-4111-8111-111111111111",
+      "proposals": [
+        {
+          "candidate_id": "5c69e96e3e08cc9674a7",
+          "predictions": [
+            {
+              "box": {
+                "height": 0.1662774,
+                "width": 0.02958275,
+                "x": 0.50990839,
+                "y": 0.82046984
+              },
+              "calibration": "model_score",
+              "issue_type": "road_surface_damage",
+              "model_score": 0.5886991,
+              "relative_score": null,
+              "source_label": "종방향 균열"
+            }
+          ],
+          "status": "classified"
+        }
+      ]
+    },
+    {
+      "analysis_job_id": "4357290d-7b9e-42e3-99fa-4a00ba2332b5",
+      "dataset": null,
+      "evaluation": {
+        "evaluation_id": "vinoth-rdd-b001687-all349-20260729",
+        "producer": "trafficvisson-candidate-evaluator",
+        "producer_version": "0.2.0"
+      },
+      "model": {
+        "manifest_sha256": "0cdba1051a59836170786d42c78b02f78bf480a23bf9aeb91ca5712e4e37a0b7",
+        "pack_id": "vinothvikas1987-rdd-yolov8s-eval",
+        "pack_version": "b001687.review-only",
+        "provider": "onnx_yolo_v8"
+      },
+      "project_id": "11111111-1111-4111-8111-111111111111",
+      "proposals": [
+        {
+          "candidate_id": "4a9f8cc43a2c63505d12",
+          "predictions": [
+            {
+              "box": {
+                "height": 0.1273468,
+                "width": 0.05371437,
+                "x": 0.76455657,
+                "y": 0.87226223
+              },
+              "calibration": "model_score",
+              "issue_type": "road_surface_damage",
+              "model_score": 0.41332948,
+              "relative_score": null,
+              "source_label": "종방향 균열"
+            }
+          ],
+          "status": "classified"
+        }
+      ]
+    },
+    {
+      "analysis_job_id": "702ea296-7ef7-46e1-a222-e71245bcaaf3",
+      "dataset": null,
+      "evaluation": {
+        "evaluation_id": "vinoth-rdd-b001687-all349-20260729",
+        "producer": "trafficvisson-candidate-evaluator",
+        "producer_version": "0.2.0"
+      },
+      "model": {
+        "manifest_sha256": "0cdba1051a59836170786d42c78b02f78bf480a23bf9aeb91ca5712e4e37a0b7",
+        "pack_id": "vinothvikas1987-rdd-yolov8s-eval",
+        "pack_version": "b001687.review-only",
+        "provider": "onnx_yolo_v8"
+      },
+      "project_id": "11111111-1111-4111-8111-111111111111",
+      "proposals": [
+        {
+          "candidate_id": "f3d3e6f8c8740947ebcb",
+          "predictions": [
+            {
+              "box": {
+                "height": 0.22440559,
+                "width": 0.0723423,
+                "x": 0.65943146,
+                "y": 0.77251383
+              },
+              "calibration": "model_score",
+              "issue_type": "road_surface_damage",
+              "model_score": 0.48484743,
+              "relative_score": null,
+              "source_label": "종방향 균열"
+            }
+          ],
+          "status": "classified"
+        }
+      ]
+    },
+    {
+      "analysis_job_id": "cb9fcc57-912a-4c93-966d-e2dada5dedca",
+      "dataset": null,
+      "evaluation": {
+        "evaluation_id": "vinoth-rdd-b001687-all349-20260729",
+        "producer": "trafficvisson-candidate-evaluator",
+        "producer_version": "0.2.0"
+      },
+      "model": {
+        "manifest_sha256": "0cdba1051a59836170786d42c78b02f78bf480a23bf9aeb91ca5712e4e37a0b7",
+        "pack_id": "vinothvikas1987-rdd-yolov8s-eval",
+        "pack_version": "b001687.review-only",
+        "provider": "onnx_yolo_v8"
+      },
+      "project_id": "11111111-1111-4111-8111-111111111111",
+      "proposals": [
+        {
+          "candidate_id": "44b77933dedfe8e9fed2",
+          "predictions": [
+            {
+              "box": {
+                "height": 0.17207625,
+                "width": 0.09615746,
+                "x": 0.41413326,
+                "y": 0.82140554
+              },
+              "calibration": "model_score",
+              "issue_type": "road_surface_damage",
+              "model_score": 0.56300527,
+              "relative_score": null,
+              "source_label": "종방향 균열"
+            },
+            {
+              "box": {
+                "height": 0.10469796,
+                "width": 0.11965694,
+                "x": 0.27505229,
+                "y": 0.84928572
+              },
+              "calibration": "model_score",
+              "issue_type": "road_surface_damage",
+              "model_score": 0.5381639,
+              "relative_score": null,
+              "source_label": "종방향 균열"
+            }
+          ],
+          "status": "classified"
+        }
+      ]
+    },
+    {
+      "analysis_job_id": "dab693b8-7a3d-440b-9c1a-b19f42a69744",
+      "dataset": null,
+      "evaluation": {
+        "evaluation_id": "vinoth-rdd-b001687-all349-20260729",
+        "producer": "trafficvisson-candidate-evaluator",
+        "producer_version": "0.2.0"
+      },
+      "model": {
+        "manifest_sha256": "0cdba1051a59836170786d42c78b02f78bf480a23bf9aeb91ca5712e4e37a0b7",
+        "pack_id": "vinothvikas1987-rdd-yolov8s-eval",
+        "pack_version": "b001687.review-only",
+        "provider": "onnx_yolo_v8"
+      },
+      "project_id": "11111111-1111-4111-8111-111111111111",
+      "proposals": [
+        {
+          "candidate_id": "a31fc5e2d143b30b76d3",
+          "predictions": [
+            {
+              "box": {
+                "height": 0.25749003,
+                "width": 0.04482632,
+                "x": 0.4954937,
+                "y": 0.00141678
+              },
+              "calibration": "model_score",
+              "issue_type": "road_surface_damage",
+              "model_score": 0.4362818,
+              "relative_score": null,
+              "source_label": "종방향 균열"
+            }
+          ],
+          "status": "classified"
+        }
+      ]
+    },
+    {
+      "analysis_job_id": "ddac3a90-9a9b-41f3-bf9f-85508336e2b9",
+      "dataset": null,
+      "evaluation": {
+        "evaluation_id": "vinoth-rdd-b001687-all349-20260729",
+        "producer": "trafficvisson-candidate-evaluator",
+        "producer_version": "0.2.0"
+      },
+      "model": {
+        "manifest_sha256": "0cdba1051a59836170786d42c78b02f78bf480a23bf9aeb91ca5712e4e37a0b7",
+        "pack_id": "vinothvikas1987-rdd-yolov8s-eval",
+        "pack_version": "b001687.review-only",
+        "provider": "onnx_yolo_v8"
+      },
+      "project_id": "11111111-1111-4111-8111-111111111111",
+      "proposals": [
+        {
+          "candidate_id": "c40c427450498368eb62",
+          "predictions": [
+            {
+              "box": {
+                "height": 0.0326633,
+                "width": 0.05679569,
+                "x": 0.92963219,
+                "y": 0.89651376
+              },
+              "calibration": "model_score",
+              "issue_type": "pothole",
+              "model_score": 0.45186797,
+              "relative_score": null,
+              "source_label": "포트홀"
+            }
+          ],
+          "status": "classified"
+        }
+      ]
+    },
+    {
+      "analysis_job_id": "fa1e28f6-bcf0-438d-87a8-b37a73629095",
+      "dataset": null,
+      "evaluation": {
+        "evaluation_id": "vinoth-rdd-b001687-all349-20260729",
+        "producer": "trafficvisson-candidate-evaluator",
+        "producer_version": "0.2.0"
+      },
+      "model": {
+        "manifest_sha256": "0cdba1051a59836170786d42c78b02f78bf480a23bf9aeb91ca5712e4e37a0b7",
+        "pack_id": "vinothvikas1987-rdd-yolov8s-eval",
+        "pack_version": "b001687.review-only",
+        "provider": "onnx_yolo_v8"
+      },
+      "project_id": "11111111-1111-4111-8111-111111111111",
+      "proposals": [
+        {
+          "candidate_id": "448c7a7dbc738bd12ae0",
+          "predictions": [
+            {
+              "box": {
+                "height": 0.15801505,
+                "width": 0.08824196,
+                "x": 0.60444946,
+                "y": 0.83711209
+              },
+              "calibration": "model_score",
+              "issue_type": "road_surface_damage",
+              "model_score": 0.47410506,
+              "relative_score": null,
+              "source_label": "종방향 균열"
+            }
+          ],
+          "status": "classified"
+        }
+      ]
+    }
+  ],
+  "recorded": false,
+  "review_only": true,
+  "schema_version": "trafficvisson.candidate-model-evaluation.v1"
+}

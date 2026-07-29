@@ -1,0 +1,34 @@
+{
+  "artifacts": [
+    {
+      "path": "all-boxes-contact-sheet-001.jpg",
+      "sha256": "e23c6520623440377e8f0e7c45a5afdacfe903c5fff4aaf89726e54f51b7a6ba",
+      "size_bytes": 901012
+    },
+    {
+      "path": "manual-visual-review.csv",
+      "sha256": "82f634cce84435b45636837ff39c526715827b6366f00dea3861858eea645d54",
+      "size_bytes": 2434
+    },
+    {
+      "path": "intake-run-summary.json",
+      "sha256": "ddb4fa5120261034b76900a9016b0efc7de700173b381826e546a26b92cf3c3a",
+      "size_bytes": 1175
+    },
+    {
+      "path": "VISUAL_REVIEW.md",
+      "sha256": "e6331962072ad63bbfa8a67b35e366aabc3537c27a8d28bc54daf1d895bdcb99",
+      "size_bytes": 4079
+    }
+  ],
+  "generated_at": "2026-07-28T20:14:30.890204Z",
+  "purpose": "manual_visual_review_supplement",
+  "schema_version": "trafficvisson.vinoth-rdd-manual-review.v1",
+  "side_effects": {
+    "automatic_labels_created": 0,
+    "incidents_created": 0,
+    "model_promoted": false,
+    "user_data_modified": false
+  },
+  "source_predictions_sha256": "cb6e54f344de88b3d2255b79acd9b318eaa00c755464e5a509692d3a0002337c"
+}

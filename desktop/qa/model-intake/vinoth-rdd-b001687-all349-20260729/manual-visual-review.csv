@@ -1,0 +1,12 @@
+﻿review_index,evaluation_candidate_id,source_file_name,timestamp_seconds,box_index,model_issue_type,source_label,model_score,verdict,reason,automatic_label_created
+1,157bd4050e3c1c2b39dd,20250827_101646.mp4,0.0,1,road_surface_damage,거북등 균열,0.71567941,ambiguous_possible_positive,"박스 안에 실제 균열 또는 패치 경계가 보이지만, 단일 프레임만으로 거북등 균열인지 정상 보수 흔적인지 확정할 수 없음",False
+2,8412381db68c78e71aaa,20250916_114050.mp4,0.0,1,road_surface_damage,종방향 균열,0.6138804,false_positive,종방향 균열이 아니라 라바콘과 흰색 노면표시 경계를 검지함,False
+3,fa0fb04332ff4da29bcd,20250916_130720.mp4,84.1622,1,road_surface_damage,종방향 균열,0.5886991,false_positive,종방향 균열이 아니라 화물차 뒤 차선과 그림자 경계를 검지함,False
+4,843ec500514ecb3d1da7,20250916_132307.mp4,222.09,1,road_surface_damage,종방향 균열,0.56300527,false_positive,두 박스 모두 노면 균열이 아니라 차선과 명암 경계를 검지함,False
+4,843ec500514ecb3d1da7,20250916_132307.mp4,222.09,2,road_surface_damage,종방향 균열,0.5381639,false_positive,두 박스 모두 노면 균열이 아니라 차선과 명암 경계를 검지함,False
+5,ac751af6daf4f83bbc71,20250827_113138.mp4,0.0,1,road_surface_damage,종방향 균열,0.48484743,false_positive,종방향 균열이 아니라 적색 색깔유도선과 백색 차선 경계를 검지함,False
+6,ea913e2a3d31de279bc4,20250827_130742.mp4,0.0,1,road_surface_damage,종방향 균열,0.47410506,false_positive,종방향 균열이 아니라 차량 뒤쪽 차선과 노면 명암 경계를 검지함,False
+7,1977b8217abf1d1c516a,20250820_144754.mp4,769.62,1,pothole,포트홀,0.45186797,false_positive,포트홀 근거가 없는 영상 우하단 가장자리의 작은 영역임,False
+8,1ad7a72c27ef1cd3d1f8,20250827_101646.mp4,1000.87,1,pothole,포트홀,0.43814194,false_positive,포트홀이 아니라 터널 천장과 조명 열을 검지함,False
+9,07f16839fed670c62abd,20250916_104321.mp4,383.997,1,road_surface_damage,종방향 균열,0.4362818,false_positive,종방향 균열이 아니라 터널 천장 조명 열을 검지함,False
+10,51ab0075116d3d2d320c,20250820_113638.mp4,353.979,1,road_surface_damage,종방향 균열,0.41332948,false_positive,도로 손상 근거가 없는 영상 하단 가장자리의 작은 영역임,False

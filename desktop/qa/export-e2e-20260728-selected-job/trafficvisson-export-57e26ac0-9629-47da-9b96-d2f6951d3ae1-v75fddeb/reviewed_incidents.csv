@@ -1,0 +1,1 @@
+﻿incident_id,trip_id,detection_ids,event_type,severity,maintenance_required,recommended_action,review_status,start_ms,end_ms,latitude,longitude,evidence_image_ref,preview_clip_ref,ocr_text,location_validation,model_version_id,reviewed_at

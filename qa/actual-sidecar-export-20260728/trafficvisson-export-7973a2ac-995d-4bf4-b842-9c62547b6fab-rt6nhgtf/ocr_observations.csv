@@ -1,0 +1,1 @@
+﻿ocr_observation_id,trip_id,incident_id,timestamp_ms,raw_text,normalized_text,candidate_name,kind,confidence,verified,verification_source,region,model_version_id

@@ -1,0 +1,44 @@
+# JavaScript dependencies
+desktop/node_modules/
+
+# Python bytecode and test caches
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+**/.pytest_cache/
+
+# Renderer and Electron build outputs
+desktop/dist/
+desktop/release/
+desktop/release-icon-preview/
+
+# Frozen Python bridge / ONNX runner outputs
+# Keep desktop/build/icon.ico and icon-source.png: package.json uses the ICO.
+desktop/build/bridge/
+desktop/build/command-proposal-runner/
+desktop/build/command-proposal-runner-dist/
+desktop/build/command-proposal-runner-work/
+desktop/build/pyinstaller-work/
+desktop/build/command-proposal-runner.sha256
+
+# Failed/local packaging artifacts
+desktop/qa/packaging-attempts/
+desktop/qa/model-intake/**/*.onnx
+qa/dense-index-*-smoke/
+
+# Local browser, generated media, and scratch outputs
+.playwright-cli/
+tmp/
+output/
+*.log
+
+# Large user-provided report sources are local reference material.
+# The smaller rendered PDFs may remain as review fixtures.
+sample/*.hwpx
+
+# Local OS/editor noise
+Thumbs.db
+Desktop.ini
+.DS_Store
+*.swp
+*.tmp

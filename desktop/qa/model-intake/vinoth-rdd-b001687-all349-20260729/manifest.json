@@ -1,0 +1,44 @@
+{
+  "artifacts": [
+    {
+      "path": "EVALUATION.md",
+      "sha256": "adf1ea24b19401b3cc09af41dd44a8c62ccc7534108a0a8a176e52d68bc5a89b",
+      "size_bytes": 2572
+    },
+    {
+      "path": "candidate_scores.csv",
+      "sha256": "5cc5206f31caf161a28242823a03deb1aee0c3307ae1d8085d7180b45ce3ae58",
+      "size_bytes": 143737
+    },
+    {
+      "path": "predictions.json",
+      "sha256": "cb6e54f344de88b3d2255b79acd9b318eaa00c755464e5a509692d3a0002337c",
+      "size_bytes": 469852
+    },
+    {
+      "path": "review-contact-sheet-001.jpg",
+      "sha256": "5d4345dc3478f2b58bab317904efbb6738fba48f8fc0997e6a8d9fa0eb723ad2",
+      "size_bytes": 235431
+    },
+    {
+      "path": "sidecar_job_payloads.json",
+      "sha256": "eae9f4a87cd47c0c5a8949338286621cc77c0ccd5cc399bf44289af150cffbd5",
+      "size_bytes": 12067
+    }
+  ],
+  "automatic_labels_created": 0,
+  "generated_at": "2026-07-28T19:58:18.006871Z",
+  "incidents_created": 0,
+  "model": {
+    "engine": "onnx_yolo_v8",
+    "manifest_sha256": "0cdba1051a59836170786d42c78b02f78bf480a23bf9aeb91ca5712e4e37a0b7",
+    "pack_id": "vinothvikas1987-rdd-yolov8s-eval",
+    "pack_version": "b001687.review-only",
+    "runtime_spdx": "MIT",
+    "weights_spdx": "Apache-2.0"
+  },
+  "model_promoted": false,
+  "purpose": "unreviewed_model_proposal_evaluation",
+  "schema_version": "trafficvisson.candidate-model-evaluation.v1",
+  "score_semantics": "model_score_not_probability"
+}
