@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import zipfile
 from copy import deepcopy
 from dataclasses import asdict
 from pathlib import Path
@@ -36,10 +37,34 @@ from app.store import DEMO_PROJECT_ID
 
 TEST_TOKEN = "test-only-hwp-api-token-with-at-least-256-bits-000000"
 ROLLBACK_TOKEN = "a" * 32
+FAKE_HWP_MAGIC = bytes.fromhex("D0CF11E0A1B11AE1")
 WORKSPACE = Path(__file__).resolve().parents[3]
 SAMPLE_3Q = (
     WORKSPACE / "sample" / "3분기 점검 내용 정리.hwpx"
 )
+SAMPLE_4Q = (
+    WORKSPACE / "sample" / "4분기 점검 내용 정리.hwpx"
+)
+
+
+def _fake_hwp_bytes(payload: bytes) -> bytes:
+    return FAKE_HWP_MAGIC + payload
+
+
+def _write_minimal_non_sample_hwpx(path: Path) -> Path:
+    section = """<?xml version="1.0" encoding="UTF-8"?>
+<hs:sec xmlns:hs="urn:hancom:hwpml:section"
+ xmlns:hp="urn:hancom:hwpml:paragraph">
+ <hp:p><hp:run><hp:t>사용자 비표본 양식</hp:t></hp:run></hp:p>
+</hs:sec>"""
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr(
+            "mimetype",
+            "application/hwp+zip",
+            compress_type=zipfile.ZIP_STORED,
+        )
+        archive.writestr("Contents/section0.xml", section)
+    return path
 
 
 class FakeHwpComService:
@@ -251,34 +276,61 @@ def _canonical_sha256(value: object) -> str:
 class StaticApprovedReferenceStore:
     def __init__(self, records):
         self.records = list(records)
+        self.requested_approval_ids = []
 
     def list_project(self, project_id):
+        group_count = len(
+            {
+                record["sample_evidence_group_id"]
+                for record in self.records
+            }
+        )
         return {
-            "schema_version": "trafficvisson.approved-reference-list.v1",
+            "schema_version": "trafficvisson.approved-reference-list.v2",
             "project_id": str(project_id),
             "approved_reference_count": len(self.records),
+            "approved_reference_event_count": group_count,
             "training_eligible_count": len(self.records),
+            "duplicate_image_reference_count": sum(
+                record["duplicate_image_review_required"]
+                for record in self.records
+            ),
             "annotation_count": 0,
             "incident_count": 0,
             "records": deepcopy(self.records),
         }
 
+    def list_by_approval_ids(self, project_id, approval_ids):
+        requested = tuple(sorted(set(approval_ids)))
+        self.requested_approval_ids.append(requested)
+        return [
+            deepcopy(record)
+            for record in self.records
+            if record.get("approval_id") in requested
+        ]
 
-def _sample_approved_reference(inspection, picture_target_id: str):
+
+def _sample_approved_reference(
+    inspection,
+    picture_target_id: str,
+    *,
+    token: str = "a",
+):
     binding = bind_sample_reference_case(
         inspection,
         picture_target_id,
     )
-    token = "a"
+    source_id = (
+        f"sample-hwpx-{inspection.baseline.quarter}q-"
+        + inspection.snapshot.document_sha256[:16]
+    )
+    case_id = "hwpx-weak-case-" + token * 32
     record = {
-        "schema_version": "trafficvisson.approved-reference.v1",
+        "schema_version": "trafficvisson.approved-reference.v2",
         "approval_id": "approved-reference-" + token * 24,
         "project_id": str(DEMO_PROJECT_ID),
-        "source_id": (
-            f"sample-hwpx-{inspection.baseline.quarter}q-"
-            + inspection.snapshot.document_sha256[:16]
-        ),
-        "case_id": "hwpx-weak-case-" + token * 32,
+        "source_id": source_id,
+        "case_id": case_id,
         "revision": 1,
         "reference_state": "approved_reference",
         "approved_reference": True,
@@ -314,6 +366,27 @@ def _sample_approved_reference(inspection, picture_target_id: str):
         "page_hint": binding.photo_page_number,
         "page_hint_source": "audited_three_table_pair_contract",
         "photo_slot_id": binding.photo_slot_id,
+        "sample_layout_binding_schema": (
+            binding.sample_layout_binding_schema
+        ),
+        "sample_layout_binding_revision": (
+            binding.sample_layout_binding_revision
+        ),
+        "semantic_projection_revision": (
+            binding.semantic_projection_revision
+        ),
+        "semantic_attestation_sha256": "e" * 64,
+        "sample_evidence_group_id": (
+            binding.sample_evidence_group_id
+        ),
+        "group_photo_index": binding.group_photo_index,
+        "group_photo_count": binding.group_photo_count,
+        "duplicate_image_occurrence_count": 1,
+        "duplicate_image_review_required": False,
+        "duplicate_image_review_confirmed": False,
+        "duplicate_image_case_refs": [
+            f"{source_id}/{case_id}"
+        ],
         "photo_page_number": binding.photo_page_number,
         "inspection_page_number": binding.inspection_page_number,
         "sample_layout_binding_sha256": binding.binding_sha256,
@@ -454,8 +527,8 @@ def test_hwp_preview_does_not_expose_template_path_or_modify_source(
     hwp_api, tmp_path
 ):
     client, service, _now = hwp_api
-    template = tmp_path / "user-template.hwpx"
-    original = b"not-a-real-hwpx-test-fixture"
+    template = tmp_path / "user-template.hwp"
+    original = _fake_hwp_bytes(b"test-fixture")
     template.write_bytes(original)
 
     response = client.post(
@@ -483,6 +556,9 @@ def test_hwp_preview_does_not_expose_template_path_or_modify_source(
     assert template.read_bytes() == original
     assert service.execute_calls[-1]["accept"] is False
     assert service.execute_calls[-1]["output_path"] is None
+    assert service.execute_calls[-1]["expected_fingerprint"].sha256 == (
+        payload["document_sha256"]
+    )
     assert service.execute_calls[-1]["edit_plan"] == {
         "version": PLAN_VERSION,
         "operations": [
@@ -495,12 +571,90 @@ def test_hwp_preview_does_not_expose_template_path_or_modify_source(
     }
 
 
+def test_invalid_hwpx_structure_never_falls_back_to_com(
+    hwp_api,
+    tmp_path,
+):
+    client, service, _now = hwp_api
+    template = tmp_path / "invalid-structure.hwpx"
+    with zipfile.ZipFile(template, "w") as archive:
+        archive.writestr("mimetype", "application/hwp+zip")
+
+    response = client.post(
+        f"/projects/{DEMO_PROJECT_ID}/hwp/preview",
+        headers=auth_headers(),
+        json=valid_hwp_request(template),
+    )
+
+    assert response.status_code == 422
+    assert "구조" in response.json()["detail"]
+    assert service.execute_calls == []
+
+
+def test_verified_non_sample_hwpx_can_use_legacy_com_preview(
+    hwp_api,
+    tmp_path,
+):
+    client, service, _now = hwp_api
+    template = _write_minimal_non_sample_hwpx(
+        tmp_path / "verified-user-template.hwpx"
+    )
+
+    response = client.post(
+        f"/projects/{DEMO_PROJECT_ID}/hwp/preview",
+        headers=auth_headers(),
+        json=valid_hwp_request(template),
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["mode"] == "preview"
+    assert len(service.execute_calls) == 1
+
+
+def test_exact_sample_renamed_as_hwp_is_blocked_before_com(
+    hwp_api,
+    tmp_path,
+):
+    client, service, _now = hwp_api
+    template = tmp_path / "disguised-sample.hwp"
+    template.write_bytes(SAMPLE_3Q.read_bytes())
+
+    response = client.post(
+        f"/projects/{DEMO_PROJECT_ID}/hwp/preview",
+        headers=auth_headers(),
+        json=valid_hwp_request(template),
+    )
+
+    assert response.status_code == 409
+    assert "위장" in response.json()["detail"]
+    assert service.execute_calls == []
+
+
+def test_renamed_sample_structure_with_changed_sha_is_blocked(
+    hwp_api,
+    tmp_path,
+):
+    client, service, _now = hwp_api
+    template = tmp_path / "renamed-changed-sample.hwpx"
+    template.write_bytes(SAMPLE_3Q.read_bytes() + b"changed-sha")
+
+    response = client.post(
+        f"/projects/{DEMO_PROJECT_ID}/hwp/preview",
+        headers=auth_headers(),
+        json=valid_hwp_request(template),
+    )
+
+    assert response.status_code == 409
+    assert "표본 구조" in response.json()["detail"]
+    assert service.execute_calls == []
+
+
 def test_hwp_apply_creates_named_sibling_without_overwriting_source(
     hwp_api, tmp_path
 ):
     client, service, _now = hwp_api
-    template = tmp_path / "inspection-template.hwpx"
-    original = b"original-template-bytes"
+    template = tmp_path / "inspection-template.hwp"
+    original = _fake_hwp_bytes(b"original-template-bytes")
     template.write_bytes(original)
 
     request = valid_hwp_request(template)
@@ -522,7 +676,7 @@ def test_hwp_apply_creates_named_sibling_without_overwriting_source(
     assert payload["mode"] == "applied"
     assert payload["rollback_token"] == ROLLBACK_TOKEN
     assert re.fullmatch(
-        r"inspection-template_TrafficSuperVision_[0-9a-f]{8}\.hwpx",
+        r"inspection-template_TrafficSuperVision_[0-9a-f]{8}\.hwp",
         payload["output_file_name"],
     )
     assert str(tmp_path) not in response.text
@@ -556,7 +710,7 @@ def test_hwp_rollback_requires_and_uses_apply_token_without_exposing_path(
 ):
     client, service, _now = hwp_api
     template = tmp_path / "rollback-template.hwp"
-    original = b"original-hwp-test-fixture"
+    original = _fake_hwp_bytes(b"original-hwp-test-fixture")
     template.write_bytes(original)
     request = valid_hwp_request(template)
     preview = client.post(
@@ -604,12 +758,70 @@ def test_hwp_rollback_requires_and_uses_apply_token_without_exposing_path(
     assert str(template) not in response.text
 
 
+def test_hwp_rollback_token_is_bound_to_creating_project(
+    hwp_api,
+    tmp_path,
+):
+    client, service, _now = hwp_api
+    template = tmp_path / "project-scoped-rollback.hwp"
+    template.write_bytes(_fake_hwp_bytes(b"project-scoped"))
+    request = valid_hwp_request(template)
+    preview = client.post(
+        f"/projects/{DEMO_PROJECT_ID}/hwp/preview",
+        headers=auth_headers(),
+        json=request,
+    )
+    assert preview.status_code == 200, preview.text
+    request["approval_token"] = preview.json()["approval_token"]
+    applied = client.post(
+        f"/projects/{DEMO_PROJECT_ID}/hwp/apply",
+        headers=auth_headers(),
+        json=request,
+    )
+    assert applied.status_code == 200, applied.text
+    rollback_token = applied.json()["rollback_token"]
+    created = client.post(
+        "/projects",
+        headers=auth_headers(),
+        json={"name": "롤백 격리 프로젝트"},
+    )
+    assert created.status_code == 201, created.text
+    other_project_id = created.json()["id"]
+
+    rejected = client.post(
+        f"/projects/{other_project_id}/hwp/rollback",
+        headers=auth_headers(),
+        json={
+            "project_id": other_project_id,
+            "rollback_token": rollback_token,
+        },
+    )
+
+    assert rejected.status_code == 409
+    assert "현재 프로젝트가 일치하지 않습니다" in (
+        rejected.json()["detail"]
+    )
+    assert service.rollback_calls == []
+
+    rightful = client.post(
+        f"/projects/{DEMO_PROJECT_ID}/hwp/rollback",
+        headers=auth_headers(),
+        json={
+            "project_id": str(DEMO_PROJECT_ID),
+            "rollback_token": rollback_token,
+        },
+    )
+    assert rightful.status_code == 200, rightful.text
+    assert service.rollback_calls == [ROLLBACK_TOKEN]
+
+
 def test_hwp_rejects_unresolved_operation_before_service_execution(
     hwp_api, tmp_path
 ):
     client, service, _now = hwp_api
-    template = tmp_path / "unsupported-operation.hwpx"
-    template.write_bytes(b"original")
+    template = tmp_path / "unsupported-operation.hwp"
+    original = _fake_hwp_bytes(b"original")
+    template.write_bytes(original)
 
     response = client.post(
         f"/projects/{DEMO_PROJECT_ID}/hwp/preview",
@@ -620,15 +832,15 @@ def test_hwp_rejects_unresolved_operation_before_service_execution(
     assert response.status_code == 409
     assert "artifact handles" in response.json()["detail"]
     assert service.execute_calls == []
-    assert template.read_bytes() == b"original"
+    assert template.read_bytes() == original
 
 
 def test_hwp_apply_rejects_changed_document_before_com_and_burns_token(
     hwp_api, tmp_path
 ):
     client, service, _now = hwp_api
-    template = tmp_path / "changed-after-preview.hwpx"
-    template.write_bytes(b"previewed-document")
+    template = tmp_path / "changed-after-preview.hwp"
+    template.write_bytes(_fake_hwp_bytes(b"previewed-document"))
     request = valid_hwp_request(template)
     preview = client.post(
         f"/projects/{DEMO_PROJECT_ID}/hwp/preview",
@@ -638,7 +850,7 @@ def test_hwp_apply_rejects_changed_document_before_com_and_burns_token(
     assert preview.status_code == 200, preview.text
     request["approval_token"] = preview.json()["approval_token"]
     calls_after_preview = len(service.execute_calls)
-    template.write_bytes(b"changed-document")
+    template.write_bytes(_fake_hwp_bytes(b"changed-document"))
 
     rejected = client.post(
         f"/projects/{DEMO_PROJECT_ID}/hwp/apply",
@@ -661,8 +873,8 @@ def test_hwp_apply_rejects_changed_plan_before_com_and_burns_token(
     hwp_api, tmp_path
 ):
     client, service, _now = hwp_api
-    template = tmp_path / "changed-plan.hwpx"
-    template.write_bytes(b"previewed-document")
+    template = tmp_path / "changed-plan.hwp"
+    template.write_bytes(_fake_hwp_bytes(b"previewed-document"))
     request = valid_hwp_request(template)
     original_request = deepcopy(request)
     preview = client.post(
@@ -698,8 +910,8 @@ def test_hwp_apply_rejects_cross_project_token_before_com(
     hwp_api, tmp_path
 ):
     client, service, _now = hwp_api
-    template = tmp_path / "cross-project.hwpx"
-    template.write_bytes(b"previewed-document")
+    template = tmp_path / "cross-project.hwp"
+    template.write_bytes(_fake_hwp_bytes(b"previewed-document"))
     request = valid_hwp_request(template)
     preview = client.post(
         f"/projects/{DEMO_PROJECT_ID}/hwp/preview",
@@ -730,8 +942,8 @@ def test_hwp_apply_rejects_cross_project_token_before_com(
 
 def test_hwp_apply_rejects_expired_token_before_com(hwp_api, tmp_path):
     client, service, now = hwp_api
-    template = tmp_path / "expired-approval.hwpx"
-    template.write_bytes(b"previewed-document")
+    template = tmp_path / "expired-approval.hwp"
+    template.write_bytes(_fake_hwp_bytes(b"previewed-document"))
     request = valid_hwp_request(template)
     preview = client.post(
         f"/projects/{DEMO_PROJECT_ID}/hwp/preview",
@@ -758,8 +970,8 @@ def test_hwp_apply_failure_consumes_token_and_replay_never_calls_com(
     hwp_api, tmp_path
 ):
     client, service, _now = hwp_api
-    template = tmp_path / "failed-apply.hwpx"
-    template.write_bytes(b"previewed-document")
+    template = tmp_path / "failed-apply.hwp"
+    template.write_bytes(_fake_hwp_bytes(b"previewed-document"))
     request = valid_hwp_request(template)
     preview = client.post(
         f"/projects/{DEMO_PROJECT_ID}/hwp/preview",
@@ -848,11 +1060,13 @@ def test_exact_sample_requires_approved_reference_before_semantic_preview(
     )
 
     assert response.status_code == 409
-    assert "사용자 승인 표본 사례" in response.json()["detail"]
+    assert response.json()["detail"]["code"] == (
+        "exact_current_report_context_required"
+    )
     assert service.execute_calls == []
 
 
-def test_exact_sample_semantic_preview_binds_server_approved_reference(
+def test_exact_sample_target_preview_binds_server_approved_reference(
     hwp_api,
 ):
     client, service, _now = hwp_api
@@ -868,40 +1082,90 @@ def test_exact_sample_semantic_preview_binds_server_approved_reference(
         json=request,
     )
 
-    assert response.status_code == 200, response.text
+    assert response.status_code == 409, response.text
     payload = response.json()
-    assert payload["mode"] == "sample_semantic_preview"
-    assert payload["state"] == (
-        "semantic_preview_validated_apply_unavailable"
-    )
-    assert payload["semantic_validation_passed"] is True
-    assert payload["approved_reference_count"] == 1
-    assert payload["expected_page_range"] == [1, 48]
-    assert payload["expected_rendered_page_count"] == 48
-    assert payload["apply_eligible"] is False
-    assert payload["writer_state"] == "unavailable"
-    assert payload["output_render_validation_status"] == "not_run"
-    assert payload["approval_scope"] == (
-        "sample_preview_hash_binding_only"
-    )
-    assert re.fullmatch(r"[a-f0-9]{64}", payload["approval_token"])
-    assert re.fullmatch(
-        r"[a-f0-9]{64}",
-        payload["approved_references_sha256"],
-    )
-    assert payload["blocking_reasons"] == [
-        "exact_hwpml_target_writer_not_implemented",
-        "output_reopen_and_48_page_render_validation_not_implemented",
-    ]
-    assert payload["com_invocation_performed"] is False
-    assert payload["no_com"] is True
-    assert payload["no_document_write"] is True
+    detail = payload["detail"]
+    assert detail["code"] == "exact_current_report_context_required"
+    assert detail["state"] == "legacy_sample_plan_rejected"
+    assert detail["approved_incident_bound"] is False
+    assert detail["content_provenance_bound"] is False
+    assert detail["com_invocation_count"] == 0
+    assert detail["document_write_count"] == 0
     assert service.execute_calls == []
     assert hashlib.sha256(SAMPLE_3Q.read_bytes()).hexdigest() == source_sha256
     assert str(SAMPLE_3Q) not in response.text
 
 
-def test_exact_sample_semantic_preview_rejects_cross_project_reference(
+def test_exact_sample_preview_ignores_unused_other_quarter_reference(
+    hwp_api,
+):
+    client, service, _now = hwp_api
+    request, used_record = _sample_semantic_request(SAMPLE_3Q)
+    other_inspection = inspect_sample_layout(SAMPLE_4Q)
+    other_picture = next(
+        item
+        for item in other_inspection.snapshot.pictures
+        if item.nearest_table_index == 2
+    )
+    unused_record = _sample_approved_reference(
+        other_inspection,
+        other_picture.target_id,
+        token="b",
+    )
+    unused_record["record_sha256"] = "0" * 64
+    approval_store = StaticApprovedReferenceStore(
+        [unused_record, used_record]
+    )
+    client.app.state.weak_case_approvals = approval_store
+
+    response = client.post(
+        f"/projects/{DEMO_PROJECT_ID}/hwp/preview",
+        headers=auth_headers(),
+        json=request,
+    )
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["code"] == (
+        "exact_current_report_context_required"
+    )
+    assert approval_store.requested_approval_ids == []
+    assert service.execute_calls == []
+
+
+def test_exact_sample_preview_rejects_used_reference_from_other_quarter(
+    hwp_api,
+):
+    client, service, _now = hwp_api
+    request, _used_record = _sample_semantic_request(SAMPLE_3Q)
+    other_inspection = inspect_sample_layout(SAMPLE_4Q)
+    other_picture = next(
+        item
+        for item in other_inspection.snapshot.pictures
+        if item.nearest_table_index == 2
+    )
+    wrong_record = _sample_approved_reference(
+        other_inspection,
+        other_picture.target_id,
+        token="a",
+    )
+    client.app.state.weak_case_approvals = StaticApprovedReferenceStore(
+        [wrong_record]
+    )
+
+    response = client.post(
+        f"/projects/{DEMO_PROJECT_ID}/hwp/preview",
+        headers=auth_headers(),
+        json=request,
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == (
+        "exact_current_report_context_required"
+    )
+    assert service.execute_calls == []
+
+
+def test_exact_sample_target_preview_rejects_cross_project_reference(
     hwp_api,
 ):
     client, service, _now = hwp_api
@@ -920,7 +1184,9 @@ def test_exact_sample_semantic_preview_rejects_cross_project_reference(
     )
 
     assert response.status_code == 409
-    assert "현재 프로젝트가 일치하지 않습니다" in response.json()["detail"]
+    assert response.json()["detail"]["code"] == (
+        "exact_current_report_context_required"
+    )
     assert service.execute_calls == []
 
 
@@ -938,7 +1204,13 @@ def test_exact_sample_apply_consumes_preview_then_returns_unavailable_no_com(
         headers=auth_headers(),
         json=request,
     )
-    assert preview.status_code == 200, preview.text
+    assert preview.status_code == 409, preview.text
+    assert preview.json()["detail"]["code"] == (
+        "exact_current_report_context_required"
+    )
+    assert service.execute_calls == []
+    assert hashlib.sha256(SAMPLE_3Q.read_bytes()).hexdigest() == source_sha256
+    return
     request["approval_token"] = preview.json()["approval_token"]
 
     blocked = client.post(
@@ -950,9 +1222,11 @@ def test_exact_sample_apply_consumes_preview_then_returns_unavailable_no_com(
     assert blocked.status_code == 409
     detail = blocked.json()["detail"]
     assert detail["state"] == "sample_apply_unavailable"
-    assert detail["semantic_validation_sha256"] == (
+    assert detail["target_structure_validation_sha256"] == (
         preview.json()["validation_sha256"]
     )
+    assert detail["approved_incident_bound"] is False
+    assert detail["content_provenance_bound"] is False
     assert detail["com_invocation_performed"] is False
     assert detail["document_write_performed"] is False
     assert service.execute_calls == []
@@ -981,7 +1255,12 @@ def test_exact_sample_apply_rejects_changed_plan_and_burns_token(
         headers=auth_headers(),
         json=request,
     )
-    assert preview.status_code == 200, preview.text
+    assert preview.status_code == 409, preview.text
+    assert preview.json()["detail"]["code"] == (
+        "exact_current_report_context_required"
+    )
+    assert service.execute_calls == []
+    return
     token = preview.json()["approval_token"]
     request["approval_token"] = token
     request["plan"]["operations"][1]["value"] = "변경된 캡션"
@@ -1020,7 +1299,12 @@ def test_exact_sample_apply_rejects_changed_template_before_com(
         headers=auth_headers(),
         json=request,
     )
-    assert preview.status_code == 200, preview.text
+    assert preview.status_code == 409, preview.text
+    assert preview.json()["detail"]["code"] == (
+        "exact_current_report_context_required"
+    )
+    assert service.execute_calls == []
+    return
     request["approval_token"] = preview.json()["approval_token"]
     template.write_bytes(template.read_bytes() + b"tampered")
 
@@ -1047,7 +1331,12 @@ def test_exact_sample_apply_rejects_changed_approval_set_before_com(
         headers=auth_headers(),
         json=request,
     )
-    assert preview.status_code == 200, preview.text
+    assert preview.status_code == 409, preview.text
+    assert preview.json()["detail"]["code"] == (
+        "exact_current_report_context_required"
+    )
+    assert service.execute_calls == []
+    return
     request["approval_token"] = preview.json()["approval_token"]
     changed = deepcopy(record)
     changed["opinion"] = "승인 후 변경된 의견"

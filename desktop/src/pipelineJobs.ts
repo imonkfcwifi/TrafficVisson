@@ -36,23 +36,41 @@ export type PipelineStageStatus =
 export type PipelineOutcome =
   | "success"
   | "zero_detections"
+  | "unusable_visual_evidence"
   | "model_unavailable"
   | "blocked_gpx_required"
   | "partial"
+  | "report_preview_blocked"
   | "failed"
   | "cancelled";
 
 export type PipelineProfile = {
-  schemaVersion: "trafficvisson.pipeline-profile.v1";
+  schemaVersion:
+    | "trafficvisson.pipeline-profile.v1"
+    | "trafficvisson.pipeline-profile.v2"
+    | "trafficvisson.pipeline-profile.v3"
+    | "trafficvisson.pipeline-profile.v4";
   projectId: string;
   questionPolicy: "learning_assist" | "full_review" | "quick_review";
   reviewMode: "precision" | "quick";
+  labelConfirmationAuthority:
+    | "human_review"
+    | "structured_llm_training_assist";
   defaultTemplateId: string;
   defaultTemplateSha256: string;
   detectorPackId: string;
   ocrPackId: string;
   sam2PackId: string;
   reportProvider: "codex" | "claude" | "local" | "none";
+  reportTransmissionConsent: boolean;
+  templateSemanticMapId: string;
+  templateSemanticMapSha256: string;
+  templateSemanticMapReady: boolean;
+  reportProviderReadyAtConfiguration: boolean;
+  reportRouteName: string;
+  reportInspectorName: string;
+  reportEvidenceMode: "internal_original" | "shared_deidentified";
+  reportInspectionDatePolicy: "source_filename_yyyymmdd_or_block";
   outputLocationId: string;
   candidateRescanFps: number;
   revision: number;
@@ -101,6 +119,8 @@ export type PipelineQuestionQueueBinding = {
   sourceSha256: string;
   questionCount: number;
   queueRevision: string;
+  surveyQaRequired: boolean;
+  zeroCandidateSurvey: boolean;
 };
 
 export type PipelineStartResult = {
@@ -125,6 +145,8 @@ const UUID_PATTERN =
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const ERROR_CODE_PATTERN = /^[a-z][a-z0-9_]{2,63}$/;
+export const ZERO_CANDIDATE_PROMOTED_SURVEY_QUEUE_SCHEMA =
+  "trafficvisson.zero-candidate-promoted-survey-queue.v1";
 const STORAGE_KEY = "trafficvisson:pipeline-pointers:v1";
 const JOB_STATUSES = new Set<PipelineJobStatus>([
   "queued",
@@ -148,13 +170,15 @@ const STAGE_STATUSES = new Set<PipelineStageStatus>([
 const OUTCOMES = new Set<PipelineOutcome>([
   "success",
   "zero_detections",
+  "unusable_visual_evidence",
   "model_unavailable",
   "blocked_gpx_required",
   "partial",
+  "report_preview_blocked",
   "failed",
   "cancelled",
 ]);
-const PROFILE_KEYS = [
+const LEGACY_PROFILE_KEYS = [
   "schema_version",
   "project_id",
   "question_policy",
@@ -171,6 +195,25 @@ const PROFILE_KEYS = [
   "bulk_frame_provider_policy",
   "revision",
   "updated_at",
+] as const;
+const PROFILE_V2_KEYS = [
+  ...LEGACY_PROFILE_KEYS,
+  "report_transmission_consent",
+  "template_semantic_map_id",
+  "template_semantic_map_sha256",
+  "template_semantic_map_ready",
+  "report_provider_ready_at_configuration",
+] as const;
+const PROFILE_V3_KEYS = [
+  ...PROFILE_V2_KEYS,
+  "report_route_name",
+  "report_inspector_name",
+  "report_evidence_mode",
+  "report_inspection_date_policy",
+] as const;
+const PROFILE_KEYS = [
+  ...PROFILE_V3_KEYS,
+  "label_confirmation_authority",
 ] as const;
 const STAGE_KEYS = [
   "name",
@@ -237,6 +280,18 @@ function exactKeys(
   }
 }
 
+function hasExactKeys(
+  value: Record<string, unknown>,
+  keys: readonly string[],
+) {
+  const actual = Object.keys(value).sort();
+  const expected = [...keys].sort();
+  return (
+    actual.length === expected.length &&
+    actual.every((key, index) => key === expected[index])
+  );
+}
+
 function string(
   value: unknown,
   label: string,
@@ -252,6 +307,21 @@ function string(
     throw new Error(`${label} 응답 형식이 올바르지 않습니다.`);
   }
   return value;
+}
+
+function reportContextString(
+  value: unknown,
+  label: string,
+  maximum: number,
+) {
+  const result = string(value, label, undefined, maximum);
+  if (
+    result !== result.trim() ||
+    /[\u0000-\u001f\u007f-\u009f]/u.test(result)
+  ) {
+    throw new Error(`${label} 응답 형식이 올바르지 않습니다.`);
+  }
+  return result;
 }
 
 function optionalString(
@@ -325,12 +395,15 @@ function safeJson(
   }
   const result: Record<string, unknown> = {};
   for (const key of keys) {
+    const isExplicitNoPathProof =
+      key === "path_exposed" && source[key] === false;
     if (
       key.length < 1 ||
       key.length > 128 ||
-      /(?:^|_)(?:path|token|secret|password|credential|auth)(?:_|$)/i.test(
-        key,
-      )
+      (!isExplicitNoPathProof &&
+        /(?:^|_)(?:path|token|secret|password|credential|auth)(?:_|$)/i.test(
+          key,
+        ))
     ) {
       throw new Error(`${label} 응답 형식이 올바르지 않습니다.`);
     }
@@ -350,8 +423,26 @@ function safeRecord(
 
 export function parsePipelineProfile(value: unknown): PipelineProfile {
   const source = record(value, "파이프라인 프로필");
-  exactKeys(source, PROFILE_KEYS, "파이프라인 프로필");
-  if (source.schema_version !== "trafficvisson.pipeline-profile.v1") {
+  const legacyShape = hasExactKeys(source, LEGACY_PROFILE_KEYS);
+  const v2Shape = hasExactKeys(source, PROFILE_V2_KEYS);
+  const v3Shape = hasExactKeys(source, PROFILE_V3_KEYS);
+  const currentShape = hasExactKeys(source, PROFILE_KEYS);
+  const schemaVersion = source.schema_version;
+  if (
+    (schemaVersion !== "trafficvisson.pipeline-profile.v1" &&
+      schemaVersion !== "trafficvisson.pipeline-profile.v2" &&
+      schemaVersion !== "trafficvisson.pipeline-profile.v3" &&
+      schemaVersion !== "trafficvisson.pipeline-profile.v4") ||
+    (!legacyShape && !v2Shape && !v3Shape && !currentShape) ||
+    (schemaVersion === "trafficvisson.pipeline-profile.v2" &&
+      !v2Shape &&
+      !v3Shape &&
+      !currentShape) ||
+    (schemaVersion === "trafficvisson.pipeline-profile.v3" &&
+      !v3Shape &&
+      !currentShape) ||
+    (schemaVersion === "trafficvisson.pipeline-profile.v4" && !currentShape)
+  ) {
     throw new Error("파이프라인 프로필 응답 형식이 올바르지 않습니다.");
   }
   const questionPolicy = source.question_policy;
@@ -365,6 +456,19 @@ export function parsePipelineProfile(value: unknown): PipelineProfile {
   const reviewMode = source.review_mode;
   if (reviewMode !== "precision" && reviewMode !== "quick") {
     throw new Error("파이프라인 프로필 응답 형식이 올바르지 않습니다.");
+  }
+  let labelConfirmationAuthority:
+    | "human_review"
+    | "structured_llm_training_assist" = "human_review";
+  if (currentShape) {
+    if (
+      source.label_confirmation_authority !== "human_review" &&
+      source.label_confirmation_authority !==
+        "structured_llm_training_assist"
+    ) {
+      throw new Error("파이프라인 프로필 응답 형식이 올바르지 않습니다.");
+    }
+    labelConfirmationAuthority = source.label_confirmation_authority;
   }
   const reportProvider = source.report_provider;
   if (
@@ -381,11 +485,111 @@ export function parsePipelineProfile(value: unknown): PipelineProfile {
   ) {
     throw new Error("파이프라인 프로필 응답 형식이 올바르지 않습니다.");
   }
+  let reportTransmissionConsent = false;
+  let templateSemanticMapId = "unconfigured";
+  let templateSemanticMapSha256 = "0".repeat(64);
+  let templateSemanticMapReady = false;
+  let reportProviderReadyAtConfiguration = false;
+  if (v2Shape || v3Shape || currentShape) {
+    if (
+      typeof source.report_transmission_consent !== "boolean" ||
+      typeof source.template_semantic_map_ready !== "boolean" ||
+      typeof source.report_provider_ready_at_configuration !== "boolean"
+    ) {
+      throw new Error("파이프라인 프로필 응답 형식이 올바르지 않습니다.");
+    }
+    reportTransmissionConsent = source.report_transmission_consent;
+    templateSemanticMapId = string(
+      source.template_semantic_map_id,
+      "양식 의미맵 ID",
+      IDENTIFIER_PATTERN,
+      128,
+    );
+    templateSemanticMapSha256 = string(
+      source.template_semantic_map_sha256,
+      "양식 의미맵 해시",
+      SHA256_PATTERN,
+      64,
+    );
+    templateSemanticMapReady = source.template_semantic_map_ready;
+    reportProviderReadyAtConfiguration =
+      source.report_provider_ready_at_configuration;
+  }
+  let reportRouteName = "unconfigured";
+  let reportInspectorName = "unconfigured";
+  let reportEvidenceMode:
+    | "internal_original"
+    | "shared_deidentified" = "internal_original";
+  const reportInspectionDatePolicy =
+    "source_filename_yyyymmdd_or_block" as const;
+  if (v3Shape || currentShape) {
+    reportRouteName = reportContextString(
+      source.report_route_name,
+      "보고서 노선명",
+      300,
+    );
+    reportInspectorName = reportContextString(
+      source.report_inspector_name,
+      "보고서 점검자명",
+      120,
+    );
+    if (
+      source.report_evidence_mode !== "internal_original" &&
+      source.report_evidence_mode !== "shared_deidentified"
+    ) {
+      throw new Error("파이프라인 프로필 응답 형식이 올바르지 않습니다.");
+    }
+    reportEvidenceMode = source.report_evidence_mode;
+    if (
+      source.report_inspection_date_policy !==
+      reportInspectionDatePolicy
+    ) {
+      throw new Error("파이프라인 프로필 응답 형식이 올바르지 않습니다.");
+    }
+  }
+  if (
+    (schemaVersion !== "trafficvisson.pipeline-profile.v4" &&
+      currentShape &&
+      labelConfirmationAuthority !== "human_review") ||
+    (schemaVersion === "trafficvisson.pipeline-profile.v1" &&
+      (v2Shape || v3Shape || currentShape) &&
+      (reportTransmissionConsent ||
+        templateSemanticMapId !== "unconfigured" ||
+        templateSemanticMapSha256 !== "0".repeat(64) ||
+        templateSemanticMapReady ||
+        reportProviderReadyAtConfiguration)) ||
+    ((schemaVersion === "trafficvisson.pipeline-profile.v2" ||
+      schemaVersion === "trafficvisson.pipeline-profile.v3" ||
+      schemaVersion === "trafficvisson.pipeline-profile.v4") &&
+      templateSemanticMapReady &&
+      (templateSemanticMapId === "unconfigured" ||
+        templateSemanticMapSha256 === "0".repeat(64))) ||
+    ((schemaVersion === "trafficvisson.pipeline-profile.v2" ||
+      schemaVersion === "trafficvisson.pipeline-profile.v3" ||
+      schemaVersion === "trafficvisson.pipeline-profile.v4") &&
+      reportTransmissionConsent &&
+      (reportProvider !== "codex" && reportProvider !== "claude")) ||
+    ((schemaVersion === "trafficvisson.pipeline-profile.v2" ||
+      schemaVersion === "trafficvisson.pipeline-profile.v3" ||
+      schemaVersion === "trafficvisson.pipeline-profile.v4") &&
+      reportTransmissionConsent &&
+      (!templateSemanticMapReady ||
+        !reportProviderReadyAtConfiguration)) ||
+    ((schemaVersion === "trafficvisson.pipeline-profile.v1" ||
+      schemaVersion === "trafficvisson.pipeline-profile.v2") &&
+      (v3Shape || currentShape) &&
+      (reportRouteName !== "unconfigured" ||
+        reportInspectorName !== "unconfigured" ||
+        reportEvidenceMode !== "internal_original"))
+  ) {
+    throw new Error("파이프라인 프로필 응답 형식이 올바르지 않습니다.");
+  }
   return {
-    schemaVersion: "trafficvisson.pipeline-profile.v1",
+    schemaVersion,
     projectId: uuid(source.project_id, "프로젝트 ID"),
     questionPolicy,
     reviewMode,
+    labelConfirmationAuthority,
     defaultTemplateId: string(
       source.default_template_id,
       "기본 양식 ID",
@@ -417,6 +621,15 @@ export function parsePipelineProfile(value: unknown): PipelineProfile {
       128,
     ),
     reportProvider,
+    reportTransmissionConsent,
+    templateSemanticMapId,
+    templateSemanticMapSha256,
+    templateSemanticMapReady,
+    reportProviderReadyAtConfiguration,
+    reportRouteName,
+    reportInspectorName,
+    reportEvidenceMode,
+    reportInspectionDatePolicy,
     outputLocationId: string(
       source.output_location_id,
       "결과 위치 ID",
@@ -504,12 +717,16 @@ export function parsePipelineJob(value: unknown): PipelineJob {
   if (
     (status === "completed" &&
       (progressPercent !== 100 ||
-        (outcomeCode !== "success" && outcomeCode !== "zero_detections"))) ||
+        (outcomeCode !== "success" &&
+          outcomeCode !== "zero_detections" &&
+          outcomeCode !== "unusable_visual_evidence"))) ||
     (status === "blocked" &&
       outcomeCode !== "model_unavailable" &&
-      outcomeCode !== "partial") ||
+      outcomeCode !== "partial" &&
+      outcomeCode !== "report_preview_blocked") ||
     (status === "blocked" &&
-      outcomeCode === "partial" &&
+      (outcomeCode === "partial" ||
+        outcomeCode === "report_preview_blocked") &&
       currentStage !== "derived_outputs") ||
     (status === "failed" && outcomeCode !== "failed") ||
     (status === "cancelled" && outcomeCode !== "cancelled") ||
@@ -725,6 +942,38 @@ export function pipelineQuestionQueueBinding(
   const sourceSha256 = stage.checkpoint.source_sha256;
   const questionCount = stage.checkpoint.question_count;
   const queueRevision = stage.checkpoint.question_queue_revision;
+  const zeroCandidateSurvey =
+    stage.checkpoint.schema_version ===
+      ZERO_CANDIDATE_PROMOTED_SURVEY_QUEUE_SCHEMA &&
+    questionCount === 0 &&
+    Array.isArray(stage.checkpoint.question_candidate_ids) &&
+    stage.checkpoint.question_candidate_ids.length === 0;
+  const rescanStage = job.stages.find(
+    ({ name }) => name === "candidate_rescan_5_10fps",
+  );
+  const denseDiscovery =
+    rescanStage?.checkpoint.dense_candidate_discovery;
+  const providerStates =
+    denseDiscovery &&
+    typeof denseDiscovery === "object" &&
+    !Array.isArray(denseDiscovery)
+      ? (denseDiscovery as Record<string, unknown>).provider_states
+      : null;
+  const promotedSurveyProviders = Array.isArray(providerStates)
+    ? providerStates.filter(
+        (value) =>
+          value !== null &&
+          typeof value === "object" &&
+          !Array.isArray(value) &&
+          (value as Record<string, unknown>).provider ===
+            "promoted_project_model" &&
+          (value as Record<string, unknown>).state === "ready" &&
+          (value as Record<string, unknown>).independent_survey_verified ===
+            true,
+      )
+    : [];
+  const surveyQaRequired =
+    promotedSurveyProviders.length === 1 || zeroCandidateSurvey;
   if (
     typeof analysisJobId !== "string" ||
     !UUID_PATTERN.test(analysisJobId.toLowerCase()) ||
@@ -732,7 +981,7 @@ export function pipelineQuestionQueueBinding(
     !SHA256_PATTERN.test(sourceSha256) ||
     typeof questionCount !== "number" ||
     !Number.isInteger(questionCount) ||
-    questionCount < 1 ||
+    (questionCount < 1 && !zeroCandidateSurvey) ||
     questionCount > 100_000 ||
     typeof queueRevision !== "string" ||
     !IDENTIFIER_PATTERN.test(queueRevision)
@@ -744,6 +993,8 @@ export function pipelineQuestionQueueBinding(
     sourceSha256,
     questionCount,
     queueRevision,
+    surveyQaRequired,
+    zeroCandidateSurvey,
   };
 }
 
@@ -767,16 +1018,21 @@ export function pipelineStageLabel(stage: PipelineStageName) {
 export function pipelineStatusLabel(job: PipelineJob) {
   if (job.status === "awaiting_review") return "질문 검토 대기";
   if (job.status === "blocked") {
-    return job.outcomeCode === "partial"
+    return job.outcomeCode === "partial" ||
+      job.outcomeCode === "report_preview_blocked"
       ? "CSV·증거 저장 완료 · 보고서 준비 대기"
       : "모델팩 준비 필요";
   }
   if (job.status === "failed") return "단계 실패";
   if (job.status === "cancelled") return "사용자 취소";
   if (job.status === "completed") {
-    return job.outcomeCode === "zero_detections"
-      ? "검지 0건 · 정상 완료"
-      : "파이프라인 완료";
+    if (job.outcomeCode === "zero_detections") {
+      return "검지 0건 · 정상 완료";
+    }
+    if (job.outcomeCode === "unusable_visual_evidence") {
+      return "판정 불가 영상 · 재촬영 필요";
+    }
+    return "파이프라인 완료";
   }
   if (job.status === "cancelling") return "취소 처리 중";
   if (job.status === "queued") return "대기열";

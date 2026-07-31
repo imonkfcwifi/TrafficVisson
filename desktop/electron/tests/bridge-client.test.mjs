@@ -104,6 +104,32 @@ test("bridge client accepts only a bounded main-process request timeout override
   );
 });
 
+test("bridge client preserves bounded structured lifecycle error codes", async () => {
+  const client = new BridgeClient({
+    baseUrl: "http://127.0.0.1:43123",
+    token: TEST_TOKEN,
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify({
+          detail: {
+            code: "fixed_validation_extension_insufficient",
+            message:
+              "new fixed-validation issue types require 30 confirmed positive samples each (sign_damage=29)",
+          },
+        }),
+        {
+          status: 409,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+  });
+
+  await assert.rejects(
+    () => client.request("POST", "/projects/test/model-training-jobs"),
+    /fixed_validation_extension_insufficient.*sign_damage=29/,
+  );
+});
+
 test("bridge client streams bounded evidence with internal auth and byte ranges", async () => {
   let observed;
   const jpeg = Uint8Array.from([0xff, 0xd8, 0xff, 0xe0]);

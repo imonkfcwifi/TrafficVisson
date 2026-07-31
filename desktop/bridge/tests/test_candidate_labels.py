@@ -21,6 +21,9 @@ from app.candidate_labels import (
     CandidateResolutionError,
     CompletedCandidateMetadata,
 )
+from app.training_geometry import SCHEMA_VERSION as GEOMETRY_SCHEMA
+from app.training_geometry import seal_training_geometry
+from structured_assist_fixtures import assist_provenance
 
 
 CANDIDATE_ID = "0123456789abcdefabcd"
@@ -101,6 +104,36 @@ def test_question_id_rejects_noncanonical_candidate_ids(store, ids, candidate_id
         store.question_id(ids[1], candidate_id)
 
 
+def test_pre_resolved_56_question_batch_does_not_call_item_resolver(
+    store,
+    resolver,
+    ids,
+):
+    project_id, job_id = ids
+    candidate_ids = [
+        f"{index + 1:020x}" for index in range(56)
+    ]
+    resolved = [
+        CompletedCandidateMetadata(
+            project_id=project_id,
+            analysis_job_id=job_id,
+            candidate_id=candidate_id,
+            metadata=candidate_metadata(candidate_id),
+        )
+        for candidate_id in candidate_ids
+    ]
+
+    questions = store.resolve_questions_from_candidates(
+        project_id,
+        job_id,
+        candidate_ids,
+        resolved,
+    )
+
+    assert [row["candidate_id"] for row in questions] == candidate_ids
+    assert resolver.calls == []
+
+
 def test_records_answers_append_only_and_reloads_latest(tmp_path, resolver, ids):
     project_id, job_id = ids
     first_store = CandidateLabelStore(tmp_path, resolver)
@@ -113,7 +146,12 @@ def test_records_answers_append_only_and_reloads_latest(tmp_path, resolver, ids)
         severity="major",
         maintenance_action="표지판 주변 삭초",
         ocr_text="천안 방향",
-        answered_by="operator_1",
+        answered_by="structured_llm_assisted",
+        assist_provenance=assist_provenance(
+            project_id,
+            job_id,
+            CANDIDATE_ID,
+        ),
     )
     second = first_store.record_answer(
         project_id,
@@ -124,7 +162,7 @@ def test_records_answers_append_only_and_reloads_latest(tmp_path, resolver, ids)
         severity="moderate",
         maintenance_action="갓길 예초",
         normalized_box={"x": 0.1, "y": 0.2, "width": 0.4, "height": 0.5},
-        answered_by="operator_1",
+        answered_by="local_user",
     )
 
     reloaded = CandidateLabelStore(tmp_path, resolver)
@@ -148,6 +186,154 @@ def test_records_answers_append_only_and_reloads_latest(tmp_path, resolver, ids)
         "width": 0.4,
         "height": 0.5,
     }
+    assert first["final_answer"]["answered_by"] == "structured_llm_assisted"
+    assert second["final_answer"]["answered_by"] == "local_user"
+
+
+def test_approved_geometry_is_hash_chained_and_restored(
+    tmp_path,
+    resolver,
+    ids,
+):
+    project_id, job_id = ids
+    metadata = candidate_metadata()
+    metadata.update(
+        {
+            "normalized_box": {
+                "x": 0.1,
+                "y": 0.2,
+                "width": 0.4,
+                "height": 0.5,
+            },
+            "proposal_provenance_sha256": "b" * 64,
+        }
+    )
+    resolver.overrides[(project_id, job_id, CANDIDATE_ID)] = (
+        CompletedCandidateMetadata(
+            project_id=project_id,
+            analysis_job_id=job_id,
+            candidate_id=CANDIDATE_ID,
+            metadata=metadata,
+        )
+    )
+    geometry = seal_training_geometry(
+        {
+            "schema_version": GEOMETRY_SCHEMA,
+            "source_kind": "accepted_ai_proposal",
+            "approval_authority": "local_user",
+            "image_sha256": "a" * 64,
+            "image_artifact_ref": (
+                f"analysis:job:{CANDIDATE_ID}.jpg"
+            ),
+            "normalized_box": metadata["normalized_box"],
+            "polygon": None,
+            "mask_artifact_ref": None,
+            "mask_sha256": None,
+            "tracked_frame_refs": [],
+            "proposal_sha256": "b" * 64,
+            "sam2_output_sha256": None,
+            "sam2_model_manifest_sha256": None,
+        }
+    )
+
+    record = CandidateLabelStore(tmp_path, resolver).record_answer(
+        project_id,
+        job_id,
+        CANDIDATE_ID,
+        answer="yes",
+        selected_issue_type="pothole",
+        training_geometry=geometry,
+    )
+    reloaded = CandidateLabelStore(tmp_path, resolver).latest_answers(
+        project_id
+    )[0]
+
+    assert record["schema_version"] == "1.2"
+    assert record["final_answer"]["normalized_box"] == (
+        metadata["normalized_box"]
+    )
+    assert reloaded["training_geometry"] == geometry
+
+
+def test_geometry_authority_cannot_differ_from_answer(store, ids):
+    geometry = seal_training_geometry(
+        {
+            "schema_version": GEOMETRY_SCHEMA,
+            "source_kind": "delegated_ai_proposal",
+            "approval_authority": "structured_llm_assisted",
+            "image_sha256": "a" * 64,
+            "image_artifact_ref": "analysis:job:frame.jpg",
+            "normalized_box": {
+                "x": 0.1,
+                "y": 0.2,
+                "width": 0.4,
+                "height": 0.5,
+            },
+            "polygon": None,
+            "mask_artifact_ref": None,
+            "mask_sha256": None,
+            "tracked_frame_refs": [],
+            "proposal_sha256": "b" * 64,
+            "sam2_output_sha256": None,
+            "sam2_model_manifest_sha256": None,
+        }
+    )
+
+    with pytest.raises(CandidateLabelError, match="authority"):
+        store.record_answer(
+            ids[0],
+            ids[1],
+            CANDIDATE_ID,
+            answer="yes",
+            selected_issue_type="pothole",
+            answered_by="local_user",
+            training_geometry=geometry,
+        )
+
+
+def test_structured_llm_cannot_supersede_a_human_revision(store, ids):
+    project_id, job_id = ids
+    store.record_answer(
+        project_id,
+        job_id,
+        CANDIDATE_ID,
+        answer="yes",
+        selected_issue_type="pothole",
+        answered_by="local_user",
+    )
+
+    with pytest.raises(
+        CandidateLabelConflict,
+        match="cannot supersede human truth",
+    ):
+        store.record_answer(
+            project_id,
+            job_id,
+            CANDIDATE_ID,
+            answer="no",
+            answered_by="structured_llm_assisted",
+            assist_provenance=assist_provenance(
+                project_id,
+                job_id,
+                CANDIDATE_ID,
+            ),
+        )
+
+    assert len(store.audit_records(project_id)) == 1
+
+
+def test_structured_answer_without_execution_provenance_is_rejected(
+    store,
+    ids,
+):
+    with pytest.raises(CandidateLabelError, match="assist provenance"):
+        store.record_answer(
+            ids[0],
+            ids[1],
+            CANDIDATE_ID,
+            answer="no",
+            answered_by="structured_llm_assisted",
+        )
 
 
 @pytest.mark.parametrize(
@@ -621,7 +807,7 @@ def test_concurrent_answer_revisions_remain_complete_and_ordered(
             CANDIDATE_ID,
             answer="yes",
             selected_issue_type="surface_damage",
-            answered_by=f"operator_{index}",
+            answered_by="local_user",
         )
 
     with ThreadPoolExecutor(max_workers=8) as pool:

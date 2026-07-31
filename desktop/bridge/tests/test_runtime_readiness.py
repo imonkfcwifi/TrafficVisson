@@ -236,6 +236,58 @@ def test_invalid_model_pack_is_failed_not_unavailable_or_zero_detection(
     )
 
 
+def test_verified_external_runtime_is_required_for_pytorch_cuda_ready(
+    tmp_path,
+):
+    versions = {"torch": "2.7.0+cu128"}
+
+    def distribution_version(name):
+        if name not in versions:
+            raise metadata.PackageNotFoundError(name)
+        return versions[name]
+
+    common = {
+        "provider_status": ProviderStatusService(which=lambda _name: None),
+        "vision_status": lambda: {"enabled": False},
+        "command_model_status": lambda: {"state": "unavailable"},
+        "hwp_preflight": lambda: {"available": False},
+        "distribution_version": distribution_version,
+        "which": lambda _name: None,
+    }
+    ready = RuntimeReadinessService(
+        **common,
+        model_runtime_status=lambda: {
+            "state": "ready",
+            "capabilities": ["pytorch_cuda", "detector_training"],
+            "manifest_sha256": "f" * 64,
+            "cuda_verified": True,
+        },
+    )
+    failed = RuntimeReadinessService(
+        **common,
+        model_runtime_status=lambda: {
+            "state": "failed",
+            "error_code": "runtime_artifact_hash_mismatch",
+        },
+    )
+
+    ready_row = {
+        row["component_id"]: row
+        for row in ready.snapshot()["components"]
+    }["pytorch_cuda"]
+    failed_row = {
+        row["component_id"]: row
+        for row in failed.snapshot()["components"]
+    }["pytorch_cuda"]
+
+    assert ready_row["state"] == "ready"
+    assert ready_row["version"] == "2.7.0+cu128"
+    assert ready_row.get("error_code") is None
+    assert failed_row["state"] == "failed"
+    assert failed_row["error_code"] == "model_runtime_pack_invalid"
+    assert str(tmp_path) not in repr(ready_row)
+
+
 def test_runtime_status_probe_failures_are_failed_without_leaking_details(
     tmp_path,
 ):

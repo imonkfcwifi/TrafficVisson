@@ -19,6 +19,10 @@ const polishStyles = await readFile(
   new URL("./styles-visual-polish.css", import.meta.url),
   "utf8",
 );
+const productStyles = await readFile(
+  new URL("./styles-product-shell.css", import.meta.url),
+  "utf8",
+);
 
 test("the full SUIT variable face and final polish layer load last", () => {
   assert.match(
@@ -30,6 +34,33 @@ test("the full SUIT variable face and final polish layer load last", () => {
   assert.match(
     polishStyles,
     /#root \*\s*,[\s\S]*\.maplibregl-ctrl\s*\{[^}]*font-family:\s*var\(--font-sans\)\s*!important;/s,
+  );
+});
+
+test("the edge-to-edge app restores restrained liquid glass inside the product surface", () => {
+  assert.match(
+    productStyles,
+    /--glass-shell:\s*rgba\(230,\s*238,\s*248,\s*0\.8\)/,
+  );
+  assert.match(
+    productStyles,
+    /\.app-shell\s*\{[^}]*linear-gradient[^}]*backdrop-filter:\s*blur\(22px\) saturate\(116%\)/s,
+  );
+  assert.match(
+    productStyles,
+    /\.titlebar\s*\{[^}]*border-bottom-color:\s*rgba\(52,\s*67,\s*112,\s*0\.055\);[^}]*background:\s*rgba\(246,\s*249,\s*253,\s*0\.44\);[^}]*backdrop-filter:\s*blur\(18px\)/s,
+  );
+  assert.match(
+    productStyles,
+    /\.side-nav\s*\{[^}]*border-right-color:\s*rgba\(52,\s*67,\s*112,\s*0\.055\);[^}]*background:\s*rgba\(246,\s*249,\s*253,\s*0\.13\);[^}]*backdrop-filter:\s*blur\(12px\) saturate\(110%\)/s,
+  );
+  assert.match(
+    productStyles,
+    /\.statusbar\s*\{[^}]*border-top-color:\s*rgba\(52,\s*67,\s*112,\s*0\.05\);[^}]*background:\s*rgba\(246,\s*249,\s*253,\s*0\.24\);[^}]*backdrop-filter:\s*blur\(12px\) saturate\(110%\)/s,
+  );
+  assert.match(
+    polishStyles,
+    /\.glass-panel\s*\{[^}]*backdrop-filter:\s*blur\(14px\) saturate\(112%\)/s,
   );
 });
 
@@ -54,7 +85,19 @@ test("home hierarchy is asymmetric without a hidden metric scroller", () => {
   );
   assert.match(
     polishStyles,
-    /\.screen--home\s*\{[^}]*grid-template-rows:\s*auto 178px minmax\(0,\s*1fr\);/s,
+    /\.screen--home\s*\{[^}]*gap:\s*8px;[^}]*grid-template-rows:\s*auto 198px minmax\(0,\s*1fr\);/s,
+  );
+  assert.match(
+    polishStyles,
+    /\.home-pipeline-hero,\s*\.home-summary-card\s*\{[^}]*min-height:\s*0;[^}]*height:\s*auto;/s,
+  );
+  assert.match(
+    polishStyles,
+    /\.home-pipeline-hero\s*\{[^}]*overflow:\s*visible;/s,
+  );
+  assert.match(
+    polishStyles,
+    /\.home-pipeline-hero__top,\s*\.home-pipeline-steps,\s*\.home-pipeline-footer\s*\{[^}]*flex:\s*0 0 auto;/s,
   );
   assert.match(
     polishStyles,
@@ -86,6 +129,41 @@ test("home hierarchy is asymmetric without a hidden metric scroller", () => {
     /\.filter\(\(candidate\) => !reviewedCandidateIds\.has\(candidate\.candidateId\)\)[\s\S]*\.slice\(0, 3\)/,
   );
   assert.doesNotMatch(homeSource, /realTunnelEvidenceImage/);
+  assert.match(
+    polishStyles,
+    /\.home-pipeline-steps\s*\{[^}]*gap:\s*0;[^}]*border-radius:\s*13px;[^}]*background:\s*rgba\(232,\s*238,\s*248,\s*0\.5\)/s,
+  );
+  assert.match(
+    polishStyles,
+    /\.home-pipeline-step\s*\{[^}]*border:\s*0;[^}]*background:\s*transparent/s,
+  );
+  assert.match(
+    polishStyles,
+    /\.screen--pipeline-analysis \.pipeline-job-stage-grid\s*\{[^}]*gap:\s*0;[^}]*border-radius:\s*12px/s,
+  );
+  assert.match(
+    polishStyles,
+    /\.screen--pipeline-analysis \.pipeline-job-stage\s*\{[^}]*border:\s*0;[^}]*border-bottom:\s*1px solid/s,
+  );
+});
+
+test("pipeline analysis reads as two calm work surfaces instead of a field of cards", () => {
+  assert.match(
+    polishStyles,
+    /@media \(min-width:\s*961px\)\s*\{[\s\S]*?\.screen--pipeline-analysis \.analysis-summary\s*\{[^}]*gap:\s*0;[^}]*overflow:\s*hidden;[^}]*border-radius:\s*var\(--radius-card\);[^}]*backdrop-filter:\s*blur\(14px\) saturate\(110%\)/s,
+  );
+  assert.match(
+    polishStyles,
+    /\.screen--pipeline-analysis \.analysis-summary > \.glass-panel\s*\{[^}]*border:\s*0;[^}]*border-radius:\s*0;[^}]*background:\s*transparent;[^}]*box-shadow:\s*none;[^}]*backdrop-filter:\s*none;/s,
+  );
+  assert.match(
+    polishStyles,
+    /\.screen--pipeline-analysis \.analysis-summary > \.stat-tile\s*\{[^}]*border-left:\s*1px solid rgba\(52,\s*67,\s*112,\s*0\.08\);/s,
+  );
+  assert.match(
+    polishStyles,
+    /@media \(min-width:\s*961px\) and \(max-height:\s*820px\)\s*\{[\s\S]*?\.screen--pipeline-analysis \.pipeline-job-stage-grid\s*\{[^}]*gap:\s*0;[^}]*margin-top:\s*6px;/s,
+  );
 });
 
 test("Korean badges and short-window controls keep readable line boxes", () => {
@@ -126,10 +204,10 @@ test("label review uses one quiet decision surface instead of nested status card
   );
 });
 
-test("dense evidence owns a readable internal detail scrollport", () => {
+test("history keeps one bounded vertical scroll owner while evidence stays in-frame", () => {
   assert.match(
     polishStyles,
-    /\.screen--history \.evidence-details\s*\{[^}]*overflow-y:\s*auto;[^}]*scrollbar-gutter:\s*stable;/s,
+    /@media \(min-width:\s*961px\) and \(max-height:\s*780px\)[\s\S]*\.screen--history \.evidence-details\s*\{[^}]*overflow:\s*hidden;/s,
   );
   assert.match(
     polishStyles,
@@ -149,7 +227,7 @@ test("dense evidence owns a readable internal detail scrollport", () => {
   );
   assert.match(
     polishStyles,
-    /\.screen--history \.evidence-details\s*\{[^}]*overflow-y:\s*auto;[^}]*overscroll-behavior:\s*contain;[^}]*scrollbar-gutter:\s*stable;/s,
+    /@media \(min-width:\s*961px\)[\s\S]*\.screen--history \.incident-list\s*\{[^}]*overflow-y:\s*auto;[^}]*scrollbar-gutter:\s*stable;[\s\S]*\.screen--history \.evidence-details\s*\{[^}]*overflow:\s*hidden;/s,
   );
   assert.match(
     polishStyles,

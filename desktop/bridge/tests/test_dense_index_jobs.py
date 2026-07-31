@@ -241,6 +241,72 @@ def _fixture(tmp_path):
     return project_id, source, resolver, controller, service
 
 
+def test_builtin_engine_receives_owned_short_staging_and_job_identity(
+    tmp_path,
+    monkeypatch,
+):
+    project_id = uuid4()
+    source = tmp_path / "road.mp4"
+    source.write_bytes(b"registered road source")
+    resolver = MappingResolver(project_id, {"source-a": source})
+    staging_root = tmp_path / "s"
+    captured = {}
+
+    class CapturingEngine:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+            self.limits = kwargs["limits"]
+
+        def build(
+            self,
+            media_path,
+            *,
+            source_sha256,
+            project_root,
+            output_directory,
+            cancel,
+        ):
+            return _fake_result(
+                Path(media_path),
+                source_sha256,
+                Path(output_directory),
+                self.limits,
+            )
+
+    monkeypatch.setattr(
+        "app.dense_index_jobs.DenseFrameIndexEngine",
+        CapturingEngine,
+    )
+    service = DenseIndexJobService(
+        resolver,
+        data_root=tmp_path / "data",
+        dense_limits=_limits(),
+        dense_staging_root=staging_root,
+    )
+    try:
+        queued = service.start(
+            project_id,
+            "source-a",
+            _sha256(source),
+            sampling_fps=2,
+        )
+        completed = _wait_for(
+            service,
+            project_id,
+            queued["job_id"],
+            {"completed"},
+        )
+
+        assert completed["status"] == "completed"
+        assert captured["staging_root"] == staging_root.resolve()
+        assert captured["staging_owner_id"] == str(queued["job_id"])
+        assert (
+            staging_root / ".trafficvisson-dense-staging.json"
+        ).is_file()
+    finally:
+        service.shutdown()
+
+
 @pytest.mark.parametrize("fps", [1, 2, 3, 4, 5])
 def test_service_accepts_only_integer_1_to_5_fps(tmp_path, fps):
     project_id, source, resolver, controller, service = _fixture(tmp_path)

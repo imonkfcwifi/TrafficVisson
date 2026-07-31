@@ -11,6 +11,73 @@
   --layout-motion-easing: cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
+/*
+ * The final labeling surface follows the reference hierarchy: two dominant
+ * work surfaces, then typography and hairline separators instead of nested
+ * bordered cards. Technical identifiers remain compact; decision evidence
+ * and maintenance rationale use normal reading sizes.
+ */
+.screen--labeling .question-decision-context {
+  border-right: 0;
+  border-left: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.screen--labeling .weak-case-reference {
+  border-right: 0;
+  border-left: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.screen--labeling .answer-grid {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.screen--labeling .question-card__status,
+.screen--labeling .question-metadata,
+.screen--labeling .question-decision-context__identity > span,
+.screen--labeling .question-decision-context__identity > strong,
+.screen--labeling .question-decision-context__row > small,
+.screen--labeling .question-decision-context__user,
+.screen--labeling .weak-case-reference__header strong,
+.screen--labeling .weak-case-reference__header small,
+.screen--labeling .weak-case-reference__count,
+.screen--labeling .weak-case-reference__detail p,
+.screen--labeling .weak-case-reference__approval,
+.screen--labeling .experimental-proposal > p,
+.screen--labeling .explanation,
+.screen--labeling .question-card > .question-skip,
+.screen--report .provider-feedback {
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.screen--labeling .experimental-proposal__summary > *,
+.screen--labeling .weak-case-strip__identity,
+.screen--labeling :is(.answer, .severity-choice) kbd {
+  font-size: 11.5px;
+}
+
+.screen--report .provider-feedback {
+  min-height: 46px;
+  max-height: 64px;
+  margin-top: 6px;
+  overflow: hidden;
+}
+
+.screen--report .provider-feedback p {
+  display: -webkit-box;
+  overflow: hidden;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
 @media (min-width: 961px) {
   .titlebar {
     display: grid;
@@ -160,18 +227,22 @@
   }
 
   .shell-screen-context {
-    height: 38px;
+    height: 42px;
     column-gap: 6px;
     padding-inline: 9px 7px;
   }
 
   .shell-screen-context > span {
-    font-size: 10.5px;
+    font-size: 11px;
     letter-spacing: 0;
   }
 
   .shell-screen-context > strong {
     font-size: 12.5px;
+  }
+
+  .shell-screen-context > small {
+    font-size: 11px;
   }
 
   .screen--labeling > .screen-header {
@@ -265,8 +336,8 @@
 
   .screen--labeling > .screen-header p:not(.eyebrow) {
     margin-top: 1px;
-    font-size: 11.5px;
-    line-height: 1.2;
+    font-size: 12px;
+    line-height: 1.25;
   }
 
   .screen--labeling .labeling-sidebar {
@@ -279,13 +350,23 @@
     padding: 5px 7px;
   }
 
+  /*
+   * The card has one explicit minimum-window budget. Type and score already
+   * live in question metadata, so the duplicated model-identity proposal row
+   * yields first. Decision evidence, similar cases, answers, learning effect,
+   * and skip remain visible without creating another scroll owner.
+   */
+  .screen--labeling .question-card > .experimental-proposal {
+    display: none;
+  }
+
   .screen--labeling .question-card__header {
     min-height: 24px;
     flex-basis: 24px;
   }
 
   .screen--labeling .question-card__header > div > strong {
-    font-size: 15px;
+    font-size: 16px;
   }
 
   .screen--labeling .question-card__status {
@@ -297,32 +378,34 @@
   .screen--labeling
     .question-card:has(> .experimental-proposal)
     .question-prompt {
-    min-height: 36px;
-    max-height: 36px;
+    min-height: 54px;
+    max-height: 54px;
+    flex-basis: 54px;
     margin: 1px 0;
-    font-size: 15px;
-    line-height: 1.2;
-    -webkit-line-clamp: 2;
+    font-size: 15.5px;
+    line-height: 1.14;
+    -webkit-line-clamp: 3;
   }
 
   .screen--labeling .question-metadata {
-    min-height: 17px;
-    height: 17px;
-    line-height: 1.15;
+    min-height: 18px;
+    height: 18px;
+    font-size: 11.5px;
+    line-height: 1.2;
   }
 
   .screen--labeling .question-decision-context,
   .screen--labeling
     .question-card:has(> .ocr-roi)
     > .question-decision-context {
-    min-height: 40px;
-    max-height: 40px;
-    flex-basis: 40px;
+    min-height: 52px;
+    max-height: 52px;
+    flex-basis: 52px;
     margin-top: 1px;
   }
 
   .screen--labeling .question-decision-context__row {
-    min-height: 19px;
+    min-height: 25px;
     grid-template-columns: minmax(112px, auto) minmax(0, 1fr);
     gap: 5px;
     padding-block: 0;
@@ -332,6 +415,17 @@
     grid-template-columns: minmax(112px, auto) minmax(0, 1fr) max-content;
   }
 
+  .screen--labeling .question-decision-context__row > small {
+    display: -webkit-box;
+    overflow: hidden;
+    font-size: 11.5px;
+    line-height: 1.12;
+    text-overflow: clip;
+    white-space: normal;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
   .screen--labeling
     .question-card:has(> .experimental-proposal)
     > .weak-case-reference,
@@ -339,13 +433,14 @@
     .question-card:has(> .severity-followup)
     > .weak-case-reference,
   .screen--labeling .weak-case-reference {
-    max-height: 50px;
+    min-height: 70px;
+    max-height: 72px;
     margin-top: 1px;
-    padding-block: 3px;
+    padding-block: 2px;
   }
 
   .screen--labeling .weak-case-reference__header {
-    min-height: 14px;
+    min-height: 15px;
   }
 
   .screen--labeling .weak-case-strip,
@@ -357,39 +452,67 @@
     .question-card:has(> .severity-followup)
     .weak-case-strip
     > button {
-    height: 29px;
+    height: 27px;
   }
 
   .screen--labeling .weak-case-reference__detail {
+    min-height: 24px;
+    display: block;
+    overflow: hidden;
+  }
+
+  .screen--labeling .weak-case-reference__detail > span,
+  .screen--labeling .weak-case-reference__approval {
     display: none;
+  }
+
+  .screen--labeling .weak-case-reference__detail p {
+    display: -webkit-box;
+    overflow: hidden;
+    font-size: 11.5px;
+    line-height: 1.08;
+    text-overflow: clip;
+    white-space: normal;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
   }
 
   .screen--labeling .experimental-proposal,
   .screen--labeling
     .question-card:has(> .severity-followup)
     > .experimental-proposal {
-    min-height: 38px;
-    max-height: 38px;
-    flex-basis: 38px;
-    grid-template-rows: 17px 15px;
+    min-height: 36px;
+    max-height: 36px;
+    flex-basis: 36px;
+    grid-template-columns: minmax(68px, auto) minmax(0, 1fr);
+    grid-template-rows: 16px 14px;
     margin-top: 1px;
     padding: 2px 6px;
   }
 
   .screen--labeling .experimental-proposal > p {
-    font-size: 10px;
+    font-size: 11.5px;
+  }
+
+  .screen--labeling .experimental-proposal__summary {
+    grid-template-columns: max-content max-content;
+  }
+
+  .screen--labeling .experimental-proposal__summary > :last-child {
+    display: none;
   }
 
   .screen--labeling .question-card > .compact-field,
   .screen--labeling
     .question-card:has(> .experimental-proposal)
     > .compact-field {
-    min-height: 28px;
+    min-height: 30px;
     margin-top: 1px;
   }
 
   .screen--labeling .question-card > .compact-field :is(select, input) {
-    min-height: 28px;
+    min-height: 30px;
+    font-size: 12px;
   }
 
   .screen--labeling .answer-grid,
@@ -401,7 +524,7 @@
   }
 
   .screen--labeling .answer {
-    min-height: 38px;
+    min-height: 44px;
     padding-block: 4px;
   }
 
@@ -410,11 +533,11 @@
   .screen--labeling
     .question-card:has(> .severity-followup)
     > .explanation {
-    min-height: 26px;
-    max-height: 26px;
-    flex-basis: 26px;
+    min-height: 20px;
+    max-height: 20px;
+    flex-basis: 20px;
     margin: 1px 0;
-    padding: 2px 4px;
+    padding: 1px 4px;
     overflow: hidden;
   }
 
@@ -423,15 +546,159 @@
     .question-card:has(> .severity-followup)
     > .explanation
     p {
+    display: block;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
+  .screen--labeling .question-card:has(> .ocr-roi) .question-prompt {
+    min-height: 42px;
+    max-height: 42px;
+    flex-basis: 42px;
+    -webkit-line-clamp: 2;
+  }
+
+  .screen--labeling .question-card:has(> .ocr-roi) {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-auto-rows: min-content;
+    align-content: start;
+    column-gap: 5px;
+  }
+
+  .screen--labeling
+    .question-card:has(> .ocr-roi)
+    > :is(
+      .question-card__header,
+      .question-prompt,
+      .question-metadata,
+      .question-decision-context,
+      .weak-case-reference,
+      .notice,
+      .ocr-roi,
+      .answer-grid,
+      .severity-followup,
+      .edit-actions,
+      .explanation,
+      .question-skip
+    ) {
+    grid-column: 1 / -1;
+  }
+
+  .screen--labeling
+    .question-card:has(> .ocr-roi)
+    > .compact-field {
+    min-height: 30px;
+    grid-template-columns: minmax(68px, 0.72fr) minmax(0, 1fr);
+    gap: 4px;
+    margin-top: 1px;
+  }
+
+  .screen--labeling
+    .question-card:has(> .ocr-roi)
+    > .question-decision-context {
+    min-height: 48px;
+    max-height: 48px;
+    flex-basis: 48px;
+  }
+
+  .screen--labeling
+    .question-card:has(> .ocr-roi)
+    > .weak-case-reference {
+    min-height: 56px;
+    max-height: 56px;
+  }
+
+  .screen--labeling .question-card:has(> .ocr-roi) > .ocr-roi {
+    min-height: 32px;
+    max-height: 32px;
+    height: 32px;
+    flex-basis: 32px;
+  }
+
+  .screen--labeling
+    .question-card:has(> .severity-followup)
+    > .severity-followup {
+    min-height: 48px;
+    max-height: 48px;
+    flex: 0 0 48px;
+    grid-template-columns: minmax(104px, 0.56fr) minmax(0, 1.44fr);
+    gap: 4px;
+    margin-top: 1px;
+    padding: 3px 4px;
+    overflow: hidden;
+  }
+
+  .screen--labeling
+    .question-card:has(> .severity-followup)
+    .severity-followup__intro
+    > :is(span, small),
+  .screen--labeling
+    .question-card:has(> .severity-followup)
+    .severity-followup__action,
+  .screen--labeling
+    .question-card:has(> .severity-followup)
+    .severity-choice
+    small {
+    display: none;
+  }
+
+  .screen--labeling
+    .question-card:has(> .severity-followup)
+    .severity-choice {
+    min-height: 40px;
+    padding: 3px;
+  }
+
+  .screen--labeling
+    .question-card:has(> .edit-actions)
+    > .answer-grid {
+    display: none;
+  }
+
+  .screen--labeling
+    .question-card:has(> .edit-actions)
+    > .edit-actions {
+    min-height: 44px;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 5px;
+    margin-top: 2px;
+  }
+
+  .screen--labeling
+    .question-card:has(> .notice--danger)
+    > .weak-case-reference {
+    display: none;
+  }
+
+  /*
+   * An OCR warning replaces the compact learning-effect line and the reference
+   * detail, while the five reference thumbnails remain available. This keeps
+   * the rare warning state inside the same 1280 × 720 budget.
+   */
+  .screen--labeling
+    .question-card:has(> .ocr-roi):has(> .proposal-load-warning)
+    > .weak-case-reference {
+    min-height: 46px;
+    max-height: 46px;
+  }
+
+  .screen--labeling
+    .question-card:has(> .ocr-roi):has(> .proposal-load-warning)
+    .weak-case-reference__detail,
+  .screen--labeling
+    .question-card:has(> .ocr-roi):has(> .proposal-load-warning)
+    > .explanation {
+    display: none;
+  }
+
   .screen--labeling .question-card > .question-skip {
-    min-height: 24px;
-    flex-basis: 24px;
-    padding-block: 2px;
+    min-height: 32px;
+    flex-basis: 32px;
+    padding-block: 4px;
+    font-size: 12px;
   }
 
   .screen--labeling .label-progress {
@@ -474,8 +741,13 @@
   }
 
   .shell-screen-context > strong {
-    grid-row: 1 / span 2;
-    align-self: center;
+    grid-row: 1;
+    align-self: end;
+  }
+
+  .shell-screen-context > small {
+    grid-row: 2 / span 2;
+    align-self: start;
   }
 
   .shell-diagnostics-button {

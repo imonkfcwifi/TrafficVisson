@@ -112,6 +112,30 @@ def test_grouping_is_order_independent_and_emits_only_review_proposals():
     assert len(proposal["provenance"]["evidence_fingerprint_sha256"]) == 64
 
 
+def test_dense_review_proposal_score_semantics_remains_review_only():
+    detection = _detection(
+        "dense-review-a",
+        1.5,
+        issue_type="guide_sign_identity",
+        score=0.99,
+        box=_box(0.28, 0.66, 0.10, 0.03),
+    )
+    detection["score_semantics"] = (
+        "review_proposal_score_not_probability"
+    )
+
+    proposals = group_temporal_incident_proposals(
+        [detection],
+        provenance=PROVENANCE,
+    )
+
+    assert proposals[0]["peak_evidence"]["score_semantics"] == (
+        "review_proposal_score_not_probability"
+    )
+    assert proposals[0]["review_only"] is True
+    assert proposals[0]["automatic_incident_creation_allowed"] is False
+
+
 def test_type_gap_track_and_spatial_gates_keep_unrelated_detections_separate():
     detections = [
         _detection("debris-a", 0.0, box=_box(0.05, 0.2), track_hint="left"),

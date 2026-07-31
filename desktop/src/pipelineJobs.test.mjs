@@ -36,6 +36,9 @@ const vite = await createServer({
   server: { middlewareMode: true, hmr: false },
 });
 const pipeline = await vite.ssrLoadModule("/src/pipelineJobs.ts");
+const folderBatches = await vite.ssrLoadModule(
+  "/src/folderPipelineBatches.ts",
+);
 const appShellSource = await readFile(
   new URL("./components/AppShell.tsx", import.meta.url),
   "utf8",
@@ -74,6 +77,39 @@ function profile() {
     bulk_frame_provider_policy: "local_models_only",
     revision: 1,
     updated_at: "2026-07-29T00:00:00+00:00",
+  };
+}
+
+function v2Profile() {
+  return {
+    ...profile(),
+    schema_version: "trafficvisson.pipeline-profile.v2",
+    report_transmission_consent: true,
+    template_semantic_map_id: "sample-q3-semantic-v1",
+    template_semantic_map_sha256: "e".repeat(64),
+    template_semantic_map_ready: true,
+    report_provider_ready_at_configuration: true,
+  };
+}
+
+function currentProfile() {
+  return {
+    ...v2Profile(),
+    schema_version: "trafficvisson.pipeline-profile.v3",
+    report_route_name: "서울북부고속도로 (구리-포천)",
+    report_inspector_name: "홍길동",
+    report_evidence_mode: "shared_deidentified",
+    report_inspection_date_policy:
+      "source_filename_yyyymmdd_or_block",
+  };
+}
+
+function v4Profile() {
+  return {
+    ...currentProfile(),
+    schema_version: "trafficvisson.pipeline-profile.v4",
+    label_confirmation_authority:
+      "structured_llm_training_assist",
   };
 }
 
@@ -136,13 +172,19 @@ test("strict parser preserves one canonical 12-stage DAG", () => {
   assert.equal(parsed.jobId, JOB_ID);
   assert.equal(parsed.stages.length, 12);
   assert.equal(parsed.profileSnapshot.reviewMode, "precision");
+  assert.equal(parsed.profileSnapshot.reportTransmissionConsent, false);
+  assert.equal(parsed.profileSnapshot.templateSemanticMapReady, false);
+  assert.equal(
+    parsed.profileSnapshot.labelConfirmationAuthority,
+    "human_review",
+  );
   assert.equal(
     pipeline.pipelineStatusLabel(parsed),
     "기본 2fps 프레임 인덱스",
   );
 });
 
-test("parser separates model unavailable, failure, zero detections and review wait", () => {
+test("parser separates unavailable, unusable evidence, zero detections and review wait", () => {
   const blocked = job();
   blocked.status = "blocked";
   blocked.current_stage = "candidate_rescan_5_10fps";
@@ -179,6 +221,27 @@ test("parser separates model unavailable, failure, zero detections and review wa
     "CSV·증거 저장 완료 · 보고서 준비 대기",
   );
 
+  const reportBlocked = job();
+  reportBlocked.status = "blocked";
+  reportBlocked.current_stage = "derived_outputs";
+  reportBlocked.progress_percent = 100;
+  reportBlocked.outcome_code = "report_preview_blocked";
+  reportBlocked.error_code = "report_preview_blocked";
+  reportBlocked.stages = stages("derived_outputs");
+  reportBlocked.stages[11].status = "blocked";
+  reportBlocked.stages[11].outcome = "report_preview_blocked";
+  reportBlocked.stages[11].error_code = reportBlocked.error_code;
+  reportBlocked.stages[11].checkpoint = {
+    state: "blocked",
+    export_bundle_id: "bundle-safe-v2",
+    absolute_paths_exposed: false,
+    com_invoked: false,
+  };
+  assert.equal(
+    pipeline.pipelineStatusLabel(pipeline.parsePipelineJob(reportBlocked)),
+    "CSV·증거 저장 완료 · 보고서 준비 대기",
+  );
+
   const awaiting = job();
   awaiting.status = "awaiting_review";
   awaiting.current_stage = "question_queue";
@@ -201,6 +264,165 @@ test("parser separates model unavailable, failure, zero detections and review wa
     pipeline.pipelineStatusLabel(pipeline.parsePipelineJob(zero)),
     "검지 0건 · 정상 완료",
   );
+
+  const unusable = job();
+  unusable.status = "completed";
+  unusable.current_stage = "derived_outputs";
+  unusable.progress_percent = 100;
+  unusable.outcome_code = "unusable_visual_evidence";
+  unusable.error_code = null;
+  unusable.stages = stages("candidate_rescan_5_10fps");
+  unusable.stages[4].status = "success";
+  unusable.stages[4].outcome = "unusable_visual_evidence";
+  for (let index = 5; index < unusable.stages.length; index += 1) {
+    unusable.stages[index].status = "skipped";
+    unusable.stages[index].outcome = "unusable_visual_evidence";
+  }
+  assert.equal(
+    pipeline.pipelineStatusLabel(pipeline.parsePipelineJob(unusable)),
+    "판정 불가 영상 · 재촬영 필요",
+  );
+});
+
+test("profile parser defaults v1-v3 to human review and requires exact v4 delegation", () => {
+  const legacy = pipeline.parsePipelineProfile(profile());
+  assert.equal(legacy.schemaVersion, "trafficvisson.pipeline-profile.v1");
+  assert.equal(legacy.reportTransmissionConsent, false);
+  assert.equal(legacy.templateSemanticMapId, "unconfigured");
+  assert.equal(legacy.templateSemanticMapSha256, "0".repeat(64));
+
+  const augmentedLegacy = pipeline.parsePipelineProfile({
+    ...profile(),
+    report_transmission_consent: false,
+    template_semantic_map_id: "unconfigured",
+    template_semantic_map_sha256: "0".repeat(64),
+    template_semantic_map_ready: false,
+    report_provider_ready_at_configuration: false,
+  });
+  assert.equal(
+    augmentedLegacy.schemaVersion,
+    "trafficvisson.pipeline-profile.v1",
+  );
+  assert.equal(augmentedLegacy.reportTransmissionConsent, false);
+  const serializedLegacy = pipeline.parsePipelineProfile({
+    ...profile(),
+    report_transmission_consent: false,
+    template_semantic_map_id: "unconfigured",
+    template_semantic_map_sha256: "0".repeat(64),
+    template_semantic_map_ready: false,
+    report_provider_ready_at_configuration: false,
+    report_route_name: "unconfigured",
+    report_inspector_name: "unconfigured",
+    report_evidence_mode: "internal_original",
+    report_inspection_date_policy:
+      "source_filename_yyyymmdd_or_block",
+    label_confirmation_authority: "human_review",
+  });
+  assert.equal(
+    serializedLegacy.labelConfirmationAuthority,
+    "human_review",
+  );
+
+  const v2 = pipeline.parsePipelineProfile(v2Profile());
+  assert.equal(v2.schemaVersion, "trafficvisson.pipeline-profile.v2");
+  assert.equal(v2.reportTransmissionConsent, true);
+  assert.equal(v2.templateSemanticMapId, "sample-q3-semantic-v1");
+  assert.equal(v2.reportRouteName, "unconfigured");
+  assert.equal(v2.reportEvidenceMode, "internal_original");
+  const serializedV2 = pipeline.parsePipelineProfile({
+    ...v2Profile(),
+    report_route_name: "unconfigured",
+    report_inspector_name: "unconfigured",
+    report_evidence_mode: "internal_original",
+    report_inspection_date_policy:
+      "source_filename_yyyymmdd_or_block",
+  });
+  assert.equal(
+    serializedV2.schemaVersion,
+    "trafficvisson.pipeline-profile.v2",
+  );
+  assert.equal(serializedV2.reportRouteName, "unconfigured");
+
+  const current = pipeline.parsePipelineProfile(currentProfile());
+  assert.equal(current.schemaVersion, "trafficvisson.pipeline-profile.v3");
+  assert.equal(current.reportTransmissionConsent, true);
+  assert.equal(current.templateSemanticMapId, "sample-q3-semantic-v1");
+  assert.equal(current.templateSemanticMapReady, true);
+  assert.equal(current.reportProviderReadyAtConfiguration, true);
+  assert.equal(
+    current.reportRouteName,
+    "서울북부고속도로 (구리-포천)",
+  );
+  assert.equal(current.reportInspectorName, "홍길동");
+  assert.equal(current.reportEvidenceMode, "shared_deidentified");
+  assert.equal(
+    current.reportInspectionDatePolicy,
+    "source_filename_yyyymmdd_or_block",
+  );
+  assert.equal(current.labelConfirmationAuthority, "human_review");
+  const serializedV3 = pipeline.parsePipelineProfile({
+    ...currentProfile(),
+    label_confirmation_authority: "human_review",
+  });
+  assert.equal(
+    serializedV3.labelConfirmationAuthority,
+    "human_review",
+  );
+
+  const v4 = pipeline.parsePipelineProfile(v4Profile());
+  assert.equal(v4.schemaVersion, "trafficvisson.pipeline-profile.v4");
+  assert.equal(
+    v4.labelConfirmationAuthority,
+    "structured_llm_training_assist",
+  );
+
+  const missingGate = currentProfile();
+  delete missingGate.template_semantic_map_sha256;
+  assert.throws(
+    () => pipeline.parsePipelineProfile(missingGate),
+    /응답 형식/,
+  );
+
+  const unsafeConsent = currentProfile();
+  unsafeConsent.template_semantic_map_ready = false;
+  assert.throws(
+    () => pipeline.parsePipelineProfile(unsafeConsent),
+    /응답 형식/,
+  );
+
+  const staleSchemaWithV3Facts = {
+    ...currentProfile(),
+    schema_version: "trafficvisson.pipeline-profile.v2",
+  };
+  assert.throws(
+    () => pipeline.parsePipelineProfile(staleSchemaWithV3Facts),
+    /응답 형식/,
+  );
+
+  const controls = currentProfile();
+  controls.report_route_name = "서울\n북부";
+  assert.throws(
+    () => pipeline.parsePipelineProfile(controls),
+    /응답 형식/,
+  );
+
+  const staleAuthority = {
+    ...v4Profile(),
+    schema_version: "trafficvisson.pipeline-profile.v3",
+  };
+  assert.throws(
+    () => pipeline.parsePipelineProfile(staleAuthority),
+    /응답 형식/,
+  );
+
+  const invalidAuthority = {
+    ...v4Profile(),
+    label_confirmation_authority: "provider_decides_truth",
+  };
+  assert.throws(
+    () => pipeline.parsePipelineProfile(invalidAuthority),
+    /응답 형식/,
+  );
 });
 
 test("parser rejects reordered stages, leaked paths and inconsistent completion", () => {
@@ -214,6 +436,28 @@ test("parser rejects reordered stages, leaked paths and inconsistent completion"
   const leaked = job();
   leaked.provenance = { source_path: "C:\\secret\\road.mp4" };
   assert.throws(() => pipeline.parsePipelineJob(leaked), /응답 형식/);
+
+  const explicitNoPath = job();
+  explicitNoPath.stages[3].checkpoint = {
+    provider_visual_evidence: {
+      path_exposed: false,
+    },
+  };
+  assert.equal(
+    pipeline.parsePipelineJob(explicitNoPath).stages[3].checkpoint
+      .provider_visual_evidence.path_exposed,
+    false,
+  );
+  const falsePathProof = job();
+  falsePathProof.stages[3].checkpoint = {
+    provider_visual_evidence: {
+      path_exposed: true,
+    },
+  };
+  assert.throws(
+    () => pipeline.parsePipelineJob(falsePathProof),
+    /응답 형식/,
+  );
 
   const falseComplete = job();
   falseComplete.status = "completed";
@@ -289,6 +533,21 @@ test("normal intake is one rights-confirmed automatic start, not screen-by-scree
     /async function startPersistentPipelines\([\s\S]*for \(let index = 0; index < uniqueFileNames\.length; index \+= 1\)/,
   );
   assert.match(importScreenSource, /pipeline\.start\(\{/);
+  assert.match(importScreenSource, /pipeline\.startFolderBatch\(\{/);
+  assert.doesNotMatch(
+    importScreenSource,
+    /폴더 전체 스트림 검증/,
+  );
+  assert.match(
+    importScreenSource,
+    /서버 영속 배치가 파일별 스트림 검증과 저장공간 사전점검을 이어서 수행합니다/,
+  );
+  assert.match(
+    importScreenSource,
+    /idempotencyKey:\s*`folder-start-\$\{snapshotId\}-p\$\{profile\.revision\}`/,
+  );
+  assert.match(importScreenSource, /service\.listFolderBatches\(\{/);
+  assert.match(importScreenSource, /pipeline\.retryFolderBatch\(\{/);
   assert.match(importScreenSource, /rightsConfirmed:\s*true/);
   assert.match(
     importScreenSource,
@@ -307,15 +566,166 @@ test("normal intake is one rights-confirmed automatic start, not screen-by-scree
   assert.doesNotMatch(importScreenSource, /hashAndRegister|startActualAnalysis/);
 });
 
+test("folder batch parser preserves deterministic file order and rejects path-bearing fields", () => {
+  const response = {
+    schema_version: "trafficvisson.folder-pipeline-batch.v2",
+    batch_id: JOB_ID,
+    project_id: PROJECT_ID,
+    snapshot_id: SNAPSHOT_ID,
+    snapshot_digest: SHA,
+    idempotency_key: `folder-start-${SNAPSHOT_ID}`,
+    input_fingerprint: "b".repeat(64),
+    output_location_id: "project-default",
+    output_preflight: {
+      state: "ready",
+      dense_sampling_fps: 2,
+      estimated_jpeg_bytes_per_frame: 114_688,
+      derived_output_overhead_ratio: 1,
+      duration_seconds: 25,
+      dense_frame_count: 50,
+      estimated_artifact_bytes: 7_680_000,
+      safety_reserve_bytes: 4_294_967_296,
+      required_free_bytes: 4_302_647_296,
+      available_free_bytes: 8_589_934_592,
+      error_code: null,
+    },
+    status: "active",
+    enqueue_completed: true,
+    recovered_after_restart: true,
+    retry_count: 1,
+    resume_count: 1,
+    created_at: "2026-07-30T00:00:00+00:00",
+    updated_at: "2026-07-30T00:00:01+00:00",
+    counts: {
+      total: 2,
+      pending: 0,
+      validation_failed: 0,
+      enqueue_failed: 0,
+      storage_blocked: 0,
+      queued_or_running: 2,
+      awaiting_review: 0,
+      completed: 0,
+      pipeline_failed: 0,
+    },
+    files: [
+      {
+        order: 1,
+        file_name: "A.mov",
+        size_bytes: 10,
+        intake_state: "enqueued",
+        duration_seconds: 12.5,
+        estimated_dense_frames: 25,
+        estimated_output_bytes: 3_840_000,
+        validation_attempts: 1,
+        enqueue_attempts: 1,
+        pipeline_job_id: "44444444-4444-4444-8444-444444444444",
+        pipeline_status: "queued",
+        idempotent_replay: false,
+        last_error_code: null,
+        recovered_after_restart: true,
+        retry_available: false,
+        resume_available: false,
+      },
+      {
+        order: 2,
+        file_name: "b.mp4",
+        size_bytes: 11,
+        intake_state: "enqueued",
+        duration_seconds: 12.5,
+        estimated_dense_frames: 25,
+        estimated_output_bytes: 3_840_000,
+        validation_attempts: 1,
+        enqueue_attempts: 1,
+        pipeline_job_id: "55555555-5555-4555-8555-555555555555",
+        pipeline_status: "queued",
+        idempotent_replay: true,
+        last_error_code: null,
+        recovered_after_restart: true,
+        retry_available: false,
+        resume_available: false,
+      },
+    ],
+  };
+  const parsed = folderBatches.parseFolderPipelineBatch(response);
+  assert.deepEqual(
+    parsed.files.map((file) => file.fileName),
+    ["A.mov", "b.mp4"],
+  );
+  assert.equal(parsed.recoveredAfterRestart, true);
+  assert.throws(
+    () =>
+      folderBatches.parseFolderPipelineBatch({
+        ...response,
+        directory: "\\\\server\\private",
+      }),
+    /허용되지 않은 필드/,
+  );
+});
+
 test("one-time profile binds review policy, exact sample template hash, local model pack and provider", () => {
   assert.match(importScreenSource, /pipeline\.configureProfile\(\{/);
   assert.match(importScreenSource, /questionPolicy,/);
   assert.match(importScreenSource, /reviewMode,/);
+  assert.match(importScreenSource, /labelConfirmationAuthority,/);
+  assert.match(importScreenSource, /사용자가 모두 확인/);
+  assert.match(importScreenSource, /AI 학습 라벨 보조/);
   assert.match(importScreenSource, /defaultTemplateSha256:\s*template\.sha256/);
-  assert.match(importScreenSource, /detectorPackId:\s*COMMON_MODEL_PACK_ID/);
-  assert.match(importScreenSource, /ocrPackId:\s*COMMON_MODEL_PACK_ID/);
-  assert.match(importScreenSource, /sam2PackId:\s*COMMON_MODEL_PACK_ID/);
+  assert.match(
+    importScreenSource,
+    /DEFAULT_DETECTOR_PACK_ID\s*=\s*[\s\S]*?"trafficvisson-project-dedicated-detector-pending"/,
+  );
+  assert.match(
+    importScreenSource,
+    /DEFAULT_OCR_PACK_ID\s*=\s*[\s\S]*?"trafficvisson-jaidedai-easyocr-ko-en"/,
+  );
+  assert.match(
+    importScreenSource,
+    /detectorPackId:\s*DEFAULT_DETECTOR_PACK_ID/,
+  );
+  assert.match(importScreenSource, /ocrPackId:\s*DEFAULT_OCR_PACK_ID/);
+  assert.match(importScreenSource, /sam2PackId:\s*DEFAULT_SAM2_PACK_ID/);
   assert.match(importScreenSource, /reportProvider,/);
-  assert.match(importScreenSource, /outputLocationId:\s*"project-default"/);
+  assert.match(importScreenSource, /reportTransmissionConsent,/);
+  assert.match(importScreenSource, /AI 판단·보고서 Provider/);
+  assert.match(
+    importScreenSource,
+    /labelConfirmationAuthority ===[\s\S]*?"structured_llm_training_assist"[\s\S]*?reportProvider === "none"[\s\S]*?Codex CLI 또는 Claude Code/,
+  );
+  assert.match(
+    importScreenSource,
+    /labelConfirmationAuthority ===[\s\S]*?"structured_llm_training_assist"[\s\S]*?!reportTransmissionConsent[\s\S]*?비식별 후보·유사 사례 전송 범위를 확인하고 명시적으로 동의/,
+  );
+  assert.match(
+    importScreenSource,
+    /templateSemanticMapId:\s*template\.semanticMapId/,
+  );
+  assert.match(importScreenSource, /원본 영상·원본 이미지·인증 파일은 전송하지 않음/);
+  assert.match(
+    importScreenSource,
+    /reportRouteName:\s*reportRouteName\.trim\(\)\s*\|\|\s*"unconfigured"/,
+  );
+  assert.match(
+    importScreenSource,
+    /reportInspectorName:\s*[\s\S]*reportInspectorName\.trim\(\)\s*\|\|\s*"unconfigured"/,
+  );
+  assert.match(importScreenSource, /reportEvidenceMode,/);
+  assert.match(
+    importScreenSource,
+    /reportInspectionDatePolicy:\s*REPORT_INSPECTION_DATE_POLICY/,
+  );
+  assert.match(importScreenSource, /현재 영상 보고서 사실 정보/);
+  assert.match(importScreenSource, /영상 파일명의 YYYYMMDD만 검증해 사용합니다/);
+  assert.match(
+    importScreenSource,
+    /const \[outputLocationId,\s*setOutputLocationId\][\s\S]*?useState\("project-default"\)/,
+  );
+  assert.match(
+    importScreenSource,
+    /selectedOutputLocation\.state\s*!==\s*"ready"/,
+  );
+  assert.match(
+    importScreenSource,
+    /pipeline\.configureProfile\(\{[\s\S]*?\boutputLocationId,/,
+  );
   assert.match(importScreenSource, /후보 재분석/);
 });

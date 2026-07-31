@@ -17,7 +17,12 @@ from app.hwp_com import (
     HwpComService,
     HwpStaWorker,
     Win32HwpAdapter,
+    fingerprint_document,
     registry_preflight,
+)
+from app.hwp_render_validation import (
+    ExplicitApplyApproval,
+    export_pdf_after_explicit_apply_approval,
 )
 
 
@@ -104,6 +109,12 @@ class FakeAdapter:
 
     def close(self):
         self._record("close")
+
+
+class FakePdfAdapter(FakeAdapter):
+    def save_as(self, output_path):
+        self._record("save", output_path.name)
+        output_path.write_bytes(b"%PDF-1.7\n%%EOF\n")
 
 
 @pytest.fixture
@@ -219,6 +230,70 @@ def test_win32_adapter_uses_fixed_dispatch_and_module_names():
     ]
 
 
+def test_win32_adapter_uses_explicit_pdf_save_format(tmp_path):
+    calls = []
+
+    class FakeHwp:
+        def SaveAs(self, path, document_format, options):
+            calls.append(("save", Path(path).name, document_format, options))
+            return True
+
+        def Quit(self):
+            calls.append(("quit",))
+
+    adapter = Win32HwpAdapter(lambda _prog_id: FakeHwp())
+    adapter.save_as(tmp_path / "report.pdf")
+    adapter.close()
+
+    assert calls == [
+        ("save", "report.pdf", "PDF", ""),
+        ("quit",),
+    ]
+
+
+def test_publish_approved_exact_hwpx_reopens_saves_and_publishes_atomically(
+    sta_worker,
+    tmp_path,
+):
+    source_root = tmp_path / "draft"
+    destination_root = tmp_path / "application"
+    source_root.mkdir()
+    destination_root.mkdir()
+    source = (source_root / "exact-preview.hwpx").resolve()
+    destination = (
+        destination_root / "published.hwpx"
+    ).resolve()
+    source.write_bytes(b"PK\x03\x04exact-preview")
+    log = []
+    service = HwpComService(
+        worker=sta_worker[0],
+        adapter_factory=lambda: FakeAdapter(log),
+    )
+
+    result = service.publish_approved_exact_hwpx(
+        approval_id="approval-1",
+        source_hwpx=source,
+        destination_hwpx=destination,
+    )
+
+    assert result.output_path == destination
+    assert destination.read_bytes() == b"edited-hwp-output"
+    assert result.sha256 == hashlib.sha256(
+        b"edited-hwp-output"
+    ).hexdigest()
+    assert source.read_bytes() == b"PK\x03\x04exact-preview"
+    assert [item[0] for item in log] == [
+        "register",
+        "open",
+        "save",
+        "close_document",
+        "open",
+        "read",
+        "close_document",
+        "close",
+    ]
+
+
 def test_worker_initializes_and_uninitializes_same_sta_thread(sta_worker):
     worker, pythoncom = sta_worker
     called_thread = worker.submit(threading.get_ident)
@@ -253,6 +328,117 @@ def test_preview_is_default_and_does_not_write(document_files, sta_worker):
     assert opened_name != template.name
     assert ".trafficvisson-preview-" in opened_name
     assert not list(template.parent.glob(".*.trafficvisson-preview-*"))
+
+
+def test_explicit_approved_hwpx_pdf_export_uses_owned_copy(
+    document_files,
+    sta_worker,
+):
+    source, _image, _map_image = document_files
+    source_before = source.read_bytes()
+    destination = source.with_name("approved-report.pdf")
+    log = []
+    service = HwpComService(
+        worker=sta_worker[0],
+        adapter_factory=lambda: FakePdfAdapter(log),
+    )
+
+    result = service.export_applied_hwpx_to_pdf(
+        approval_id="apply-proof-123",
+        source_hwpx=source,
+        destination_pdf=destination,
+    )
+
+    assert result == destination
+    assert destination.read_bytes().startswith(b"%PDF-")
+    assert source.read_bytes() == source_before
+    assert [entry[0] for entry in log] == [
+        "register",
+        "open",
+        "save",
+        "close_document",
+        "close",
+    ]
+    opened_name = next(entry[2] for entry in log if entry[0] == "open")
+    assert opened_name != source.name
+    assert ".trafficvisson-pdf-source-" in opened_name
+    assert not list(source.parent.glob(".*.trafficvisson-pdf-source-*"))
+    assert not list(source.parent.glob(".*.trafficvisson-pdf-output-*"))
+
+
+def test_render_export_helper_accepts_hwp_com_service_only_after_hash_bound_approval(
+    document_files,
+    sta_worker,
+):
+    source, _image, _map_image = document_files
+    destination = source.with_name("hash-bound-report.pdf")
+    service = HwpComService(
+        worker=sta_worker[0],
+        adapter_factory=lambda: FakePdfAdapter([]),
+    )
+    fingerprint = fingerprint_document(source)
+
+    exported = export_pdf_after_explicit_apply_approval(
+        exporter=service,
+        approval=ExplicitApplyApproval(
+            approval_id="apply-proof-render-1",
+            output_hwpx_sha256=fingerprint.sha256,
+            granted=True,
+        ),
+        output_hwpx_fingerprint=fingerprint,
+        destination_pdf=destination,
+    )
+
+    assert exported == destination
+    assert destination.read_bytes().startswith(b"%PDF-")
+
+
+def test_pdf_export_rejects_missing_approval_before_adapter(
+    document_files,
+    sta_worker,
+):
+    source, _image, _map_image = document_files
+    constructed = []
+
+    def adapter_factory():
+        constructed.append(True)
+        return FakePdfAdapter([])
+
+    service = HwpComService(
+        worker=sta_worker[0],
+        adapter_factory=adapter_factory,
+    )
+    with pytest.raises(HwpAutomationError, match="승인"):
+        service.export_applied_hwpx_to_pdf(
+            approval_id="",
+            source_hwpx=source,
+            destination_pdf=source.with_name("must-not-exist.pdf"),
+        )
+
+    assert constructed == []
+
+
+def test_pdf_export_fails_closed_on_non_pdf_bytes(
+    document_files,
+    sta_worker,
+):
+    source, _image, _map_image = document_files
+    destination = source.with_name("must-not-exist.pdf")
+    service = HwpComService(
+        worker=sta_worker[0],
+        adapter_factory=lambda: FakeAdapter([]),
+    )
+
+    with pytest.raises(HwpAutomationError):
+        service.export_applied_hwpx_to_pdf(
+            approval_id="apply-proof-invalid-output",
+            source_hwpx=source,
+            destination_pdf=destination,
+        )
+
+    assert not destination.exists()
+    assert not list(source.parent.glob(".*.trafficvisson-pdf-source-*"))
+    assert not list(source.parent.glob(".*.trafficvisson-pdf-output-*"))
 
 
 def test_apply_rejects_document_changed_after_preview_before_adapter(

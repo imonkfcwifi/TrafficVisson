@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import RLock
-from typing import Any, Dict, List, Mapping, Optional, Sequence
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
 from uuid import UUID, uuid5
 
 from .dataset_versions import (
@@ -20,8 +20,10 @@ from .dataset_versions import (
     LabelProjection,
     LabelProjectionError,
     build_dataset_snapshot,
+    canonical_json_bytes,
     normalize_label_record,
 )
+from .dataset_training_gate import build_dataset_training_gate
 
 
 CATALOG_SCHEMA_VERSION = 4
@@ -29,9 +31,32 @@ PERSISTED_ANALYSIS_SCHEMA = "trafficvisson.analysis-job.v1"
 MAX_PERSISTED_JOB_RECORD_BYTES = 16 * 1024 * 1024
 MAX_BACKFILL_RECORDS = 4_096
 MAX_BACKFILL_CANDIDATES = 2_000
+MAX_LABEL_QUESTION_METADATA_BYTES = 256 * 1024
+EXTERNAL_ANALYSIS_ARTIFACT_LOCATOR_SCHEMA = (
+    "trafficvisson.analysis-artifact-locator.v1"
+)
+EXTERNAL_ANALYSIS_ARTIFACT_CATEGORY = "analysis-candidates"
+CANDIDATE_EVIDENCE_OVERLAY_SCHEMA = (
+    "trafficvisson.candidate-evidence-overlay.v1"
+)
+REVIEW_EVENT_BINDING_SCHEMA = (
+    "trafficvisson.review-event-binding.v1"
+)
+OVERLAY_CANDIDATE_KINDS = frozenset(
+    {
+        "dense_candidate_evidence_overlay",
+        "dino_temporal_review_evidence_overlay",
+        "user_discovered",
+    }
+)
 
 _SHA256_PATTERN = re.compile(r"^[a-f0-9]{64}$")
 _CANDIDATE_ID_PATTERN = re.compile(r"^[a-f0-9]{20}$")
+_REVIEW_EVENT_SET_ID_PATTERN = re.compile(r"^res_[a-f0-9]{32}$")
+_REVIEW_EVENT_ID_PATTERN = re.compile(r"^rve_[a-f0-9]{32}$")
+_SAMPLE_EVIDENCE_GROUP_ID_PATTERN = re.compile(
+    r"^sample-evidence-group-[a-f0-9]{24}$"
+)
 _ARTIFACT_NAME_PATTERN = re.compile(
     r"^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$"
 )
@@ -107,11 +132,29 @@ class ProjectCatalog:
     those files.
     """
 
-    def __init__(self, database_path: Path, default_project: Dict) -> None:
+    def __init__(
+        self,
+        database_path: Path,
+        default_project: Dict,
+        *,
+        completed_analysis_resolver: Optional[
+            Callable[[UUID, UUID], Mapping[str, Any]]
+        ] = None,
+    ) -> None:
         self._database_path = database_path.resolve()
         self._database_path.parent.mkdir(parents=True, exist_ok=True)
         self._projects_root = self._database_path.parent / "projects"
         self._lock = RLock()
+        if (
+            completed_analysis_resolver is not None
+            and not callable(completed_analysis_resolver)
+        ):
+            raise TypeError(
+                "completed_analysis_resolver must be callable"
+            )
+        self._completed_analysis_resolver = (
+            completed_analysis_resolver
+        )
         self._migrate()
         self._ensure_default_project(default_project)
         self._backfill_summary = self.backfill_completed_analysis_records()
@@ -123,6 +166,31 @@ class ProjectCatalog:
     @property
     def backfill_summary(self) -> BackfillSummary:
         return self._backfill_summary
+
+    def bind_completed_analysis_resolver(
+        self,
+        resolver: Callable[[UUID, UUID], Mapping[str, Any]],
+    ) -> BackfillSummary:
+        """Bind the live verifier, then retry path-free external records.
+
+        AnalysisJobService owns artifact-root and manifest validation. The
+        catalog starts earlier so the bridge can migrate its schema, then
+        receives that verifier exactly once after completed analysis records
+        have been restored.
+        """
+
+        if not callable(resolver):
+            raise TypeError("completed analysis resolver must be callable")
+        with self._lock:
+            if (
+                self._completed_analysis_resolver is not None
+                and self._completed_analysis_resolver is not resolver
+            ):
+                raise RuntimeError(
+                    "completed analysis resolver is already bound"
+                )
+            self._completed_analysis_resolver = resolver
+        return self.backfill_completed_analysis_records()
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(
@@ -907,14 +975,493 @@ class ProjectCatalog:
             ).fetchone()
         return int(row["count"])
 
+    def register_label_questions(
+        self,
+        project_id: UUID | str,
+        analysis_job_id: UUID | str,
+        source_sha256: str,
+        questions: Sequence[Mapping[str, Any]],
+    ) -> Dict[str, Any]:
+        """Persist an unanswered pipeline question set without promoting truth.
+
+        ``label_questions`` is the normalized read model for a prepared review
+        queue.  Registering it must not create a label answer, Annotation or
+        Incident; those remain behind the explicit review-completion boundary.
+        The operation is atomic and replay-safe so a worker restart between the
+        catalog write and pipeline checkpoint persistence cannot duplicate or
+        mutate a question.
+        """
+
+        project_text = _canonical_uuid_text(project_id, "project_id")
+        analysis_text = _canonical_uuid_text(
+            analysis_job_id, "analysis_job_id"
+        )
+        if (
+            not isinstance(source_sha256, str)
+            or _SHA256_PATTERN.fullmatch(source_sha256) is None
+        ):
+            raise LabelProjectionError("source_sha256 is invalid")
+        if isinstance(questions, (str, bytes)) or not isinstance(
+            questions, Sequence
+        ):
+            raise LabelProjectionError("questions must be a sequence")
+        if not 1 <= len(questions) <= MAX_BACKFILL_CANDIDATES:
+            raise LabelProjectionError("question count is outside the bound")
+
+        normalized: List[Dict[str, str]] = []
+        seen_question_ids: set[str] = set()
+        seen_candidate_ids: set[str] = set()
+        overlay_bindings: set[
+            tuple[str, str, str, str, str, str, str, str, str]
+        ] = set()
+        review_event_set_bindings: set[
+            tuple[str, str, str]
+        ] = set()
+        review_event_ids: set[str] = set()
+        review_event_binding_count = 0
+        base_candidate_count = 0
+        for value in questions:
+            if not isinstance(value, Mapping):
+                raise LabelProjectionError("question must be an object")
+            question_text = _canonical_uuid_text(
+                value.get("question_id"), "question_id"
+            )
+            candidate_id = value.get("candidate_id")
+            if (
+                not isinstance(candidate_id, str)
+                or _CANDIDATE_ID_PATTERN.fullmatch(candidate_id) is None
+            ):
+                raise LabelProjectionError("candidate_id is invalid")
+            expected_question_id = str(
+                uuid5(UUID(analysis_text), candidate_id)
+            )
+            if question_text != expected_question_id:
+                raise LabelProjectionError(
+                    "question identity does not match the analysis candidate"
+                )
+            if (
+                question_text in seen_question_ids
+                or candidate_id in seen_candidate_ids
+            ):
+                raise LabelProjectionError(
+                    "question set contains duplicate identities"
+                )
+            candidate = value.get("ai_original_candidate")
+            if (
+                not isinstance(candidate, Mapping)
+                or candidate.get("candidate_id") != candidate_id
+            ):
+                raise LabelProjectionError(
+                    "question candidate metadata is invalid"
+                )
+            evidence_overlay = candidate.get("evidence_overlay")
+            if evidence_overlay is None:
+                base_candidate_count += 1
+            else:
+                if not isinstance(evidence_overlay, Mapping):
+                    raise LabelProjectionError(
+                        "question candidate evidence binding is invalid"
+                    )
+                pipeline_job_text = _canonical_uuid_text(
+                    evidence_overlay.get("pipeline_job_id"),
+                    "pipeline_job_id",
+                )
+                if (
+                    candidate.get("candidate_kind")
+                    not in OVERLAY_CANDIDATE_KINDS
+                    or evidence_overlay.get("schema_version")
+                    != CANDIDATE_EVIDENCE_OVERLAY_SCHEMA
+                    or re.fullmatch(
+                        r"ceo_[a-f0-9]{32}",
+                        str(evidence_overlay.get("overlay_id", "")),
+                    )
+                    is None
+                    or any(
+                        not isinstance(
+                            evidence_overlay.get(field), str
+                        )
+                        or _SHA256_PATTERN.fullmatch(
+                            str(evidence_overlay.get(field))
+                        )
+                        is None
+                        for field in (
+                            "manifest_sha256",
+                            "discovery_revision",
+                            "dense_index_sha256",
+                            "provider_provenance_sha256",
+                            "model_provenance_sha256",
+                            "candidate_set_metadata_sha256",
+                        )
+                    )
+                    or evidence_overlay.get("review_only") is not True
+                ):
+                    raise LabelProjectionError(
+                        "question candidate evidence binding is invalid"
+                    )
+                overlay_bindings.add(
+                    (
+                        str(evidence_overlay["schema_version"]),
+                        str(evidence_overlay["overlay_id"]),
+                        pipeline_job_text,
+                        str(evidence_overlay["manifest_sha256"]),
+                        str(evidence_overlay["discovery_revision"]),
+                        str(evidence_overlay["dense_index_sha256"]),
+                        str(
+                            evidence_overlay[
+                                "provider_provenance_sha256"
+                            ]
+                        ),
+                        str(
+                            evidence_overlay[
+                                "model_provenance_sha256"
+                            ]
+                        ),
+                        str(
+                            evidence_overlay[
+                                "candidate_set_metadata_sha256"
+                            ]
+                        ),
+                    )
+                )
+            review_event_binding = candidate.get(
+                "review_event_binding"
+            )
+            if review_event_binding is not None:
+                if (
+                    not isinstance(review_event_binding, Mapping)
+                    or set(review_event_binding)
+                    != {
+                        "schema_version",
+                        "review_event_set_id",
+                        "review_event_set_revision",
+                        "review_event_set_manifest_sha256",
+                        "review_event_id",
+                        "review_event_revision",
+                        "representative_candidate_id",
+                        "review_only",
+                    }
+                    or review_event_binding.get("schema_version")
+                    != REVIEW_EVENT_BINDING_SCHEMA
+                    or _REVIEW_EVENT_SET_ID_PATTERN.fullmatch(
+                        str(
+                            review_event_binding.get(
+                                "review_event_set_id",
+                                "",
+                            )
+                        )
+                    )
+                    is None
+                    or any(
+                        not isinstance(
+                            review_event_binding.get(field),
+                            str,
+                        )
+                        or _SHA256_PATTERN.fullmatch(
+                            str(review_event_binding.get(field))
+                        )
+                        is None
+                        for field in (
+                            "review_event_set_revision",
+                            "review_event_set_manifest_sha256",
+                            "review_event_revision",
+                        )
+                    )
+                    or _REVIEW_EVENT_ID_PATTERN.fullmatch(
+                        str(
+                            review_event_binding.get(
+                                "review_event_id",
+                                "",
+                            )
+                        )
+                    )
+                    is None
+                    or review_event_binding.get(
+                        "representative_candidate_id"
+                    )
+                    != candidate_id
+                    or review_event_binding.get("review_only")
+                    is not True
+                ):
+                    raise LabelProjectionError(
+                        "question review-event binding is invalid"
+                    )
+                review_event_id = str(
+                    review_event_binding["review_event_id"]
+                )
+                if review_event_id in review_event_ids:
+                    raise LabelProjectionError(
+                        "question review-event binding is not unique"
+                    )
+                review_event_ids.add(review_event_id)
+                review_event_set_bindings.add(
+                    (
+                        str(
+                            review_event_binding[
+                                "review_event_set_id"
+                            ]
+                        ),
+                        str(
+                            review_event_binding[
+                                "review_event_set_revision"
+                            ]
+                        ),
+                        str(
+                            review_event_binding[
+                                "review_event_set_manifest_sha256"
+                            ]
+                        ),
+                    )
+                )
+                review_event_binding_count += 1
+            try:
+                candidate_json = json.dumps(
+                    candidate,
+                    ensure_ascii=False,
+                    allow_nan=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+            except (TypeError, ValueError) as error:
+                raise LabelProjectionError(
+                    "question candidate metadata is not safe JSON"
+                ) from error
+            candidate_bytes = candidate_json.encode("utf-8")
+            if len(candidate_bytes) > MAX_LABEL_QUESTION_METADATA_BYTES:
+                raise LabelProjectionError(
+                    "question candidate metadata is too large"
+                )
+            normalized.append(
+                {
+                    "question_id": question_text,
+                    "candidate_id": candidate_id,
+                    "candidate_json": candidate_json,
+                    "candidate_sha256": hashlib.sha256(
+                        candidate_bytes
+                    ).hexdigest(),
+                }
+            )
+            seen_question_ids.add(question_text)
+            seen_candidate_ids.add(candidate_id)
+
+        if review_event_binding_count not in {
+            0,
+            len(normalized),
+        } or (
+            review_event_binding_count
+            and len(review_event_set_bindings) != 1
+        ):
+            raise LabelProjectionError(
+                "question set mixes review-event bindings"
+            )
+        if overlay_bindings and base_candidate_count:
+            raise LabelProjectionError(
+                "question set mixes candidate evidence bindings"
+            )
+        if len(overlay_bindings) > 1:
+            pipeline_job_ids = {
+                binding[2] for binding in overlay_bindings
+            }
+            if (
+                base_candidate_count
+                or review_event_binding_count != len(normalized)
+                or len(review_event_set_bindings) != 1
+                or len(review_event_ids) != len(normalized)
+                or len(pipeline_job_ids) != 1
+            ):
+                raise LabelProjectionError(
+                    "question set mixes candidate evidence bindings"
+                )
+
+        question_set_sha256 = hashlib.sha256(
+            json.dumps(
+                [
+                    {
+                        "question_id": item["question_id"],
+                        "candidate_id": item["candidate_id"],
+                        "candidate_sha256": item["candidate_sha256"],
+                    }
+                    for item in normalized
+                ],
+                ensure_ascii=False,
+                allow_nan=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        common_review_event_set = (
+            next(iter(review_event_set_bindings))
+            if review_event_set_bindings
+            else None
+        )
+        evidence_binding_payload: Any = sorted(
+            overlay_bindings
+        )
+        if common_review_event_set is not None:
+            evidence_binding_payload = {
+                "overlay_bindings": sorted(overlay_bindings),
+                "review_event_set": {
+                    "review_event_set_id": (
+                        common_review_event_set[0]
+                    ),
+                    "review_event_set_revision": (
+                        common_review_event_set[1]
+                    ),
+                    "review_event_set_manifest_sha256": (
+                        common_review_event_set[2]
+                    ),
+                },
+            }
+        evidence_binding_sha256 = hashlib.sha256(
+            json.dumps(
+                evidence_binding_payload,
+                ensure_ascii=False,
+                allow_nan=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                job = connection.execute(
+                    """
+                    SELECT project_id, status, source_sha256,
+                           candidate_count, updated_at
+                    FROM analysis_jobs
+                    WHERE id = ?
+                    """,
+                    (analysis_text,),
+                ).fetchone()
+                if (
+                    job is None
+                    or job["project_id"] != project_text
+                    or job["status"] != "completed"
+                    or job["source_sha256"] != source_sha256
+                ):
+                    raise LabelProjectionError(
+                        "analysis source is not the completed job in this project"
+                    )
+                if len(normalized) > int(job["candidate_count"]):
+                    if not overlay_bindings:
+                        raise LabelProjectionError(
+                            "question set exceeds the completed candidate count"
+                        )
+
+                created_count = 0
+                for item in normalized:
+                    by_id = connection.execute(
+                        """
+                        SELECT project_id, analysis_job_id, candidate_id,
+                               ai_original_candidate_json,
+                               ai_original_candidate_sha256
+                        FROM label_questions
+                        WHERE id = ?
+                        """,
+                        (item["question_id"],),
+                    ).fetchone()
+                    by_candidate = connection.execute(
+                        """
+                        SELECT id
+                        FROM label_questions
+                        WHERE project_id = ?
+                          AND analysis_job_id = ?
+                          AND candidate_id = ?
+                        """,
+                        (
+                            project_text,
+                            analysis_text,
+                            item["candidate_id"],
+                        ),
+                    ).fetchone()
+                    if by_id is None:
+                        if by_candidate is not None:
+                            raise LabelProjectionError(
+                                "analysis candidate is bound to another question"
+                            )
+                        connection.execute(
+                            """
+                            INSERT INTO label_questions(
+                                id,
+                                project_id,
+                                analysis_job_id,
+                                candidate_id,
+                                ai_original_candidate_json,
+                                ai_original_candidate_sha256,
+                                created_at
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                item["question_id"],
+                                project_text,
+                                analysis_text,
+                                item["candidate_id"],
+                                item["candidate_json"],
+                                item["candidate_sha256"],
+                                job["updated_at"],
+                            ),
+                        )
+                        created_count += 1
+                        continue
+                    if (
+                        by_candidate is None
+                        or by_candidate["id"] != item["question_id"]
+                        or by_id["project_id"] != project_text
+                        or by_id["analysis_job_id"] != analysis_text
+                        or by_id["candidate_id"] != item["candidate_id"]
+                        or by_id["ai_original_candidate_json"]
+                        != item["candidate_json"]
+                        or by_id["ai_original_candidate_sha256"]
+                        != item["candidate_sha256"]
+                    ):
+                        raise LabelProjectionError(
+                            "persisted question identity or evidence changed"
+                        )
+                connection.execute("COMMIT")
+            except Exception:
+                connection.execute("ROLLBACK")
+                raise
+
+        return {
+            "project_id": project_text,
+            "analysis_job_id": analysis_text,
+            "source_sha256": source_sha256,
+            "question_count": len(normalized),
+            "created_count": created_count,
+            "question_set_sha256": question_set_sha256,
+            "evidence_binding_sha256": (
+                evidence_binding_sha256
+            ),
+            "overlay_binding_count": len(overlay_bindings),
+        }
+
     def project_label_record(
         self,
         project_id: UUID | str,
         record: Mapping[str, Any],
+        *,
+        materialize_incident: bool = False,
     ) -> Dict[str, Any]:
-        """Idempotently project one validated JSONL audit record."""
+        """Idempotently project one validated JSONL audit record.
 
-        return self.project_label_records(project_id, [record])[0]
+        A reviewed label is training truth first.  It becomes road-survey
+        truth only when the caller has separately verified the promoted-model
+        survey/final-QA boundary and explicitly requests Incident
+        materialization.
+        """
+
+        if not isinstance(materialize_incident, bool):
+            raise LabelProjectionError(
+                "materialize_incident must be boolean"
+            )
+        incident_job_ids: Sequence[UUID | str] = ()
+        if materialize_incident:
+            incident_job_ids = (record.get("analysis_job_id"),)
+        return self.project_label_records(
+            project_id,
+            [record],
+            incident_analysis_job_ids=incident_job_ids,
+        )[0]
 
     def project_label_records(
         self,
@@ -924,14 +1471,17 @@ class ProjectCatalog:
         materialize_analysis_job_ids: Optional[
             Sequence[UUID | str]
         ] = None,
+        incident_analysis_job_ids: Sequence[UUID | str] = (),
     ) -> List[Dict[str, Any]]:
         """Atomically reconcile verified JSONL records in append order.
 
         Every record is mirrored into the answer ledger so the project-wide
         hash chain remains continuous.  Callers that already verified the
         pipeline review boundary may restrict which analysis jobs are promoted
-        to confirmed Annotation/Incident rows.  ``None`` preserves the legacy
-        behavior and materializes every record.
+        to confirmed Annotation rows.  Incident is a distinct maintenance-truth
+        projection and defaults to no analysis jobs; only a caller holding a
+        separately verified promoted-model survey/final-QA authority may opt a
+        materialized analysis job into ``incident_analysis_job_ids``.
         """
 
         project_text = _canonical_uuid_text(project_id, "project_id")
@@ -947,6 +1497,21 @@ class ProjectCatalog:
                 for item in materialize_analysis_job_ids
             }
         )
+        if isinstance(incident_analysis_job_ids, (str, bytes)):
+            raise LabelProjectionError(
+                "incident_analysis_job_ids must be a sequence"
+            )
+        incident_job_ids = {
+            _canonical_uuid_text(item, "analysis_job_id")
+            for item in incident_analysis_job_ids
+        }
+        if (
+            materialized_job_ids is not None
+            and not incident_job_ids.issubset(materialized_job_ids)
+        ):
+            raise LabelProjectionError(
+                "incident analysis jobs must also materialize annotations"
+            )
         projections = [normalize_label_record(record) for record in records]
         if any(item.project_id != project_text for item in projections):
             raise LabelProjectionError(
@@ -976,6 +1541,10 @@ class ProjectCatalog:
                             or projection.analysis_job_id
                             in materialized_job_ids
                         ),
+                        materialize_incident=(
+                            projection.analysis_job_id
+                            in incident_job_ids
+                        ),
                     )
                     for projection in projections
                 ]
@@ -992,6 +1561,7 @@ class ProjectCatalog:
         projection: LabelProjection,
         *,
         materialize: bool = True,
+        materialize_incident: bool = False,
     ) -> Dict[str, Any]:
         job = connection.execute(
             """
@@ -1028,7 +1598,10 @@ class ProjectCatalog:
                 )
             if materialize:
                 ProjectCatalog._materialize_label_projection(
-                    connection, project_id, projection
+                    connection,
+                    project_id,
+                    projection,
+                    materialize_incident=materialize_incident,
                 )
             return _projection_result(projection, created=False)
 
@@ -1053,7 +1626,10 @@ class ProjectCatalog:
                 )
             if materialize:
                 ProjectCatalog._materialize_label_projection(
-                    connection, project_id, projection
+                    connection,
+                    project_id,
+                    projection,
+                    materialize_incident=materialize_incident,
                 )
             return _projection_result(projection, created=False)
 
@@ -1179,7 +1755,10 @@ class ProjectCatalog:
         )
         if materialize:
             ProjectCatalog._materialize_label_projection(
-                connection, project_id, projection
+                connection,
+                project_id,
+                projection,
+                materialize_incident=materialize_incident,
             )
         return _projection_result(projection, created=True)
 
@@ -1188,6 +1767,8 @@ class ProjectCatalog:
         connection: sqlite3.Connection,
         project_id: str,
         projection: LabelProjection,
+        *,
+        materialize_incident: bool = False,
     ) -> None:
         existing = connection.execute(
             """
@@ -1249,9 +1830,10 @@ class ProjectCatalog:
             raise LabelProjectionError(
                 "annotation identity is already bound to different audit data"
             )
-        ProjectCatalog._sync_incident_projection(
-            connection, project_id, projection
-        )
+        if materialize_incident:
+            ProjectCatalog._sync_incident_projection(
+                connection, project_id, projection
+            )
 
     @staticmethod
     def _sync_incident_projection(
@@ -1260,6 +1842,14 @@ class ProjectCatalog:
         projection: LabelProjection,
     ) -> None:
         """Project the latest answer state without replacing the JSONL audit."""
+
+        # A user may explicitly authorize a structured Codex/Claude proposal
+        # as *training-only* data.  That revision remains reviewable and can
+        # enter DatasetVersion, but it is never road-survey truth.  Only a
+        # later local-user revision may create, update, or supersede Incident
+        # and therefore maintenance/report truth.
+        if projection.answered_by == "structured_llm_assisted":
+            return
 
         # Existing reviewed_incidents.csv rows already use question identity as
         # incident identity. Preserve that deterministic contract across every
@@ -1701,7 +2291,15 @@ class ProjectCatalog:
 
     @staticmethod
     def _annotation_from_row(row: Mapping[str, Any]) -> Dict[str, Any]:
-        return {
+        try:
+            annotation_value = json.loads(row["annotation_json"])
+        except (TypeError, ValueError, json.JSONDecodeError) as error:
+            raise LabelProjectionError(
+                "annotation provenance is invalid"
+            ) from error
+        if not isinstance(annotation_value, Mapping):
+            raise LabelProjectionError("annotation provenance is invalid")
+        result = {
             "annotation_id": row["id"],
             "project_id": row["project_id"],
             "question_id": row["question_id"],
@@ -1722,14 +2320,44 @@ class ProjectCatalog:
             ),
             "source_record_hash": row["source_record_hash"],
             "annotation_hash": row["annotation_hash"],
+            "answered_by": annotation_value.get(
+                "answered_by", "local_user"
+            ),
+            "label_source": annotation_value.get(
+                "label_source", "local_user_review"
+            ),
+            "source_kind": annotation_value.get(
+                "source_kind", "current_video_confirmed"
+            ),
+            "user_confirmed": annotation_value.get(
+                "user_confirmed", True
+            ),
+            "training_authorized": annotation_value.get(
+                "training_authorized", True
+            ),
+            "training_geometry": annotation_value.get(
+                "training_geometry"
+            ),
+            "assist_provenance": annotation_value.get(
+                "assist_provenance"
+            ),
             "created_at": row["created_at"],
         }
+        if "provenance_graph" in annotation_value:
+            result["provenance_graph"] = annotation_value.get(
+                "provenance_graph"
+            )
+        return result
 
     def create_dataset_version(
         self,
         project_id: UUID | str,
         *,
         validation_fraction: float = DEFAULT_VALIDATION_FRACTION,
+        approved_reference_records: Sequence[Mapping[str, Any]] = (),
+        fixed_validation_analysis_job_ids: Optional[
+            Sequence[UUID | str]
+        ] = None,
     ) -> Dict[str, Any]:
         """Create or reuse the immutable snapshot for the current labels."""
 
@@ -1748,6 +2376,12 @@ class ProjectCatalog:
                     project_text,
                     current_rows,
                     validation_fraction=validation_fraction,
+                    approved_reference_records=(
+                        approved_reference_records
+                    ),
+                    fixed_validation_analysis_job_ids=(
+                        fixed_validation_analysis_job_ids
+                    ),
                 )
                 existing = connection.execute(
                     """
@@ -1874,6 +2508,46 @@ class ProjectCatalog:
             ]
         return values
 
+    def list_dataset_annotations(
+        self,
+        project_id: UUID | str,
+        dataset_version_id: UUID | str,
+    ) -> List[Dict[str, Any]]:
+        """Resolve the exact immutable Annotation rows for one snapshot."""
+
+        project_text = _canonical_uuid_text(project_id, "project_id")
+        dataset_text = _canonical_uuid_text(
+            dataset_version_id,
+            "dataset_version_id",
+        )
+        with self._lock, self._connect() as connection:
+            self._require_project(connection, project_text)
+            dataset = connection.execute(
+                """
+                SELECT 1 FROM dataset_versions
+                WHERE project_id = ? AND id = ?
+                """,
+                (project_text, dataset_text),
+            ).fetchone()
+            if dataset is None:
+                raise DatasetVersionError(
+                    "DatasetVersion was not found in this project"
+                )
+            rows = connection.execute(
+                """
+                SELECT a.*
+                FROM dataset_memberships AS m
+                JOIN annotations AS a
+                  ON a.project_id = m.project_id
+                 AND a.id = m.annotation_id
+                WHERE m.project_id = ?
+                  AND m.dataset_version_id = ?
+                ORDER BY m.member_order
+                """,
+                (project_text, dataset_text),
+            ).fetchall()
+        return [self._annotation_from_row(row) for row in rows]
+
     @staticmethod
     def _dataset_membership_rows(
         connection: sqlite3.Connection,
@@ -1883,7 +2557,8 @@ class ProjectCatalog:
         return connection.execute(
             """
             SELECT m.*, a.question_id, a.analysis_job_id, a.candidate_id,
-                   a.answer_record_id, a.answer_revision, a.partition
+                   a.answer_record_id, a.answer_revision, a.partition,
+                   a.selected_issue_type, a.annotation_json
             FROM dataset_memberships AS m
             JOIN annotations AS a
               ON a.project_id = m.project_id
@@ -1901,6 +2576,95 @@ class ProjectCatalog:
         *,
         reused: bool,
     ) -> Dict[str, Any]:
+        manifest = json.loads(row["manifest_json"])
+        approved_reference_members = manifest.get(
+            "approved_reference_members", []
+        )
+        if not isinstance(approved_reference_members, list):
+            raise DatasetVersionError(
+                "DatasetVersion approved reference manifest is invalid"
+            )
+        approved_reference_members_sha256 = hashlib.sha256(
+            canonical_json_bytes(approved_reference_members)
+        ).hexdigest()
+        manifest_counts = manifest.get("counts")
+        training_member_count = int(row["training_member_count"])
+        approved_reference_group_ids = [
+            member.get("sample_evidence_group_id")
+            for member in approved_reference_members
+            if isinstance(member, Mapping)
+        ]
+        if (
+            len(approved_reference_group_ids)
+            != len(approved_reference_members)
+            or any(
+                not isinstance(group_id, str)
+                or _SAMPLE_EVIDENCE_GROUP_ID_PATTERN.fullmatch(
+                    group_id
+                )
+                is None
+                for group_id in approved_reference_group_ids
+            )
+        ):
+            raise DatasetVersionError(
+                "DatasetVersion approved reference grouping is invalid"
+            )
+        approved_reference_training_event_count = len(
+            set(approved_reference_group_ids)
+        )
+        training_gate_member_count = sum(
+            bool(member.get("include_in_training"))
+            and member.get("split") == "train"
+            for member in manifest.get("members", [])
+            if isinstance(member, Mapping)
+        )
+        if (
+            manifest.get("approved_reference_members_sha256")
+            != approved_reference_members_sha256
+            or manifest.get(
+                "approved_references_count_toward_training_gate"
+            )
+            is not False
+            or manifest.get(
+                "approved_references_count_toward_validation"
+            )
+            is not False
+            or not isinstance(manifest_counts, Mapping)
+            or manifest_counts.get(
+                "approved_reference_training_members"
+            )
+            != len(approved_reference_members)
+            or manifest_counts.get(
+                "approved_reference_training_events"
+            )
+            != approved_reference_training_event_count
+            or manifest_counts.get("training_members")
+            != training_member_count
+            or manifest_counts.get("training_gate_members")
+            != training_gate_member_count
+        ):
+            raise DatasetVersionError(
+                "DatasetVersion approved reference provenance is invalid"
+            )
+        training_gate = build_dataset_training_gate(
+            dataset_version_id=str(row["id"]),
+            dataset_hash=str(row["dataset_hash"]),
+            membership_rows=memberships,
+            approved_reference_members=approved_reference_members,
+        )
+        if (
+            training_gate[
+                "current_video_train_unique_annotation_count"
+            ]
+            != training_gate_member_count
+            or training_gate[
+                "current_video_train_unique_question_count"
+            ]
+            != training_gate_member_count
+        ):
+            raise DatasetVersionError(
+                "DatasetVersion training gate membership is inconsistent"
+            )
         return {
             "dataset_version_id": row["id"],
             "project_id": row["project_id"],
@@ -1909,11 +2673,27 @@ class ProjectCatalog:
             "split_strategy": row["split_strategy"],
             "validation_fraction": float(row["validation_fraction"]),
             "source_answer_count": int(row["source_answer_count"]),
-            "training_member_count": int(row["training_member_count"]),
+            "training_member_count": training_member_count,
             "train_count": int(row["train_count"]),
             "validation_count": int(row["validation_count"]),
             "excluded_count": int(row["excluded_count"]),
-            "manifest": json.loads(row["manifest_json"]),
+            "manifest": manifest,
+            "approved_reference_members": approved_reference_members,
+            "approved_reference_member_count": len(
+                approved_reference_members
+            ),
+            "approved_reference_training_event_count": (
+                approved_reference_training_event_count
+            ),
+            "approved_reference_members_sha256": (
+                approved_reference_members_sha256
+            ),
+            "training_gate_member_count": training_gate_member_count,
+            "training_gate": training_gate,
+            "approved_references_count_toward_training_gate": (
+                False
+            ),
+            "approved_references_count_toward_validation": False,
             "created_at": row["created_at"],
             "reused": reused,
             "memberships": [
@@ -2236,27 +3016,107 @@ class ProjectCatalog:
             or not _ARTIFACT_NAME_PATTERN.fullmatch(artifact_directory_name)
         ):
             raise _BackfillValidationError("invalid_artifact_directory")
-        project_root = self._projects_root / str(project_id)
-        artifact_directory = (
-            project_root / "candidate-extractions" / artifact_directory_name
-        )
-        if (
-            not artifact_directory.is_dir()
-            or artifact_directory.is_symlink()
-            or _is_reparse_point(artifact_directory)
-        ):
-            raise _BackfillValidationError("artifact_directory_missing")
+        raw_locator = decoded.get("artifact_locator")
+        if raw_locator is None:
+            project_root = self._projects_root / str(project_id)
+            artifact_directory = (
+                project_root
+                / "candidate-extractions"
+                / artifact_directory_name
+            )
+            if (
+                not artifact_directory.is_dir()
+                or artifact_directory.is_symlink()
+                or _is_reparse_point(artifact_directory)
+            ):
+                raise _BackfillValidationError(
+                    "artifact_directory_missing"
+                )
+            artifact_relative_path = artifact_directory.relative_to(
+                self._database_path.parent
+            ).as_posix()
+        else:
+            resolver = self._completed_analysis_resolver
+            if resolver is None:
+                raise _BackfillValidationError(
+                    "external_artifact_resolver_unavailable"
+                )
+            if (
+                not isinstance(raw_locator, Mapping)
+                or raw_locator.get("schema_version")
+                != EXTERNAL_ANALYSIS_ARTIFACT_LOCATOR_SCHEMA
+                or raw_locator.get("mode")
+                != "external_category_root"
+                or raw_locator.get("category")
+                != EXTERNAL_ANALYSIS_ARTIFACT_CATEGORY
+                or raw_locator.get("project_id") != str(project_id)
+                or raw_locator.get("analysis_job_id") != str(job_id)
+                or raw_locator.get("run_directory_name")
+                != artifact_directory_name
+                or not isinstance(
+                    raw_locator.get("artifact_manifest_sha256"),
+                    str,
+                )
+                or _SHA256_PATTERN.fullmatch(
+                    str(raw_locator.get("artifact_manifest_sha256"))
+                )
+                is None
+                or not isinstance(
+                    raw_locator.get("root_binding"), Mapping
+                )
+                or raw_locator["root_binding"].get("path_exposed")
+                is not False
+            ):
+                raise _BackfillValidationError(
+                    "external_artifact_locator_invalid"
+                )
+            try:
+                artifact_owner_id = UUID(
+                    str(raw_locator.get("artifact_owner_id"))
+                )
+                verified = resolver(project_id, job_id)
+            except Exception as error:
+                raise _BackfillValidationError(
+                    "external_artifact_unavailable"
+                ) from error
+            if (
+                not isinstance(verified, Mapping)
+                or str(verified.get("project_id"))
+                != str(project_id)
+                or str(verified.get("job_id")) != str(job_id)
+                or str(verified.get("snapshot_id"))
+                != str(snapshot_id)
+                or str(verified.get("hash_job_id"))
+                != str(hash_job_id)
+                or verified.get("file_name") != file_name
+                or verified.get("source_sha256") != source_sha256
+                or verified.get("status") != "completed"
+                or canonical_json_bytes(verified.get("result"))
+                != canonical_json_bytes(result)
+            ):
+                raise _BackfillValidationError(
+                    "external_artifact_verification_mismatch"
+                )
+            # Keep the SQLite index path-free for custom output locations.
+            # The real directory is re-resolved by AnalysisJobService from
+            # the signed locator whenever an artifact is consumed.
+            artifact_relative_path = (
+                "external-analysis-artifacts/"
+                f"{artifact_owner_id}/"
+                f"{EXTERNAL_ANALYSIS_ARTIFACT_CATEGORY}/"
+                f"{artifact_directory_name}"
+            )
         calculated_artifact_bytes = _validate_candidate_artifacts(
             candidates,
             job_id,
-            artifact_directory,
+            (
+                artifact_directory
+                if raw_locator is None
+                else self._database_path.parent
+            ),
         )
         if calculated_artifact_bytes != total_artifact_bytes:
             raise _BackfillValidationError("artifact_bytes_mismatch")
-
-        artifact_relative_path = artifact_directory.relative_to(
-            self._database_path.parent
-        ).as_posix()
         return _RecoveredAnalysis(
             project_id=project_id,
             job_id=job_id,
@@ -2500,6 +3360,30 @@ def _incident_candidate_fields(
     if not isinstance(candidate, Mapping):
         raise LabelProjectionError("incident candidate metadata is invalid")
 
+    candidate_kind = candidate.get("candidate_kind")
+    overlay = candidate.get("evidence_overlay")
+    overlay_id: Optional[str] = None
+    if candidate_kind in OVERLAY_CANDIDATE_KINDS:
+        if (
+            not isinstance(overlay, Mapping)
+            or overlay.get("schema_version")
+            != CANDIDATE_EVIDENCE_OVERLAY_SCHEMA
+            or re.fullmatch(
+                r"ceo_[a-f0-9]{32}",
+                str(overlay.get("overlay_id", "")),
+            )
+            is None
+            or overlay.get("review_only") is not True
+        ):
+            raise LabelProjectionError(
+                "incident candidate evidence binding is invalid"
+            )
+        overlay_id = str(overlay["overlay_id"])
+    elif candidate_kind is not None or overlay is not None:
+        raise LabelProjectionError(
+            "incident candidate evidence binding is invalid"
+        )
+
     expected_prefix = f"analysis:{projection.analysis_job_id}:"
 
     def artifact_ref(key: str, media_type: str) -> str:
@@ -2508,6 +3392,30 @@ def _incident_candidate_fields(
             raise LabelProjectionError("incident evidence metadata is missing")
         reference = artifact.get("artifact_ref")
         relative_path = artifact.get("relative_path")
+        expected_suffix = ".jpg" if media_type == "image/jpeg" else ".mp4"
+        if overlay_id is not None:
+            artifact_id = artifact.get("artifact_id")
+            if (
+                not isinstance(reference, str)
+                or len(reference) > 512
+                or not isinstance(artifact_id, str)
+                or re.fullmatch(
+                    r"cea_[a-f0-9]{32}", artifact_id
+                )
+                is None
+                or reference
+                != (
+                    f"candidate-evidence:{overlay_id}:"
+                    f"{artifact_id}"
+                )
+                or relative_path
+                != f"{projection.candidate_id}{expected_suffix}"
+                or artifact.get("media_type") != media_type
+            ):
+                raise LabelProjectionError(
+                    "incident evidence reference is invalid"
+                )
+            return reference
         if (
             not isinstance(reference, str)
             or len(reference) > 512
@@ -2561,6 +3469,8 @@ def _projection_result(
         "answer_revision": projection.answer_revision,
         "partition": projection.partition,
         "include_in_training": projection.include_in_training,
+        "answered_by": projection.answered_by,
+        "label_source": projection.label_source,
         "annotation_id": projection.annotation_id,
         "annotation_hash": projection.annotation_hash,
         "record_hash": projection.record_hash,

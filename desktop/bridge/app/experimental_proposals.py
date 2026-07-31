@@ -45,6 +45,12 @@ MAX_CANDIDATE_BYTES = 256 * 1024
 _CANDIDATE_ID = re.compile(r"^[a-f0-9]{20}$")
 _SHA256 = re.compile(r"^[a-f0-9]{64}$")
 _EVALUATION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+_FRAME_EVIDENCE_FIELDS = (
+    "evidence_candidate_id",
+    "evidence_timestamp_seconds",
+    "evidence_image_sha256",
+    "evidence_source",
+)
 
 
 class ExperimentalProposalError(ValueError):
@@ -107,6 +113,21 @@ def _canonical_json(value: Any) -> bytes:
         raise ExperimentalProposalError(
             "proposal data must be bounded JSON"
         ) from error
+
+
+def _proposal_dump(
+    proposal: CandidateExperimentalProposal,
+) -> Dict[str, Any]:
+    """Keep the v1 JSON stable when optional frame provenance is absent."""
+
+    row = proposal.model_dump(mode="json")
+    for prediction in row.get("predictions", ()):
+        if not isinstance(prediction, dict):
+            continue
+        for field_name in _FRAME_EVIDENCE_FIELDS:
+            if prediction.get(field_name) is None:
+                prediction.pop(field_name, None)
+    return row
 
 
 def _json_no_duplicates(raw: bytes) -> Any:
@@ -295,7 +316,7 @@ class ExperimentalProposalStore:
                 raise ExperimentalProposalError(
                     "proposal candidate output is invalid"
                 ) from error
-            rows.append(validated.model_dump(mode="json"))
+            rows.append(_proposal_dump(validated))
 
         envelope_without_hash: Dict[str, Any] = {
             "schema_version": RUN_SCHEMA,
@@ -686,7 +707,7 @@ class ExperimentalProposalStore:
                 ):
                     return None
                 seen.add(proposal.candidate_id)
-                normalized.append(proposal.model_dump(mode="json"))
+                normalized.append(_proposal_dump(proposal))
         except (
             ExperimentalProposalError,
             ValidationError,

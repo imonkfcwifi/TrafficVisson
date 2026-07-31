@@ -36,6 +36,7 @@ MAX_OPERATIONS = 500
 MAX_TEXT_CHARS = 100_000
 MAX_HWPML_CHARS = 2_000_000
 MAX_STRUCTURE_NAMES = 100
+MAX_EXPORTED_PDF_BYTES = 512 * 1024 * 1024
 COPY_CHUNK_BYTES = 4 * 1024 * 1024
 
 
@@ -139,6 +140,16 @@ class HwpRollbackResult:
     size_bytes: int
     sha256: str
     message: str
+
+
+@dataclass(frozen=True)
+class ExactHwpxPublishResult:
+    """COM reopen/save result for one approved exact-writer HWPX."""
+
+    output_path: Path
+    size_bytes: int
+    sha256: str
+    readback: StructureSummary
 
 
 @dataclass(frozen=True)
@@ -395,7 +406,14 @@ class Win32HwpAdapter:
         self.insert_image(target, source_path)
 
     def save_as(self, output_path: Path) -> None:
-        document_format = "HWPX" if output_path.suffix.casefold() == ".hwpx" else "HWP"
+        suffix = output_path.suffix.casefold()
+        document_format = {
+            ".hwp": "HWP",
+            ".hwpx": "HWPX",
+            ".pdf": "PDF",
+        }.get(suffix)
+        if document_format is None:
+            raise RuntimeError("unsupported save format")
         if self._hwp.SaveAs(os.fspath(output_path), document_format, "") is False:
             raise RuntimeError("save failed")
 
@@ -494,6 +512,80 @@ class HwpComService:
             if record is None or record.used:
                 raise HwpAutomationError("사용 가능한 롤백 기록이 없습니다.")
         return self._safe_submit(lambda: self._rollback(rollback_token, record))
+
+    def export_applied_hwpx_to_pdf(
+        self,
+        *,
+        approval_id: str,
+        source_hwpx: Path,
+        destination_pdf: Path,
+    ) -> Path:
+        """Export an explicitly approved owned HWPX through an owned copy.
+
+        The approval ledger remains outside this COM service.  The caller
+        passes only its opaque proof after validating it.  This method still
+        fails closed on an empty/malformed proof, changed source, existing
+        destination, non-PDF output, or any COM failure.
+        """
+
+        if not isinstance(approval_id, str) or re.fullmatch(
+            r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", approval_id
+        ) is None:
+            raise HwpAutomationError(
+                "유효한 HWP 적용 승인 식별자가 필요합니다."
+            )
+        source, source_identity = _validate_existing_file(
+            Path(source_hwpx),
+            frozenset({".hwpx"}),
+            "승인된 출력 문서",
+        )
+        source_sha256 = _sha256(source, source_identity)
+        destination = _validate_new_pdf_output(
+            Path(destination_pdf),
+            source,
+        )
+        return self._safe_submit(
+            lambda: self._export_pdf(
+                source,
+                source_identity,
+                source_sha256,
+                destination,
+            )
+        )
+
+    def publish_approved_exact_hwpx(
+        self,
+        *,
+        approval_id: str,
+        source_hwpx: Path,
+        destination_hwpx: Path,
+    ) -> ExactHwpxPublishResult:
+        """Reopen/save an approved exact HWPX and atomically publish it."""
+
+        if not isinstance(approval_id, str) or re.fullmatch(
+            r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", approval_id
+        ) is None:
+            raise HwpAutomationError(
+                "유효한 HWP 적용 승인 식별자가 필요합니다."
+            )
+        source, source_identity = _validate_existing_file(
+            Path(source_hwpx),
+            frozenset({".hwpx"}),
+            "승인된 정확 HWPX 미리보기",
+        )
+        source_sha256 = _sha256(source, source_identity)
+        destination = _validate_new_exact_output(
+            Path(destination_hwpx),
+            source,
+        )
+        return self._safe_submit(
+            lambda: self._publish_exact_hwpx(
+                source,
+                source_identity,
+                source_sha256,
+                destination,
+            )
+        )
 
     def close(self) -> None:
         if self._owns_worker:
@@ -763,6 +855,173 @@ class HwpComService:
         finally:
             _unlink_owned_unverified(temporary)
 
+    def _publish_exact_hwpx(
+        self,
+        source: Path,
+        source_identity: _FileIdentity,
+        source_sha256: str,
+        destination: Path,
+    ) -> ExactHwpxPublishResult:
+        _assert_identity(source, source_identity)
+        if not hmac.compare_digest(
+            _sha256(source, source_identity),
+            source_sha256,
+        ):
+            raise HwpAutomationError(
+                "승인된 정확 HWPX 미리보기가 변경되었습니다."
+            )
+        _assert_output_absent(destination)
+        working = source.with_name(
+            ".%s.trafficvisson-exact-working-%s%s"
+            % (source.stem, uuid4().hex, source.suffix)
+        )
+        staging = destination.with_name(
+            ".%s.trafficvisson-exact-output-%s%s"
+            % (destination.stem, uuid4().hex, destination.suffix)
+        )
+        adapter: Optional[HwpAdapter] = None
+        published_identity: Optional[_FileIdentity] = None
+        try:
+            _exclusive_copy(source, working)
+            adapter = self._adapter_factory()
+            adapter.register_security_module()
+            adapter.open_document(working)
+            adapter.save_as(staging)
+            adapter.close_document()
+            adapter.open_document(staging)
+            hwpml, truncated = adapter.read_hwpml(MAX_HWPML_CHARS)
+            readback = _summarize_hwpml(hwpml, truncated)
+            adapter.close_document()
+            adapter.close()
+            adapter = None
+
+            staging_identity = _identity(staging)
+            if staging_identity.size <= 0:
+                raise RuntimeError("empty exact HWPX output")
+            digest = _sha256(staging, staging_identity)
+            _assert_identity(source, source_identity)
+            if not hmac.compare_digest(
+                _sha256(source, source_identity),
+                source_sha256,
+            ):
+                raise HwpAutomationError(
+                    "COM 적용 중 정확 HWPX 미리보기가 변경되었습니다."
+                )
+            _assert_output_absent(destination)
+            os.rename(staging, destination)
+            published_identity = _identity(destination)
+            if (
+                published_identity.size != staging_identity.size
+                or _sha256(destination, published_identity) != digest
+            ):
+                raise RuntimeError(
+                    "published exact HWPX verification failed"
+                )
+            return ExactHwpxPublishResult(
+                output_path=destination,
+                size_bytes=published_identity.size,
+                sha256=digest,
+                readback=readback,
+            )
+        except BaseException:
+            if published_identity is not None:
+                _unlink_if_identity(destination, published_identity)
+            raise
+        finally:
+            if adapter is not None:
+                try:
+                    adapter.close()
+                except BaseException:
+                    pass
+            _unlink_owned_unverified(working)
+            _unlink_owned_unverified(staging)
+
+    def _export_pdf(
+        self,
+        source: Path,
+        source_identity: _FileIdentity,
+        source_sha256: str,
+        destination: Path,
+    ) -> Path:
+        _assert_identity(source, source_identity)
+        if not hmac.compare_digest(
+            _sha256(source, source_identity), source_sha256
+        ):
+            raise HwpAutomationError(
+                "승인된 출력 문서가 변경되어 PDF 내보내기를 중단했습니다."
+            )
+        _assert_output_absent(destination)
+        working = source.with_name(
+            ".%s.trafficvisson-pdf-source-%s%s"
+            % (source.stem, uuid4().hex, source.suffix)
+        )
+        staging = destination.with_name(
+            ".%s.trafficvisson-pdf-output-%s.pdf"
+            % (destination.stem, uuid4().hex)
+        )
+        adapter: Optional[HwpAdapter] = None
+        published_identity: Optional[_FileIdentity] = None
+        try:
+            _exclusive_copy(source, working)
+            _assert_identity(source, source_identity)
+            if not hmac.compare_digest(
+                _sha256(source, source_identity), source_sha256
+            ):
+                raise HwpAutomationError(
+                    "승인된 출력 문서가 변경되어 PDF 내보내기를 중단했습니다."
+                )
+            adapter = self._adapter_factory()
+            adapter.register_security_module()
+            adapter.open_document(working)
+            adapter.save_as(staging)
+            adapter.close_document()
+
+            staging_identity = _validate_pdf_file(staging)
+            staging_sha256 = _sha256(staging, staging_identity)
+            _assert_identity(source, source_identity)
+            if not hmac.compare_digest(
+                _sha256(source, source_identity), source_sha256
+            ):
+                raise HwpAutomationError(
+                    "PDF 내보내기 중 승인된 출력 문서가 변경되었습니다."
+                )
+            adapter.close()
+            adapter = None
+            _unlink_owned_unverified(working)
+            if _regular_file_exists(working):
+                raise RuntimeError("PDF working copy cleanup failed")
+
+            _assert_output_absent(destination)
+            os.rename(staging, destination)
+            published_identity = _validate_pdf_file(destination)
+            if (
+                published_identity.size != staging_identity.size
+                or not hmac.compare_digest(
+                    _sha256(destination, published_identity),
+                    staging_sha256,
+                )
+            ):
+                raise RuntimeError("published PDF verification failed")
+            return destination
+        except BaseException:
+            if adapter is not None:
+                try:
+                    adapter.close()
+                except BaseException:
+                    pass
+                adapter = None
+            if published_identity is not None:
+                _unlink_if_identity(destination, published_identity)
+            raise
+        finally:
+            if adapter is not None:
+                try:
+                    adapter.close()
+                except BaseException:
+                    pass
+            _unlink_owned_unverified(working)
+            _unlink_owned_unverified(staging)
+
 
 def _validate_plan(
     edit_plan: Mapping[str, Any],
@@ -981,6 +1240,65 @@ def _validate_new_output(path: Path, template: Path) -> Path:
     return absolute
 
 
+def _validate_new_exact_output(path: Path, source: Path) -> Path:
+    """Validate a server-owned exact-report publication destination."""
+
+    raw = os.fspath(path)
+    if not raw or "\x00" in raw or not path.is_absolute():
+        raise HwpAutomationError("출력 문서 경로가 올바르지 않습니다.")
+    absolute = Path(os.path.abspath(raw))
+    if absolute.suffix.casefold() != ".hwpx":
+        raise HwpAutomationError("정확 보고서 출력 형식은 HWPX여야 합니다.")
+    if absolute == source:
+        raise HwpAutomationError("원본 문서를 덮어쓸 수 없습니다.")
+    _assert_no_link_components(absolute.parent)
+    try:
+        parent = os.stat(absolute.parent, follow_symlinks=False)
+    except OSError as error:
+        raise HwpAutomationError(
+            "출력 문서 폴더를 안전하게 확인하지 못했습니다."
+        ) from error
+    if not stat_module.S_ISDIR(parent.st_mode) or _is_reparse(parent):
+        raise HwpAutomationError("출력 문서 폴더가 올바르지 않습니다.")
+    _assert_output_absent(absolute)
+    return absolute
+
+
+def _validate_new_pdf_output(path: Path, source: Path) -> Path:
+    raw = os.fspath(path)
+    if not raw or "\x00" in raw or not path.is_absolute():
+        raise HwpAutomationError("PDF 출력 경로가 올바르지 않습니다.")
+    absolute = Path(os.path.abspath(raw))
+    if absolute.suffix.casefold() != ".pdf" or absolute == source:
+        raise HwpAutomationError("PDF 출력 형식이 지원되지 않습니다.")
+    _assert_no_link_components(absolute.parent)
+    try:
+        parent = os.stat(absolute.parent, follow_symlinks=False)
+    except OSError as error:
+        raise HwpAutomationError(
+            "PDF 출력 폴더를 안전하게 확인하지 못했습니다."
+        ) from error
+    if not stat_module.S_ISDIR(parent.st_mode) or _is_reparse(parent):
+        raise HwpAutomationError("PDF 출력 폴더가 올바르지 않습니다.")
+    _assert_output_absent(absolute)
+    return absolute
+
+
+def _validate_pdf_file(path: Path) -> _FileIdentity:
+    identity = _identity(path)
+    if (
+        identity.size <= 5
+        or identity.size > MAX_EXPORTED_PDF_BYTES
+    ):
+        raise RuntimeError("exported PDF size is invalid")
+    with path.open("rb") as source:
+        magic = source.read(5)
+    _assert_identity(path, identity)
+    if magic != b"%PDF-":
+        raise RuntimeError("exported file is not a PDF")
+    return identity
+
+
 def _assert_no_link_components(path: Path) -> None:
     current = Path(path.anchor)
     parts = path.parts[1:] if path.anchor else path.parts
@@ -1159,6 +1477,7 @@ def _write_recovery_journal(
 __all__ = [
     "ALLOWED_OPERATIONS",
     "EditTarget",
+    "ExactHwpxPublishResult",
     "HwpAdapter",
     "HwpApplyResult",
     "HwpAutomationError",

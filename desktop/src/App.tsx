@@ -62,9 +62,6 @@ const SCREEN_LOADERS: Record<PrefetchableScreen, () => Promise<unknown>> = {
   report: loadReportScreen,
   review: loadReviewScreen,
 };
-const PREFETCHABLE_SCREENS = Object.keys(
-  SCREEN_LOADERS,
-) as PrefetchableScreen[];
 
 const SCREEN_ORDER: ScreenId[] = [
   "home",
@@ -77,6 +74,33 @@ const SCREEN_ORDER: ScreenId[] = [
   "export",
   "models",
 ];
+
+const NEXT_SCREEN_PREFETCH: Record<
+  ScreenId,
+  PrefetchableScreen | null
+> = {
+  home: "import",
+  import: "analysis",
+  analysis: "label",
+  label: "review",
+  review: "history",
+  history: "report",
+  report: "export",
+  export: "models",
+  models: null,
+};
+
+const SCREEN_LABELS: Record<ScreenId, string> = {
+  home: "프로젝트 홈",
+  import: "영상 가져오기",
+  analysis: "자동 분석 진행",
+  label: "질문 검토",
+  review: "사건 검토",
+  history: "지도·영상 히스토리",
+  report: "보고서",
+  export: "내보내기",
+  models: "모델 관리",
+};
 
 type IdleCapableWindow = Window & {
   requestIdleCallback?: (
@@ -91,10 +115,6 @@ function prefetchScreen(screen: ScreenId) {
   void SCREEN_LOADERS[screen]().catch(() => {
     // retryableLoader clears failed requests so a later navigation can retry.
   });
-}
-
-function prefetchAllScreens() {
-  for (const screen of PREFETCHABLE_SCREENS) prefetchScreen(screen);
 }
 
 function screenFromHash(): ScreenId {
@@ -114,7 +134,15 @@ export function App() {
     window.requestAnimationFrame(() => {
       const workspace = document.querySelector<HTMLElement>(".workspace");
       workspace?.scrollTo({ top: 0, left: 0, behavior: "auto" });
-      workspace?.focus({ preventScroll: true });
+      const heading =
+        workspace?.querySelector<HTMLElement>(".screen > .screen-header h1") ??
+        null;
+      if (heading) {
+        heading.tabIndex = -1;
+        heading.focus({ preventScroll: true });
+      } else {
+        workspace?.focus({ preventScroll: true });
+      }
     });
   }
 
@@ -125,6 +153,13 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    document.title = `${SCREEN_LABELS[screen]} · TrafficSuperVision`;
+  }, [screen]);
+
+  useEffect(() => {
+    const nextScreen = NEXT_SCREEN_PREFETCH[screen];
+    if (!nextScreen) return;
+
     const idleWindow = window as IdleCapableWindow;
     let firstPaintFrame = 0;
     let afterPaintFrame = 0;
@@ -133,7 +168,7 @@ export function App() {
     let disposed = false;
 
     const runPrefetch = () => {
-      if (!disposed) prefetchAllScreens();
+      if (!disposed) prefetchScreen(nextScreen);
     };
 
     firstPaintFrame = window.requestAnimationFrame(() => {
@@ -160,7 +195,7 @@ export function App() {
         window.clearTimeout(fallbackHandle);
       }
     };
-  }, []);
+  }, [screen]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -238,7 +273,7 @@ export function App() {
       onDiagnosticsOpenChange={setDiagnosticsOpen}
     >
       <div className="screen-announcer" aria-live="polite">
-        {screen} 화면
+        {SCREEN_LABELS[screen]} 화면
       </div>
       <Suspense fallback={<div className="screen-loading">화면을 준비하는 중…</div>}>
         {content}

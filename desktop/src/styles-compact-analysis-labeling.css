@@ -73,7 +73,7 @@
   .screen--analysis .analysis-hero-top p {
     margin-top: 1px;
     overflow: hidden;
-    font-size: 10px;
+    font-size: 11px;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
@@ -87,7 +87,7 @@
     gap: 8px;
     margin-top: 7px;
     overflow: hidden;
-    font-size: 10px;
+    font-size: 11px;
     white-space: nowrap;
   }
 
@@ -214,7 +214,7 @@
 
   .screen--analysis .dense-index-control__note,
   .screen--analysis .dense-index-control__error {
-    font-size: 9.5px;
+    font-size: 11px;
     line-height: 1.3;
   }
 
@@ -325,13 +325,13 @@
 
   .screen--labeling .label-job-actions > span {
     min-width: 72px;
-    font-size: 10px;
+    font-size: 11px;
   }
 
   .screen--labeling .label-job-actions .button {
     min-height: 30px;
     padding-inline: 8px;
-    font-size: 10px;
+    font-size: 11px;
   }
 
   .screen--labeling .label-job-status {
@@ -348,7 +348,7 @@
   .screen--labeling .label-job-status > span {
     width: 100%;
     overflow: hidden;
-    font-size: 10px;
+    font-size: 11px;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
@@ -388,7 +388,7 @@
 
   .screen--labeling .auto-label-command__identity small,
   .screen--labeling .auto-label-command__guardrail span {
-    font-size: 10px;
+    font-size: 11px;
   }
 
   .screen--labeling .auto-label-command__body {
@@ -516,7 +516,7 @@
   .screen--labeling .auto-label-command__preview summary {
     padding-top: 3px;
     overflow: hidden;
-    font-size: 10px;
+    font-size: 11px;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
@@ -587,7 +587,7 @@
   .screen--labeling .auto-label-command__progress span {
     display: -webkit-box;
     overflow: hidden;
-    font-size: 10px;
+    font-size: 11px;
     line-height: 1.15;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
@@ -614,7 +614,7 @@
     min-width: 0;
     display: -webkit-box;
     overflow: hidden;
-    font-size: 10px;
+    font-size: 11px;
     line-height: 1.15;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
@@ -674,7 +674,7 @@
   .screen--labeling .workbench-toolbar .mono {
     max-width: min(52vw, 500px);
     overflow: hidden;
-    font-size: 10px;
+    font-size: 11px;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
@@ -722,7 +722,7 @@
     flex: 0 0 32px;
     overflow: hidden;
     padding: 6px 8px;
-    font-size: 10px;
+    font-size: 11px;
     line-height: 1.3;
   }
 
@@ -742,7 +742,7 @@
   }
 
   .screen--labeling .candidate-preview > div > span {
-    font-size: 10px;
+    font-size: 11px;
   }
 
   .screen--labeling .candidate-preview video {
@@ -776,7 +776,7 @@
   }
 
   .screen--labeling .question-card .panel-header .eyebrow {
-    font-size: 9px;
+    font-size: 11px;
   }
 
   .screen--labeling .question-prompt {
@@ -796,12 +796,12 @@
     flex-wrap: nowrap;
     gap: 3px;
     overflow: hidden;
-    font-size: 9px;
+    font-size: 11px;
   }
 
   .screen--labeling .question-metadata .badge {
     padding: 2px 5px;
-    font-size: 8px;
+    font-size: 11px;
   }
 
   .screen--labeling .weak-case-reference {
@@ -825,7 +825,7 @@
   .screen--labeling .weak-case-reference__header strong,
   .screen--labeling .weak-case-reference__header small,
   .screen--labeling .weak-case-reference__header .badge {
-    font-size: 8px;
+    font-size: 11px;
     line-height: 1.1;
   }
 
@@ -850,7 +850,7 @@
     bottom: 2px;
     max-width: calc(100% - 4px);
     padding: 1px 3px;
-    font-size: 7px;
+    font-size: 11px;
   }
 
   .screen--labeling .weak-case-reference__detail {
@@ -860,7 +860,7 @@
 
   .screen--labeling .weak-case-reference__detail strong,
   .screen--labeling .weak-case-reference__detail p {
-    font-size: 8px;
+    font-size: 11px;
   }
 
   .screen--labeling .weak-case-reference__detail small,
@@ -870,7 +870,7 @@
 
   .screen--labeling .weak-case-reference__status {
     min-height: 43px;
-    font-size: 8px;
+    font-size: 11px;
   }
 
   .screen--labeling .experimental-proposal,
@@ -880,7 +880,7 @@
     margin-top: 3px;
     padding: 4px 6px;
     overflow: hidden;
-    font-size: 10px;
+    font-size: 11px;
   }
 
   .screen--labeling .experimental-proposal p,
@@ -922,7 +922,7 @@
   .screen--labeling .question-card .compact-field > span {
     max-width: 126px;
     overflow: hidden;
-    font-size: 10px;
+    font-size: 11px;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
@@ -931,7 +931,7 @@
   .screen--labeling .compact-field input {
     min-height: 26px;
     padding-inline: 7px;
-    font-size: 9px;
+    font-size: 11px;
   }
 
   .screen--labeling .answer-grid {
@@ -991,7 +991,7 @@
     margin: 2px 0 1px;
     padding: 3px 5px;
     overflow: hidden;
-    font-size: 9px;
+    font-size: 11px;
     line-height: 1.2;
   }
 
@@ -1014,7 +1014,7 @@
     flex: 0 0 auto;
     min-height: 26px;
     padding-block: 3px;
-    font-size: 9px;
+    font-size: 11px;
   }
 
   .screen--labeling .label-progress {
@@ -1037,7 +1037,7 @@
     margin: 0;
     display: grid;
     gap: 1px;
-    font-size: 9px;
+    font-size: 11px;
   }
 
   .screen--labeling .label-progress > .progress {
@@ -1835,14 +1835,14 @@
   }
 
   .screen--labeling .review-mode-toggle button small {
-    font-size: 10.5px;
+    font-size: 11px;
   }
 
   .screen--labeling .answer kbd {
     min-width: 18px;
     min-height: 18px;
     padding-inline: 4px;
-    font-size: 10.5px;
+    font-size: 11px;
   }
 
   .screen--labeling .severity-followup {
@@ -1886,7 +1886,7 @@
     min-width: 18px;
     min-height: 18px;
     padding-inline: 4px;
-    font-size: 10.5px;
+    font-size: 11px;
   }
 
   .screen--labeling .severity-choice strong {
@@ -1894,7 +1894,7 @@
   }
 
   .screen--labeling .severity-choice small {
-    font-size: 10.5px;
+    font-size: 11px;
   }
 
   .screen--labeling .severity-followup__action {

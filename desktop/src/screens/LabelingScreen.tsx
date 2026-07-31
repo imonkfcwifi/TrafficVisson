@@ -32,6 +32,7 @@ import {
 import { buildCandidateProposal } from "../candidateProposal";
 import {
   apiIssueTypeFromIncident,
+  incidentTypeFromApi,
   REVIEW_ISSUE_TYPE_OPTIONS,
 } from "../issueTypes";
 import {
@@ -53,7 +54,6 @@ import {
   type AutoLabelingRunResult,
   type AutoLabelingScope,
 } from "../autoLabeling";
-import { realTunnelEvidenceImage } from "../demo";
 import {
   buildCandidateEvidenceUrl,
   buildWeakCaseImageUrl,
@@ -89,9 +89,22 @@ import {
   type MaskRefinementProposal,
 } from "../maskRefinement";
 import {
+  buildWeakCaseApprovalRequest,
+  buildWeakCaseStandardizationRequest,
+  findWeakCaseStandardizationProposal,
+  parseWeakCaseStandardizationProposalList,
+  parseWeakCaseStandardizationProposalResponse,
+  parseWeakCaseStandardizationProviderList,
   parseWeakCaseSearchResponse,
   type WeakCaseReference,
+  type WeakCaseStandardizationProposal,
+  type WeakCaseStandardizationProviderStatus,
 } from "../weakCases";
+import {
+  parseStructuredLlmAssistAnswerResponse,
+  structuredLlmTrainingAssistsFromQuestionList,
+  type StructuredLlmTrainingAssist,
+} from "../structuredLlmAssist";
 import {
   restoreCompletedAnalysis,
   useRuntimeState,
@@ -100,8 +113,12 @@ import {
 import { useProjectCatalog } from "../projectCatalog";
 import {
   parsePipelineJob,
+  pipelineQuestionQueueBinding,
+  pipelineStageLabel,
+  pipelineStatusLabel,
   publishPipelineJob,
   usePipelineUi,
+  type PipelineJob,
 } from "../pipelineJobs";
 import { buildPipelineReviewCompletion } from "../pipelineReviewCompletion";
 import {
@@ -112,6 +129,9 @@ import {
   PanelHeader,
   ProgressBar,
 } from "../components/ui";
+import { ProviderVisualEvidenceReview } from "../components/ProviderVisualEvidenceReview";
+import { WeakCaseStandardizationDialog } from "../components/WeakCaseStandardizationDialog";
+import { isProviderVisualPrivacyReviewInterruption } from "../providerVisualEvidence";
 
 type Answer = ReviewAnswer;
 type ReviewMode = ReviewModePreference;
@@ -266,6 +286,18 @@ type WeakCaseUiState = {
   message: string | null;
 };
 
+type WeakCaseStandardizationUiState = {
+  open: boolean;
+  caseId: string | null;
+  provider: "codex" | "claude";
+  metadataConsent: boolean;
+  duplicateImageConfirmed: boolean;
+  status: "idle" | "loading" | "ready" | "requesting" | "failed";
+  providerStatuses: WeakCaseStandardizationProviderStatus[];
+  proposal: WeakCaseStandardizationProposal | null;
+  message: string | null;
+};
+
 type MaskRefinementUiState =
   | { status: "idle" | "loading"; capability: null; message: string }
   | {
@@ -402,6 +434,12 @@ function severityToApi(value: string) {
   return "moderate";
 }
 
+function severityFromApi(value: "minor" | "moderate" | "major" | null) {
+  if (value === "major") return "높음";
+  if (value === "minor") return "낮음";
+  return value === "moderate" ? "보통" : undefined;
+}
+
 function maintenanceActionForType(typeCode: string) {
   if (typeCode === "ROAD_DEBRIS") return "긴급 제거·안전 확인";
   if (typeCode === "POTHOLE" || typeCode === "ROAD_SURFACE_DAMAGE") {
@@ -428,6 +466,22 @@ function maintenanceActionForType(typeCode: string) {
   return "현장 확인 후 적정 유지보수 조치";
 }
 
+function standardizationProviderLabel(
+  status: WeakCaseStandardizationProviderStatus | undefined,
+) {
+  if (!status) return "상태 확인 실패";
+  if (status.availability === "ready") {
+    return `준비됨${status.version ? ` · ${status.version}` : ""}`;
+  }
+  if (status.availability === "not_installed") return "CLI 미설치";
+  if (status.availability === "not_logged_in") return "로그인 필요";
+  if (status.availability === "expired") return "로그인 만료";
+  if (status.availability === "network_unavailable") {
+    return "네트워크 연결 실패";
+  }
+  return "현재 사용 불가";
+}
+
 function isTextEntryTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false;
   return (
@@ -451,7 +505,7 @@ export function LabelingScreen({
     Record<string, number>
   >({});
   const [jobListError, setJobListError] = useState<string | null>(null);
-  const [loadingJobs, setLoadingJobs] = useState(false);
+  const [loadingJobs, setLoadingJobs] = useState(true);
   const [loadingProposalCounts, setLoadingProposalCounts] = useState(false);
   const [proposalOverlays, setProposalOverlays] = useState<{
     jobId: string | null;
@@ -577,6 +631,10 @@ export function LabelingScreen({
   const [questionIdsByCandidateId, setQuestionIdsByCandidateId] = useState<
     Record<string, string>
   >({});
+  const [
+    structuredLlmAssistsByCandidateId,
+    setStructuredLlmAssistsByCandidateId,
+  ] = useState<Record<string, StructuredLlmTrainingAssist>>({});
   const [maskRefinementState, setMaskRefinementState] =
     useState<MaskRefinementUiState>({
       status: "idle",
@@ -617,6 +675,29 @@ export function LabelingScreen({
     });
   const [selectedWeakCaseId, setSelectedWeakCaseId] =
     useState<string | null>(null);
+  const [weakCaseApprovalState, setWeakCaseApprovalState] = useState<{
+    caseId: string | null;
+    status: "idle" | "saving" | "verified" | "failed";
+    message: string | null;
+  }>({
+    caseId: null,
+    status: "idle",
+    message: null,
+  });
+  const [
+    weakCaseStandardization,
+    setWeakCaseStandardization,
+  ] = useState<WeakCaseStandardizationUiState>({
+    open: false,
+    caseId: null,
+    provider: "codex",
+    metadataConsent: false,
+    duplicateImageConfirmed: false,
+    status: "idle",
+    providerStatuses: [],
+    proposal: null,
+    message: null,
+  });
   const [failedWeakCaseImages, setFailedWeakCaseImages] = useState<
     ReadonlySet<string>
   >(new Set());
@@ -631,8 +712,33 @@ export function LabelingScreen({
     runtime.analysisSummary?.projectId === activeProjectId
       ? runtime.analysisSummary
       : null;
-  const currentPipelineJob =
+  const currentPipelineJob: PipelineJob | null =
     pipeline.projectId === activeProjectId ? pipeline.job : null;
+  const currentQuestionQueueBinding = currentPipelineJob
+    ? pipelineQuestionQueueBinding(currentPipelineJob)
+    : null;
+  const promotedSurveyQaRequired =
+    currentQuestionQueueBinding?.surveyQaRequired === true;
+  const zeroCandidateSurvey =
+    currentQuestionQueueBinding?.zeroCandidateSurvey === true;
+  const userDiscoveredCandidateCount =
+    typeof currentPipelineJob?.provenance
+      .user_discovered_candidate_count === "number" &&
+    Number.isSafeInteger(
+      currentPipelineJob.provenance
+        .user_discovered_candidate_count,
+    ) &&
+    currentPipelineJob.provenance
+      .user_discovered_candidate_count >= 0
+      ? currentPipelineJob.provenance
+          .user_discovered_candidate_count
+      : 0;
+  const finalSurveyQaChoice =
+    promotedSurveyQaRequired
+      ? userDiscoveredCandidateCount > 0
+        ? ("miss_candidates_reviewed" as const)
+        : ("no_miss_complete" as const)
+      : undefined;
   const currentJobIndex = runtime.analysisSummary
     ? completedJobs.findIndex(
         (job) => job.job_id === runtime.analysisSummary?.jobId,
@@ -666,6 +772,9 @@ export function LabelingScreen({
   const serverQuestionId = candidateId
     ? questionIdsByCandidateId[candidateId]
     : undefined;
+  const structuredLlmAssist = candidateId
+    ? structuredLlmAssistsByCandidateId[candidateId]
+    : undefined;
   const maskRefinementIdentity: MaskRefinementIdentity | null =
     runtime.analysisSummary && candidateId && serverQuestionId
       ? {
@@ -683,10 +792,18 @@ export function LabelingScreen({
     weakCaseState.cases.find(
       ({ caseId }) => caseId === selectedWeakCaseId,
     ) ?? weakCaseState.cases[0] ?? null;
+  const standardizationReference =
+    weakCaseState.cases.find(
+      ({ caseId }) => caseId === weakCaseStandardization.caseId,
+    ) ?? null;
+  const selectedStandardizationProviderStatus =
+    weakCaseStandardization.providerStatuses.find(
+      ({ provider }) => provider === weakCaseStandardization.provider,
+    );
   const currentEvidenceImage =
     question?.adjacentFrames?.[frameIndex] ??
     question?.evidenceImage ??
-    realTunnelEvidenceImage;
+    "";
   const refinedBox = maskRefinement
     ? {
         x: maskRefinement.normalizedBox.x * 100,
@@ -739,6 +856,15 @@ export function LabelingScreen({
     }
     return counts;
   }, [history]);
+  const weakCaseProposedIssueType = apiIssueTypeFromIncident(typeCode);
+  const weakCaseSearchIssueType =
+    weakCaseProposedIssueType === "other"
+      ? null
+      : weakCaseProposedIssueType;
+  const weakCaseSearchQueryText = [question?.prompt, ocrText.trim()]
+    .filter(Boolean)
+    .join(" ")
+    .slice(0, 240);
 
   useEffect(() => {
     setFailedWeakCaseImages(new Set());
@@ -764,13 +890,6 @@ export function LabelingScreen({
       });
       return;
     }
-    const proposedIssueType = apiIssueTypeFromIncident(typeCode);
-    const issueType =
-      proposedIssueType === "other" ? null : proposedIssueType;
-    const queryText = [question.prompt, ocrText.trim()]
-      .filter(Boolean)
-      .join(" ")
-      .slice(0, 240);
     let active = true;
     setWeakCaseState({
       status: "loading",
@@ -783,14 +902,16 @@ export function LabelingScreen({
       void service
         .search({
           projectId: activeProjectId,
-          ...(issueType ? { issueType } : {}),
-          queryText,
+          ...(weakCaseSearchIssueType
+            ? { issueType: weakCaseSearchIssueType }
+            : {}),
+          queryText: weakCaseSearchQueryText,
           limit: 5,
         })
         .then((value) => {
           if (!active) return;
           const parsed = parseWeakCaseSearchResponse(value, {
-            issueType,
+            issueType: weakCaseSearchIssueType,
             requestedLimit: 5,
           });
           setWeakCaseState({
@@ -828,7 +949,355 @@ export function LabelingScreen({
       active = false;
       window.clearTimeout(timer);
     };
-  }, [activeProjectId, ocrText, question, typeCode]);
+  }, [
+    activeProjectId,
+    question,
+    weakCaseSearchIssueType,
+    weakCaseSearchQueryText,
+  ]);
+
+  useEffect(() => {
+    setWeakCaseApprovalState({
+      caseId: selectedWeakCaseId,
+      status: "idle",
+      message: null,
+    });
+    setWeakCaseStandardization((current) => ({
+      ...current,
+      open: false,
+      caseId: selectedWeakCaseId,
+      metadataConsent: false,
+      duplicateImageConfirmed: false,
+      status: "idle",
+      providerStatuses: [],
+      proposal: null,
+      message: null,
+    }));
+  }, [activeProjectId, question?.id, selectedWeakCaseId]);
+
+  async function approveWeakCaseReference({
+    reference,
+    issueType,
+    maintenanceAction,
+    duplicateImageReviewConfirmed = false,
+  }: {
+    reference: WeakCaseReference;
+    issueType: WeakCaseStandardizationProposal["suggestion"]["issueType"];
+    maintenanceAction: string;
+    duplicateImageReviewConfirmed?: boolean;
+  }) {
+    const service = window.trafficSuperVision?.referenceCases;
+    if (!service || !activeProjectId || !reference) return;
+    try {
+      const request = buildWeakCaseApprovalRequest({
+        projectId: activeProjectId,
+        reference,
+        issueType,
+        maintenanceAction,
+        duplicateImageReviewConfirmed,
+      });
+      setWeakCaseApprovalState({
+        caseId: reference.caseId,
+        status: "saving",
+        message:
+          "문서·사진·인덱스 SHA-256을 다시 확인하고 있습니다.",
+      });
+      await service.approve(request);
+      const verificationQuery = [
+        reference.caption,
+        reference.opinion,
+        reference.route,
+        reference.location,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .slice(0, 240);
+      const refreshedValue = await service.search({
+        projectId: activeProjectId,
+        issueType,
+        queryText: verificationQuery,
+        limit: 5,
+      });
+      const refreshed = parseWeakCaseSearchResponse(refreshedValue, {
+        issueType,
+        requestedLimit: 5,
+      });
+      const verified = refreshed.cases.find(
+        ({ caseId }) => caseId === reference.caseId,
+      );
+      if (
+        !verified?.approvedReference ||
+        !verified.trainingEligible ||
+        verified.approvedIssueType !== issueType ||
+        verified.approvedAction !== maintenanceAction ||
+        refreshed.annotationCount !== 0 ||
+        refreshed.incidentCount !== 0
+      ) {
+        throw new Error(
+          "승인 뒤 사례 상태를 다시 검증하지 못했습니다.",
+        );
+      }
+      setWeakCaseState({
+        status: "ready",
+        cases: refreshed.cases,
+        readySourceCount: refreshed.readySourceCount,
+        sourceCount: refreshed.sourceCount,
+        message:
+          "사용자 승인 사례가 프로젝트 학습 참조 풀에 추가되었습니다. Annotation·Incident는 생성하지 않았습니다.",
+      });
+      setSelectedWeakCaseId(reference.caseId);
+      setWeakCaseApprovalState({
+        caseId: reference.caseId,
+        status: "verified",
+        message:
+          "승인 사례로 검증되었습니다. 현재 영상의 정답 라벨과는 분리되어 있습니다.",
+      });
+      setWeakCaseStandardization((current) => ({
+        ...current,
+        open: false,
+        status: "ready",
+        message:
+          "표준화 제안을 사용자가 확인해 approved_reference로 승격했습니다.",
+      }));
+    } catch (error) {
+      setWeakCaseApprovalState({
+        caseId: reference.caseId,
+        status: "failed",
+        message:
+          error instanceof Error
+            ? error.message
+            : "3·4분기 사례 승인을 완료하지 못했습니다.",
+      });
+    }
+  }
+
+  async function approveSelectedWeakCaseReference() {
+    const reference = selectedWeakCase;
+    if (!reference) return;
+    if (
+      !weakCaseProposedIssueType ||
+      weakCaseProposedIssueType === "other"
+    ) {
+      setWeakCaseApprovalState({
+        caseId: reference.caseId,
+        status: "failed",
+        message:
+          "현재 질문의 올바른 도로 문제 유형을 먼저 선택해 주세요.",
+      });
+      return;
+    }
+    await approveWeakCaseReference({
+      reference,
+      issueType: weakCaseProposedIssueType,
+      maintenanceAction: maintenanceActionForType(typeCode),
+    });
+  }
+
+  async function openWeakCaseStandardization() {
+    const reference = selectedWeakCase;
+    const projectId = activeProjectId;
+    const bridge = window.trafficSuperVision;
+    if (
+      !reference ||
+      !projectId ||
+      reference.referenceState !== "weak_unconfirmed" ||
+      reference.approvedReference
+    ) {
+      return;
+    }
+    const configuredProvider =
+      currentPipelineJob?.profileSnapshot.reportProvider;
+    const preferredProvider =
+      configuredProvider === "claude" ? "claude" : "codex";
+    setWeakCaseStandardization({
+      open: true,
+      caseId: reference.caseId,
+      provider: preferredProvider,
+      metadataConsent: false,
+      duplicateImageConfirmed: false,
+      status: "loading",
+      providerStatuses: [],
+      proposal: null,
+      message: "공식 CLI 상태와 저장된 표준화 제안을 확인하고 있습니다.",
+    });
+    if (!bridge) {
+      setWeakCaseStandardization((current) => ({
+        ...current,
+        status: "failed",
+        message:
+          "표준화 제안은 설치형 Electron 앱의 로컬 브리지에서 사용할 수 있습니다.",
+      }));
+      return;
+    }
+    const messages: string[] = [];
+    let providerStatuses: WeakCaseStandardizationProviderStatus[] = [];
+    let proposal: WeakCaseStandardizationProposal | null = null;
+    try {
+      providerStatuses = parseWeakCaseStandardizationProviderList(
+        await bridge.providers.list(),
+      );
+    } catch (error) {
+      messages.push(
+        error instanceof Error
+          ? error.message
+          : "공식 CLI 상태를 확인하지 못했습니다.",
+      );
+    }
+    try {
+      const proposalList = parseWeakCaseStandardizationProposalList(
+        await bridge.referenceCases.standardizationProposals({
+          projectId,
+        }),
+        { projectId },
+      );
+      proposal = findWeakCaseStandardizationProposal(
+        proposalList.proposals,
+        reference,
+      );
+    } catch (error) {
+      messages.push(
+        error instanceof Error
+          ? error.message
+          : "저장된 표준화 제안을 확인하지 못했습니다.",
+      );
+    }
+    setWeakCaseStandardization((current) => {
+      if (
+        !current.open ||
+        current.caseId !== reference.caseId ||
+        activeProjectId !== projectId
+      ) {
+        return current;
+      }
+      return {
+        ...current,
+        provider: proposal?.provider ?? current.provider,
+        status:
+          providerStatuses.length || proposal ? "ready" : "failed",
+        providerStatuses,
+        proposal,
+        message: messages.length
+          ? messages.join(" ")
+          : proposal
+            ? "저장된 검토 전용 제안을 불러왔습니다. 원문과 제안을 확인한 뒤에만 승인하세요."
+            : "Provider와 전송 범위를 확인한 뒤 검토 전용 제안을 요청하세요.",
+      };
+    });
+  }
+
+  async function requestWeakCaseStandardization() {
+    const projectId = activeProjectId;
+    const reference = standardizationReference;
+    const service = window.trafficSuperVision?.referenceCases;
+    if (!projectId || !reference || !service) return;
+    if (!weakCaseStandardization.metadataConsent) {
+      setWeakCaseStandardization((current) => ({
+        ...current,
+        status: "failed",
+        message:
+          "원본 캡션·점검 의견·표 위치 메타데이터의 Provider 전송 범위를 먼저 확인해 주세요.",
+      }));
+      return;
+    }
+    if (
+      selectedStandardizationProviderStatus?.availability !== "ready"
+    ) {
+      setWeakCaseStandardization((current) => ({
+        ...current,
+        status: "failed",
+        message: `${selectedStandardizationProviderStatus?.displayName ?? "선택한 Provider"}: ${standardizationProviderLabel(selectedStandardizationProviderStatus)}`,
+      }));
+      return;
+    }
+    setWeakCaseStandardization((current) => ({
+      ...current,
+      status: "requesting",
+      message:
+        "사진·경로·문서 bytes 없이 원문과 구조 메타데이터만 전송하고 있습니다.",
+    }));
+    try {
+      const request = buildWeakCaseStandardizationRequest({
+        projectId,
+        reference,
+        provider: weakCaseStandardization.provider,
+        metadataTransmissionConfirmed: true,
+        ...(weakCaseStandardization.proposal &&
+        weakCaseStandardization.proposal.provider !==
+          weakCaseStandardization.provider
+          ? {
+              expectedRevision:
+                weakCaseStandardization.proposal.revision,
+            }
+          : {}),
+      });
+      const proposal = parseWeakCaseStandardizationProposalResponse(
+        await service.proposeStandardization(request),
+        { projectId, reference },
+      );
+      setWeakCaseStandardization((current) => ({
+        ...current,
+        status: "ready",
+        proposal,
+        message:
+          "검토 전용 제안이 준비되었습니다. 아직 승인 사례·Annotation·Incident·보고서 사실은 0건입니다.",
+      }));
+    } catch (error) {
+      let providerStatuses =
+        weakCaseStandardization.providerStatuses;
+      try {
+        providerStatuses =
+          parseWeakCaseStandardizationProviderList(
+            await window.trafficSuperVision!.providers.list(),
+          );
+      } catch {
+        // Preserve the last strictly parsed status when refresh fails.
+      }
+      const refreshedStatus = providerStatuses.find(
+        ({ provider }) =>
+          provider === weakCaseStandardization.provider,
+      );
+      const providerFailure =
+        refreshedStatus &&
+        refreshedStatus.availability !== "ready"
+          ? `${refreshedStatus.displayName}: ${standardizationProviderLabel(refreshedStatus)}`
+          : null;
+      setWeakCaseStandardization((current) => ({
+        ...current,
+        status: "failed",
+        providerStatuses,
+        message:
+          providerFailure ??
+          (error instanceof Error
+            ? error.message
+            : "표준화 제안을 생성하지 못했습니다."),
+      }));
+    }
+  }
+
+  async function approveWeakCaseStandardizationProposal() {
+    const reference = standardizationReference;
+    const proposal = weakCaseStandardization.proposal;
+    if (!reference || !proposal) return;
+    if (
+      reference.duplicateImageReviewRequired &&
+      !weakCaseStandardization.duplicateImageConfirmed
+    ) {
+      setWeakCaseStandardization((current) => ({
+        ...current,
+        status: "failed",
+        message:
+          "다른 노선·쪽에서 재사용된 동일 사진 provenance를 확인해 주세요.",
+      }));
+      return;
+    }
+    await approveWeakCaseReference({
+      reference,
+      issueType: proposal.suggestion.issueType,
+      maintenanceAction: proposal.suggestion.maintenanceAction,
+      duplicateImageReviewConfirmed:
+        weakCaseStandardization.duplicateImageConfirmed,
+    });
+  }
 
   useEffect(() => {
     saveReviewHistory(reviewKey, history);
@@ -836,9 +1305,22 @@ export function LabelingScreen({
 
   useEffect(() => {
     const bridge = window.trafficSuperVision;
-    if (!activeProjectId || !bridge) {
+    if (!activeProjectId) {
       setCompletedJobs([]);
       setProposalCountsByJobId({});
+      setLoadingJobs(false);
+      setLoadingProposalCounts(false);
+      setJobListError(null);
+      return;
+    }
+    if (!bridge) {
+      setCompletedJobs([]);
+      setProposalCountsByJobId({});
+      setLoadingJobs(false);
+      setLoadingProposalCounts(false);
+      setJobListError(
+        "질문 큐는 설치형 Electron 앱의 로컬 브리지에서 확인할 수 있습니다.",
+      );
       return;
     }
     let active = true;
@@ -1061,6 +1543,7 @@ export function LabelingScreen({
     setFollowup(false);
     setEditMode(false);
     setQuestionIdsByCandidateId({});
+    setStructuredLlmAssistsByCandidateId({});
     setMaskRefinement(null);
     setMaskRefinementBusy(false);
     setMaskRefinementState({
@@ -1111,6 +1594,15 @@ export function LabelingScreen({
         );
         setQuestionIdsByCandidateId(
           candidateQuestionIds(value, {
+            projectId: summary.projectId,
+            jobId: summary.jobId,
+            candidateIds: summary.candidates.map(
+              ({ candidateId }) => candidateId,
+            ),
+          }),
+        );
+        setStructuredLlmAssistsByCandidateId(
+          structuredLlmTrainingAssistsFromQuestionList(value, {
             projectId: summary.projectId,
             jobId: summary.jobId,
             candidateIds: summary.candidates.map(
@@ -1326,38 +1818,19 @@ export function LabelingScreen({
   }, [completed, queueComplete, questionIndex]);
 
   useEffect(() => {
-    const job = currentPipelineJob;
-    if (
-      !queueComplete ||
-      !job ||
-      job.status !== "awaiting_review" ||
-      questions.length < 1
-    ) {
-      return;
-    }
-    const attemptKey = [
-      job.jobId,
-      ...history.map(
-        ({ candidateId, recordHash, answerRevision }) =>
-          `${candidateId ?? "local"}:${recordHash ?? "unsaved"}:${
-            answerRevision ?? 0
-          }`,
-      ),
-    ].join("|");
-    if (pipelineCompletionAttemptRef.current === attemptKey) return;
-    pipelineCompletionAttemptRef.current = attemptKey;
-    void requestPipelineReviewCompletion(history);
-  }, [
-    currentPipelineJob?.jobId,
-    currentPipelineJob?.status,
-    history,
-    queueComplete,
-    questions.length,
-  ]);
-
-  useEffect(() => {
     if (!question || queueComplete) return;
     const onKeyDown = (event: KeyboardEvent) => {
+      if (weakCaseStandardization.open) {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          setWeakCaseStandardization((current) => ({
+            ...current,
+            open: false,
+            metadataConsent: false,
+          }));
+        }
+        return;
+      }
       if (
         event.repeat ||
         event.ctrlKey ||
@@ -1419,6 +1892,7 @@ export function LabelingScreen({
     savingAnswer,
     severity,
     typeCode,
+    weakCaseStandardization.open,
   ]);
 
   const stageText = useMemo(() => {
@@ -1528,20 +2002,28 @@ export function LabelingScreen({
     ].sort((left, right) => left.question - right.question);
   }
 
+  function pipelineCompletionAttemptKey(
+    job: PipelineJob,
+    records: readonly ReviewRecord[],
+  ) {
+    return [
+      job.jobId,
+      ...records.map(
+        ({ candidateId, recordHash, answerRevision }) =>
+          `${candidateId ?? "local"}:${recordHash ?? "unsaved"}:${
+            answerRevision ?? 0
+          }`,
+      ),
+    ].join("|");
+  }
+
   async function requestPipelineReviewCompletion(
     records: readonly ReviewRecord[],
   ) {
     const job = currentPipelineJob;
     if (job) {
-      pipelineCompletionAttemptRef.current = [
-        job.jobId,
-        ...records.map(
-          ({ candidateId, recordHash, answerRevision }) =>
-            `${candidateId ?? "local"}:${recordHash ?? "unsaved"}:${
-              answerRevision ?? 0
-            }`,
-        ),
-      ].join("|");
+      pipelineCompletionAttemptRef.current =
+        pipelineCompletionAttemptKey(job, records);
     }
     if (
       job?.reviewCompletionId &&
@@ -1560,6 +2042,9 @@ export function LabelingScreen({
         item.actualCandidate ? item.id.split(":").at(-1) ?? null : null,
       ),
       records,
+      ...(finalSurveyQaChoice
+        ? { finalQaChoice: finalSurveyQaChoice }
+        : {}),
     });
     if (!result.ok) {
       if (result.reason === "pipeline_not_waiting") {
@@ -1608,6 +2093,34 @@ export function LabelingScreen({
       return false;
     }
   }
+
+  useEffect(() => {
+    // A normal training/review queue has no extra confirmation action after
+    // the last saved answer. Promoted-model surveys remain separate because
+    // their immutable full-journey 2fps missed-scene QA is mandatory.
+    const job = currentPipelineJob;
+    if (
+      !queueComplete ||
+      promotedSurveyQaRequired ||
+      !job ||
+      job.status !== "awaiting_review" ||
+      pipelineCompletionState !== "idle" ||
+      history.length !== questions.length
+    ) {
+      return;
+    }
+    const attemptKey = pipelineCompletionAttemptKey(job, history);
+    if (pipelineCompletionAttemptRef.current === attemptKey) return;
+    pipelineCompletionAttemptRef.current = attemptKey;
+    void requestPipelineReviewCompletion(history);
+  }, [
+    currentPipelineJob,
+    history,
+    pipelineCompletionState,
+    promotedSurveyQaRequired,
+    questions.length,
+    queueComplete,
+  ]);
 
   async function appendRecord(
     answer: Answer,
@@ -1755,16 +2268,86 @@ export function LabelingScreen({
     }
   }
 
+  async function acceptStructuredLlmTrainingAssist() {
+    const summary = runtime.analysisSummary;
+    const service = window.trafficSuperVision?.candidateQuestions;
+    if (
+      !summary ||
+      !service ||
+      !candidateId ||
+      !serverQuestionId ||
+      !structuredLlmAssist
+    ) {
+      setAnswerError(
+        "현재 질문에는 검증된 Codex·Claude 학습 보조 제안이 없습니다.",
+      );
+      return;
+    }
+    setSavingAnswer(true);
+    setAnswerError(null);
+    try {
+      const response = await service.useStructuredLlmForTraining({
+        projectId: summary.projectId,
+        jobId: summary.jobId,
+        candidateId,
+        questionId: serverQuestionId,
+        userAuthorizedTraining: true,
+      });
+      const receipt = parseStructuredLlmAssistAnswerResponse(response, {
+        projectId: summary.projectId,
+        jobId: summary.jobId,
+        candidateId,
+        questionId: serverQuestionId,
+      });
+      const selectedType =
+        (structuredLlmAssist.selectedIssueType
+          ? incidentTypeFromApi(structuredLlmAssist.selectedIssueType)
+          : null) ?? question.typeCode;
+      const saved: ReviewRecord = {
+        question: questionIndex,
+        questionId: question.id,
+        candidateId,
+        answer: structuredLlmAssist.suggestedAnswer,
+        selectedType,
+        severity: severityFromApi(
+          structuredLlmAssist.recommendedSeverity,
+        ),
+        action: structuredLlmAssist.maintenanceAction ?? undefined,
+        ocrText: structuredLlmAssist.ocrText ?? undefined,
+        reviewedAt: receipt.answeredAt,
+        trainingStatus: receipt.partition,
+        recordId: receipt.recordId,
+        recordHash: receipt.recordHash,
+        answerRevision: receipt.answerRevision,
+        answeredBy: "structured_llm_assisted",
+        labelSource: "structured_llm_assisted",
+      };
+      setHistory((current) => recordsWithSavedAnswer(current, saved));
+      setStructuredLlmAssistsByCandidateId((current) => {
+        const next = { ...current };
+        delete next[candidateId];
+        return next;
+      });
+      goNext(saved);
+    } catch (error) {
+      setAnswerError(
+        error instanceof Error
+          ? error.message
+          : "LLM 제안을 학습 전용 라벨로 저장하지 못했습니다.",
+      );
+    } finally {
+      setSavingAnswer(false);
+    }
+  }
+
   function goNext(savedRecord: ReviewRecord) {
     const next = questionIndex + 1;
     if (next >= questions.length) {
-      const nextHistory = recordsWithSavedAnswer(history, savedRecord);
       setQueueComplete(true);
       setFollowup(false);
       setEditMode(false);
       setMaskRefinement(null);
       setMaskRefinementBusy(false);
-      void requestPipelineReviewCompletion(nextHistory);
       return;
     }
     setQuestionIndex(next);
@@ -2538,13 +3121,169 @@ export function LabelingScreen({
     </section>
   );
 
+  if (isProviderVisualPrivacyReviewInterruption(currentPipelineJob)) {
+    return (
+      <div className="screen screen--labeling screen--privacy-review">
+        <header className="screen-header">
+          <div>
+            <p className="eyebrow">자동 분석 중단점</p>
+            <h1>비식별 이미지 확인</h1>
+            <p>
+              Codex가 후보와 3·4분기 사례 이미지를 비교하기 전에
+              사용자 개인정보 검토가 한 번 필요합니다.
+            </p>
+          </div>
+          <LabelingMacroFlow
+            phase="analysis"
+            reviewed={completed}
+            total={questions.length}
+          />
+        </header>
+        <ProviderVisualEvidenceReview job={currentPipelineJob} />
+      </div>
+    );
+  }
+
   if (!question) {
+    if (
+      zeroCandidateSurvey &&
+      currentPipelineJob?.status === "awaiting_review"
+    ) {
+      const zeroSurveySubmitting =
+        pipelineCompletionState === "submitting" ||
+        pipelineCompletionState === "queued";
+      return (
+        <div className="screen screen--labeling">
+          <header className="screen-header">
+            <div>
+              <p className="eyebrow">승격 모델 0건 조사 QA</p>
+              <h1>전체 주행 누락 확인</h1>
+              <p>
+                승격 모델이 후보를 찾지 못했지만 아직 조사 완료가 아닙니다.
+                불변 2fps 전체 시간축을 확인해 누락 후보를 추가하거나 누락 없음을
+                확정하세요.
+              </p>
+            </div>
+            <LabelingMacroFlow phase="review" reviewed={0} total={0} />
+          </header>
+          {jobSwitcher}
+          <GlassPanel className="labeling-complete" role="status">
+            <Crosshair size={38} aria-hidden="true" />
+            <Badge tone="accent">후보 0건 · 최종 QA 대기</Badge>
+            <h2>검지 0건은 아직 성공으로 저장되지 않았습니다</h2>
+            <p>
+              전체 주행의 실제 2fps 프레임을 임의 시각에서 확인할 수 있습니다.
+              문제가 보이면 한 번 클릭해 사용자 필수 질문으로 추가되며, 승인
+              전에는 Annotation·Incident·학습 데이터·보고서 사실이 생기지 않습니다.
+            </p>
+            {pipelineCompletionState === "failed" ? (
+              <div className="inline-error labeling-complete__pipeline" role="alert">
+                <AlertTriangle size={17} aria-hidden="true" />
+                <span>
+                  {pipelineCompletionError ??
+                    "누락 없음 검토를 확정하지 못했습니다."}
+                </span>
+              </div>
+            ) : null}
+            <div className="labeling-complete__missed-qa-actions">
+              <Button
+                variant="primary"
+                disabled={zeroSurveySubmitting}
+                onClick={() => onNavigate("history")}
+              >
+                <Crosshair size={17} />
+                전체 주행 2fps 확인
+              </Button>
+              <Button
+                disabled={zeroSurveySubmitting}
+                onClick={() => {
+                  pipelineCompletionAttemptRef.current = null;
+                  void requestPipelineReviewCompletion([]);
+                }}
+              >
+                <ShieldCheck size={17} />
+                {zeroSurveySubmitting
+                  ? "결과 갱신 시작 중"
+                  : "누락 없음 · 검토 완료"}
+              </Button>
+            </div>
+          </GlassPanel>
+        </div>
+      );
+    }
+    const pipelinePreparing = Boolean(
+      currentPipelineJob &&
+        ["queued", "running", "cancelling"].includes(
+          currentPipelineJob.status,
+        ),
+    );
+    const pipelineInterrupted = Boolean(
+      currentPipelineJob &&
+        ["blocked", "failed", "cancelled"].includes(
+          currentPipelineJob.status,
+        ),
+    );
+    const pipelineAwaitingQueue =
+      currentPipelineJob?.status === "awaiting_review";
+    const zeroDetections =
+      currentPipelineJob?.status === "completed" &&
+      currentPipelineJob.outcomeCode === "zero_detections";
+    const unusableVisualEvidence =
+      currentPipelineJob?.status === "completed" &&
+      currentPipelineJob.outcomeCode === "unusable_visual_evidence";
+    const questionLoadFailed =
+      Boolean(jobListError) && !loadingJobs && completedJobs.length === 0;
+    const emptyTitle = loadingJobs
+      ? "질문 큐를 확인하고 있습니다"
+      : questionLoadFailed
+        ? "질문 큐를 불러오지 못했습니다"
+        : pipelinePreparing
+          ? "자동 질문을 준비하고 있습니다"
+          : pipelineAwaitingQueue
+            ? "준비된 질문 큐를 여는 중입니다"
+            : pipelineInterrupted
+              ? "자동 질문 준비가 중단되었습니다"
+              : unusableVisualEvidence
+                ? "도로 상태를 판정할 수 없는 영상입니다"
+                : zeroDetections
+                ? "검지 후보 0건으로 정상 완료했습니다"
+                : completedJobs.length
+                  ? "선택한 영상에 검토할 후보가 없습니다"
+                  : "영상 하나를 넣으면 질문 준비까지 자동으로 진행됩니다";
+    const emptyDescription = loadingJobs
+      ? "현재 프로젝트의 저장된 분석과 질문 기록을 확인하고 있습니다."
+      : questionLoadFailed
+        ? `${jobListError} 빈 질문 큐로 처리하지 않았습니다.`
+        : pipelinePreparing && currentPipelineJob
+          ? `${pipelineStageLabel(
+              currentPipelineJob.currentStage,
+            )} · ${currentPipelineJob.progressPercent}%입니다. 중간 분석 버튼을 누를 필요가 없습니다.`
+          : pipelineAwaitingQueue
+            ? "자동 분석은 끝났습니다. 질문 원장과 근거의 provenance를 확인한 뒤 바로 검토를 시작합니다."
+            : pipelineInterrupted && currentPipelineJob
+              ? `${pipelineStatusLabel(
+                  currentPipelineJob,
+                )} 상태입니다. 저장된 중단 지점에서 재개할 수 있습니다.`
+              : unusableVisualEvidence
+                ? "여러 후보 프레임에서 카메라 가림 또는 정보 부족이 지속됐습니다. 검지 0건이나 모델 실패로 처리하지 않았으며 질문·지도·CSV·HWPX 사실은 0건입니다. 재촬영 영상이나 다른 영상을 넣어 주세요."
+                : zeroDetections
+                ? "분석 실패나 모델 미설치가 아닙니다. 이 영상에서는 사용자에게 물을 후보가 생성되지 않았습니다."
+                : completedJobs.length
+                  ? "다른 저장 영상을 선택하거나 새 영상을 넣을 수 있습니다. 참고 이미지를 실제 작업 근거처럼 표시하지 않습니다."
+                  : "영상 권리 확인과 분석 시작만 승인하면 검지·병합·사례 검색을 거쳐 질문 큐가 자동으로 준비됩니다.";
+    const showAutoLabelingCommand =
+      completedJobs.length > 0 &&
+      !pipelinePreparing &&
+      !pipelineAwaitingQueue &&
+      !pipelineInterrupted &&
+      !unusableVisualEvidence;
+
     return (
       <div className="screen screen--labeling">
         <header className="screen-header">
           <div>
-            <p className="eyebrow">HUMAN-IN-THE-LOOP</p>
-            <h1>질문형 라벨링</h1>
+            <p className="eyebrow">사용자 최종 확인</p>
+            <h1>질문 검토</h1>
             <p>실제 분석 작업에서 생성된 후보만 프로젝트 라벨로 저장합니다.</p>
           </div>
           <LabelingMacroFlow
@@ -2554,34 +3293,81 @@ export function LabelingScreen({
           />
         </header>
         {jobSwitcher}
-        <GlassPanel className="label-empty-state">
-          <img
-            src={realTunnelEvidenceImage}
-            alt="업로드 영상에서 추출한 참고용 터널 진입 프레임"
-          />
-          <div>
-            <Badge tone="neutral">참고 이미지 · 라벨 큐 아님</Badge>
-            <h2>검토할 실제 분석 후보가 없습니다.</h2>
-            <p>
-              영상 가져오기에서 입력을 검증한 뒤 분석 화면에서 후보 추출을
-              완료하세요. 이 참고 이미지는 답변이나 학습 라벨로 저장되지 않습니다.
-            </p>
-            <div className="label-empty-steps" aria-label="라벨 큐 생성 순서">
-              <span>1. 영상 검증</span>
-              <span>2. 후보 추출</span>
-              <span>3. 질문 검토</span>
-            </div>
-            <div className="label-empty-actions">
+        <GlassPanel
+          className="analysis-empty"
+          role={questionLoadFailed ? "alert" : "status"}
+          aria-live="polite"
+        >
+          {loadingJobs || pipelinePreparing || pipelineAwaitingQueue ? (
+            <LoaderCircle className="spin" size={38} aria-hidden="true" />
+          ) : questionLoadFailed || pipelineInterrupted ? (
+            <AlertTriangle size={38} aria-hidden="true" />
+          ) : (
+            <ShieldCheck size={38} aria-hidden="true" />
+          )}
+          <Badge
+            tone={
+              questionLoadFailed
+                ? "danger"
+                : pipelineInterrupted
+                  ? "warning"
+                  : unusableVisualEvidence
+                    ? "warning"
+                    : zeroDetections
+                      ? "success"
+                    : loadingJobs || pipelinePreparing || pipelineAwaitingQueue
+                      ? "accent"
+                      : "neutral"
+            }
+          >
+            {loadingJobs
+              ? "저장 기록 확인 중"
+              : currentPipelineJob
+                ? pipelineStatusLabel(currentPipelineJob)
+                : completedJobs.length
+                  ? "실제 후보 0건"
+                  : "자동 질문 준비 전"}
+          </Badge>
+          <h2>{emptyTitle}</h2>
+          <p>{emptyDescription}</p>
+          <div className="label-empty-actions">
+            {questionLoadFailed || pipelineAwaitingQueue ? (
+              <Button
+                variant="primary"
+                onClick={() =>
+                  setProposalRefreshRevision((current) => current + 1)
+                }
+              >
+                다시 확인
+              </Button>
+            ) : pipelinePreparing ? (
+              <Button
+                variant="primary"
+                onClick={() => onNavigate("analysis")}
+              >
+                자동 분석 진행 보기
+              </Button>
+            ) : pipelineInterrupted ? (
               <Button variant="primary" onClick={() => onNavigate("import")}>
-                영상 가져오기
+                입력·재개 상태 보기
               </Button>
-              <Button onClick={() => onNavigate("analysis")}>
-                저장된 분석 열기
+            ) : loadingJobs ? null : (
+              <Button variant="primary" onClick={() => onNavigate("import")}>
+                {zeroDetections ||
+                unusableVisualEvidence ||
+                completedJobs.length
+                  ? "새 영상 넣기"
+                  : "영상 넣고 자동 점검"}
               </Button>
-            </div>
+            )}
+            {!loadingJobs && !pipelinePreparing ? (
+              <Button variant="ghost" onClick={() => onNavigate("home")}>
+                프로젝트 홈
+              </Button>
+            ) : null}
           </div>
         </GlassPanel>
-        {autoLabelingPanel}
+        {showAutoLabelingCommand ? autoLabelingPanel : null}
       </div>
     );
   }
@@ -2597,12 +3383,29 @@ export function LabelingScreen({
       <div className="screen screen--labeling">
         <header className="screen-header">
           <div>
-            <p className="eyebrow">HUMAN-IN-THE-LOOP</p>
-            <h1>질문형 라벨링</h1>
-            <p>현재 프로젝트의 질문 큐를 모두 검토했습니다.</p>
+            <p className="eyebrow">
+              {promotedSurveyQaRequired
+                ? "승격 모델 누락 QA"
+                : "사용자 최종 확인"}
+            </p>
+            <h1>질문 검토</h1>
+            <p>
+              {promotedSurveyQaRequired
+                ? "준비된 질문 답변은 저장됐습니다. 전체 주행을 한 번 확인한 뒤 결과 갱신을 확정합니다."
+                : "준비된 질문 답변이 서버에 저장됐습니다. 검토 완료를 확정하면 같은 PipelineJob에서 결과를 갱신합니다."}
+            </p>
           </div>
           <LabelingMacroFlow
-            phase="results"
+            phase={
+              currentPipelineJob?.status === "completed" ||
+              pipelineCompletionState === "submitting" ||
+              pipelineCompletionState === "queued" ||
+              ["queued", "running"].includes(
+                currentPipelineJob?.status ?? "",
+              )
+                ? "results"
+                : "review"
+            }
             reviewed={completed}
             total={questions.length}
             resultsReady={currentPipelineJob?.status === "completed"}
@@ -2612,11 +3415,12 @@ export function LabelingScreen({
         {!currentPipelineJob ? autoLabelingPanel : null}
         <GlassPanel className="labeling-complete" role="status">
           <Check size={38} />
-          <Badge tone="success">로컬 검토 기록 저장됨</Badge>
-          <h2>{questions.length}개 질문 검토 완료</h2>
+          <Badge tone="success">서버 답변 원장 저장됨</Badge>
+          <h2>{questions.length}개 질문 답변 저장</h2>
           <p>
-            승인·거절·보류·수정 결과가 이 기기의 프로젝트 검토 기록에 보존됐습니다.
-            모델 재학습은 자동으로 시작되지 않습니다.
+            {promotedSurveyQaRequired
+              ? "아직 Incident·학습 데이터·보고서 사실을 확정하지 않았습니다. 전체 주행 2fps QA에서 모델이 놓친 장면을 추가하거나, 누락이 없음을 확인해야 자동 결과 갱신을 시작합니다."
+              : "아직 Incident·학습 데이터·보고서 사실을 확정하지 않았습니다. 현재 질문 원장을 서버에서 다시 검증한 뒤 자동 결과 갱신을 시작합니다."}
           </p>
           {currentPipelineJob?.status === "completed" ? (
             <p className="labeling-complete__pipeline">
@@ -2652,6 +3456,37 @@ export function LabelingScreen({
               이 검토는 이전 분석 기록을 수동으로 연 것이므로 자동 PipelineJob
               결과에는 연결하지 않았습니다.
             </p>
+          ) : null}
+          {currentPipelineJob?.status === "awaiting_review" &&
+          pipelineCompletionState !== "submitting" &&
+          pipelineCompletionState !== "queued" ? (
+            <div className="labeling-complete__missed-qa-actions">
+              {promotedSurveyQaRequired ? (
+                <Button
+                  variant="primary"
+                  onClick={() => onNavigate("history")}
+                >
+                  <Crosshair size={17} />
+                  모델 누락 장면 확인
+                </Button>
+              ) : null}
+              <Button
+                variant={
+                  promotedSurveyQaRequired ? undefined : "primary"
+                }
+                onClick={() => {
+                  pipelineCompletionAttemptRef.current = null;
+                  void requestPipelineReviewCompletion(history);
+                }}
+              >
+                <ShieldCheck size={17} />
+                {promotedSurveyQaRequired
+                  ? userDiscoveredCandidateCount > 0
+                    ? "누락 후보 검토 완료"
+                    : "누락 없음 · 검토 완료"
+                  : "검토 완료 · 결과 갱신"}
+              </Button>
+            </div>
           ) : null}
           <div>
             <Button
@@ -2689,8 +3524,8 @@ export function LabelingScreen({
     <div className="screen screen--labeling">
       <header className="screen-header">
         <div>
-          <p className="eyebrow">HUMAN-IN-THE-LOOP</p>
-          <h1>질문형 라벨링</h1>
+          <p className="eyebrow">사용자 최종 확인</p>
+          <h1>질문 검토</h1>
           <p>
             {currentPipelineJob
               ? "자동 분석이 끝났습니다. 준비된 질문에만 답하면 결과가 자동 갱신됩니다."
@@ -3219,24 +4054,67 @@ export function LabelingScreen({
                           {selectedWeakCase.cellColumn ?? "—"}
                         </small>
                       </span>
-                      <p>
+                      <p
+                        title={
+                          selectedWeakCase.opinion ??
+                          selectedWeakCase.evaluation ??
+                          selectedWeakCase.caption ??
+                          selectedWeakCase.location ??
+                          "확인 가능한 주변 문구가 없습니다."
+                        }
+                      >
                         {selectedWeakCase.opinion ??
                           selectedWeakCase.evaluation ??
                           selectedWeakCase.caption ??
                           selectedWeakCase.location ??
                           "확인 가능한 주변 문구가 없습니다."}
                       </p>
-                      <span
-                        className={`weak-case-reference__approval${
-                          selectedWeakCase.approvedReference
-                            ? " weak-case-reference__approval--approved"
-                            : ""
-                        }`}
-                      >
-                        {selectedWeakCase.approvedReference
-                          ? "사용자 승인 사례"
-                          : "확정 아님 · 참고용"}
-                      </span>
+                      {selectedWeakCase.approvedReference ? (
+                        <span className="weak-case-reference__approval weak-case-reference__approval--approved">
+                          사용자 승인 사례
+                        </span>
+                      ) : (
+                        <span className="weak-case-reference__actions">
+                        <button
+                          type="button"
+                          className="weak-case-reference__approval"
+                          onClick={() =>
+                            void approveSelectedWeakCaseReference()
+                          }
+                          disabled={
+                            weakCaseApprovalState.caseId ===
+                              selectedWeakCase.caseId &&
+                            weakCaseApprovalState.status === "saving"
+                          }
+                          title={
+                            weakCaseApprovalState.caseId ===
+                              selectedWeakCase.caseId &&
+                            weakCaseApprovalState.message
+                              ? weakCaseApprovalState.message
+                              : `${question?.displayName ?? typeCode} · ${maintenanceActionForType(typeCode)}로 승인`
+                          }
+                        >
+                          {weakCaseApprovalState.caseId ===
+                            selectedWeakCase.caseId &&
+                          weakCaseApprovalState.status === "saving"
+                            ? "승인 확인 중"
+                            : weakCaseApprovalState.caseId ===
+                                  selectedWeakCase.caseId &&
+                                weakCaseApprovalState.status === "failed"
+                              ? "승인 실패 · 다시 시도"
+                              : "이 유형으로 사례 승인"}
+                        </button>
+                        <button
+                          type="button"
+                          className="weak-case-reference__standardize"
+                          onClick={() =>
+                            void openWeakCaseStandardization()
+                          }
+                        >
+                          LLM 표준화 제안
+                        </button>
+                        </span>
+                      )}
                     </div>
                   ) : null}
                 </>
@@ -3257,21 +4135,18 @@ export function LabelingScreen({
                 </div>
               )}
             </section>
-            {temporalReview.warning ? (
+            {temporalReview.warning || proposalWarning ? (
               <div className="notice notice--warning proposal-load-warning" role="status">
                 <CircleHelp size={17} />
                 <div>
-                  <strong>기존 질문 순서를 유지합니다.</strong>
-                  <p>{temporalReview.warning}</p>
-                </div>
-              </div>
-            ) : null}
-            {proposalWarning ? (
-              <div className="notice notice--warning proposal-load-warning" role="status">
-                <CircleHelp size={17} />
-                <div>
-                  <strong>일부 실험 제안을 안전하게 제외했습니다.</strong>
-                  <p>{proposalWarning}</p>
+                  <strong>
+                    {temporalReview.warning
+                      ? "기존 질문 순서를 유지합니다."
+                      : "일부 실험 제안을 안전하게 제외했습니다."}
+                  </strong>
+                  <p title={temporalReview.warning ?? proposalWarning ?? undefined}>
+                    {temporalReview.warning ?? proposalWarning}
+                  </p>
                 </div>
               </div>
             ) : null}
@@ -3305,6 +4180,42 @@ export function LabelingScreen({
                     ? " · AI 제안에서 변경됨"
                     : " · 아직 저장되지 않음"}
                 </p>
+              </section>
+            ) : null}
+            {structuredLlmAssist ? (
+              <section
+                className="experimental-proposal structured-llm-assist"
+                role="note"
+              >
+                <div className="experimental-proposal__heading">
+                  <Sparkles size={15} aria-hidden="true" />
+                  <strong>
+                    {structuredLlmAssist.provider === "codex"
+                      ? "Codex"
+                      : "Claude"}{" "}
+                    비교 판정
+                  </strong>
+                  <span>학습 전용</span>
+                </div>
+                <p title={structuredLlmAssist.rationale}>
+                  {structuredLlmAssist.rationale}
+                </p>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() =>
+                    void acceptStructuredLlmTrainingAssist()
+                  }
+                  disabled={savingAnswer}
+                >
+                  {savingAnswer
+                    ? "학습 라벨 저장 중"
+                    : "이 제안을 학습용으로 채택"}
+                </Button>
+                <small>
+                  Incident·유지보수·지도·보고서 확정값은 만들지 않습니다.
+                  나중에 사람이 답하면 새 확정 리비전으로 승격됩니다.
+                </small>
               </section>
             ) : null}
             {answerError ? (
@@ -3507,7 +4418,7 @@ export function LabelingScreen({
               </div>
             ) : null}
 
-            <div className="explanation">
+            <div className="explanation" title={stageText}>
               <CircleHelp size={18} />
               <p>{stageText}</p>
             </div>
@@ -3525,7 +4436,7 @@ export function LabelingScreen({
           </GlassPanel>
 
           <GlassPanel className="label-progress">
-            <PanelHeader eyebrow="QUALITY GATE" title="유형별 초기 30건" />
+            <PanelHeader eyebrow="품질 기준" title="유형별 초기 30건" />
             <div className="progress-summary">
               <span>분류 모델 일치율</span>
               <strong>미산출</strong>
@@ -3553,6 +4464,58 @@ export function LabelingScreen({
           </GlassPanel>
         </div>
       </div>
+      {weakCaseStandardization.open && standardizationReference ? (
+        <WeakCaseStandardizationDialog
+          reference={standardizationReference}
+          state={weakCaseStandardization}
+          approvalSaving={
+            weakCaseApprovalState.caseId ===
+              standardizationReference.caseId &&
+            weakCaseApprovalState.status === "saving"
+          }
+          onClose={() =>
+            setWeakCaseStandardization((current) => ({
+              ...current,
+              open: false,
+              metadataConsent: false,
+            }))
+          }
+          onProviderChange={(provider) =>
+            setWeakCaseStandardization((current) => ({
+              ...current,
+              provider,
+              metadataConsent: false,
+              status: "ready",
+              message:
+                "선택한 공식 CLI의 상태와 전송 범위를 확인해 주세요.",
+            }))
+          }
+          onMetadataConsentChange={(metadataConsent) =>
+            setWeakCaseStandardization((current) => ({
+              ...current,
+              metadataConsent,
+              ...(current.status === "failed"
+                ? { status: "ready" as const, message: null }
+                : {}),
+            }))
+          }
+          onDuplicateImageConfirmedChange={(
+            duplicateImageConfirmed,
+          ) =>
+            setWeakCaseStandardization((current) => ({
+              ...current,
+              duplicateImageConfirmed,
+              ...(current.status === "failed"
+                ? { status: "ready" as const, message: null }
+                : {}),
+            }))
+          }
+          onRequest={() => void requestWeakCaseStandardization()}
+          onApprove={() =>
+            void approveWeakCaseStandardizationProposal()
+          }
+        />
+      ) : null}
     </div>
   );
 }

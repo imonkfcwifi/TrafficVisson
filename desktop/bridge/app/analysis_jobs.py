@@ -13,7 +13,7 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Mapping, Optional
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException
@@ -43,6 +43,16 @@ MAX_QUEUED_ANALYSIS_JOBS = 16
 MAX_PERSISTED_JOB_RECORD_BYTES = 16 * 1024 * 1024
 MAX_PERSISTED_CANDIDATES = 2_000
 PERSISTED_JOB_SCHEMA = "trafficvisson.analysis-job.v1"
+ANALYSIS_ARTIFACT_LOCATOR_SCHEMA = (
+    "trafficvisson.analysis-artifact-locator.v1"
+)
+ANALYSIS_ARTIFACT_MANIFEST_SCHEMA = (
+    "trafficvisson.analysis-artifact-manifest.v1"
+)
+PROJECT_ARTIFACT_JOB_BINDING_SCHEMA = (
+    "trafficvisson.project-artifact-root-job-binding.v1"
+)
+ANALYSIS_ARTIFACT_CATEGORY = "analysis-candidates"
 _ACTIVE_STATES = frozenset({"queued", "running", "cancelling"})
 _TERMINAL_STATES = frozenset({"completed", "cancelled", "failed"})
 _CANDIDATE_ID_PATTERN = re.compile(r"^[a-f0-9]{20}$")
@@ -71,6 +81,19 @@ class AnalysisJobRecord:
     updated_at: datetime
     cancel_event: threading.Event
     artifact_directory: Optional[Path]
+    artifact_locator: Optional[Dict[str, Any]] = None
+
+
+@dataclass(frozen=True)
+class ResolvedAnalysisArtifactRoot:
+    """Server-only category-root resolution.
+
+    ``binding`` is the path-free ProjectArtifactRoot job binding.  The
+    absolute ``root`` must never cross the bridge JSON boundary.
+    """
+
+    root: Path
+    binding: Mapping[str, Any]
 
 
 @dataclass(frozen=True)
@@ -84,6 +107,46 @@ class ResolvedAnalysisArtifact:
     media_type: str
     size_bytes: int
     sha256: str
+
+
+@dataclass(frozen=True)
+class ResolvedAnalysisCandidateImage:
+    """One re-verified candidate image for bridge-internal model inference."""
+
+    candidate_id: str
+    path: Path
+    media_type: str
+    size_bytes: int
+    sha256: str
+
+    def inference_candidate(self) -> Dict:
+        """Rebuild the bounded metadata contract expected by local inference.
+
+        The absolute ``path`` remains on this non-serializable bridge-internal
+        handle.  The worker receives it only after ``infer_candidates`` repeats
+        containment and SHA-256 verification below ``run_directory``.
+        """
+
+        return {
+            "candidate_id": self.candidate_id,
+            "representative_image": {
+                "relative_path": self.path.name,
+                "media_type": self.media_type,
+                "size_bytes": self.size_bytes,
+                "sha256": self.sha256,
+            },
+        }
+
+
+@dataclass(frozen=True)
+class ResolvedAnalysisCandidateImageBatch:
+    """A same-run image batch that must never cross the JSON/API boundary."""
+
+    run_directory: Path
+    images: tuple[ResolvedAnalysisCandidateImage, ...]
+
+    def inference_candidates(self) -> tuple[Dict, ...]:
+        return tuple(image.inference_candidate() for image in self.images)
 
 
 def _utc_now() -> datetime:
@@ -120,6 +183,159 @@ def _is_reparse_point(path: Path) -> bool:
     return bool(attributes & flag)
 
 
+def _canonical_json_bytes(value: object) -> bytes:
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        allow_nan=False,
+        separators=(",", ":"),
+        sort_keys=True,
+        default=_json_default,
+    ).encode("utf-8")
+
+
+def _normalize_artifact_root_binding(
+    project_id: UUID,
+    binding: Mapping[str, Any],
+) -> Dict[str, Any]:
+    """Validate the exact path-free binding created by the server registry."""
+
+    expected_keys = {
+        "schema_version",
+        "project_id",
+        "profile_revision",
+        "output_location_id",
+        "registry_revision",
+        "root_identity_sha256",
+        "marker_sha256",
+        "configured_free_bytes",
+        "configured_at",
+        "job_start_free_bytes",
+        "job_start_at",
+        "path_exposed",
+    }
+    if not isinstance(binding, Mapping) or set(binding) != expected_keys:
+        raise CandidateExtractionError(
+            "The analysis artifact-root binding is invalid"
+        )
+    normalized = dict(binding)
+    if (
+        normalized.get("schema_version")
+        != PROJECT_ARTIFACT_JOB_BINDING_SCHEMA
+        or normalized.get("project_id") != str(project_id)
+        or normalized.get("path_exposed") is not False
+        or not isinstance(normalized.get("profile_revision"), int)
+        or isinstance(normalized.get("profile_revision"), bool)
+        or normalized["profile_revision"] < 1
+        or not isinstance(normalized.get("registry_revision"), int)
+        or isinstance(normalized.get("registry_revision"), bool)
+        or normalized["registry_revision"] < 1
+        or not isinstance(normalized.get("output_location_id"), str)
+        or re.fullmatch(
+            r"(?:project-default|project-output-[a-f0-9]{32})",
+            normalized["output_location_id"],
+        )
+        is None
+        or not isinstance(normalized.get("root_identity_sha256"), str)
+        or _SHA256_PATTERN.fullmatch(
+            normalized["root_identity_sha256"]
+        )
+        is None
+        or not isinstance(normalized.get("marker_sha256"), str)
+        or _SHA256_PATTERN.fullmatch(normalized["marker_sha256"]) is None
+    ):
+        raise CandidateExtractionError(
+            "The analysis artifact-root binding is invalid"
+        )
+    for field in (
+        "configured_free_bytes",
+        "job_start_free_bytes",
+    ):
+        value = normalized.get(field)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise CandidateExtractionError(
+                "The analysis artifact-root binding is invalid"
+            )
+    for field in ("configured_at", "job_start_at"):
+        try:
+            _parse_utc_datetime(normalized.get(field))
+        except (TypeError, ValueError) as error:
+            raise CandidateExtractionError(
+                "The analysis artifact-root binding is invalid"
+            ) from error
+    try:
+        encoded = _canonical_json_bytes(normalized)
+    except (TypeError, ValueError) as error:
+        raise CandidateExtractionError(
+            "The analysis artifact-root binding is invalid"
+        ) from error
+    if len(encoded) > 64 * 1024:
+        raise CandidateExtractionError(
+            "The analysis artifact-root binding is too large"
+        )
+    return normalized
+
+
+def _artifact_category_identity(
+    root: Path,
+    *,
+    project_id: UUID,
+    owner_id: UUID,
+    binding: Mapping[str, Any],
+) -> str:
+    return hashlib.sha256(
+        _canonical_json_bytes(
+            {
+                "category": ANALYSIS_ARTIFACT_CATEGORY,
+                "normalized_root": os.path.normcase(str(root)),
+                "owner_id": str(owner_id),
+                "project_id": str(project_id),
+                "root_identity_sha256": binding[
+                    "root_identity_sha256"
+                ],
+            }
+        )
+    ).hexdigest()
+
+
+def _validated_external_category_root(path: Path) -> Path:
+    candidate = Path(path)
+    if not candidate.is_absolute():
+        raise CandidateExtractionError(
+            "The analysis artifact category root is not absolute"
+        )
+    try:
+        resolved = candidate.resolve(strict=True)
+    except OSError as error:
+        raise CandidateExtractionError(
+            "The analysis artifact category root is unavailable"
+        ) from error
+    if (
+        candidate.is_symlink()
+        or _is_reparse_point(candidate)
+        or not resolved.is_dir()
+        or resolved.name != ANALYSIS_ARTIFACT_CATEGORY
+    ):
+        raise CandidateExtractionError(
+            "The analysis artifact category root is unsafe"
+        )
+    current = resolved
+    for _ in range(128):
+        if current.is_symlink() or _is_reparse_point(current):
+            raise CandidateExtractionError(
+                "The analysis artifact category root contains a linked directory"
+            )
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+    else:
+        raise CandidateExtractionError(
+            "The analysis artifact category root is too deep"
+        )
+    return resolved
+
+
 class AnalysisJobService:
     """Runs at most one candidate extractor against bridge-resolved media."""
 
@@ -132,6 +348,17 @@ class AnalysisJobService:
         ffprobe_path: Optional[str] = None,
         extraction_limits: Optional[ExtractionLimits] = None,
         vision_inference: Optional[LocalVisionInferenceService] = None,
+        artifact_root_resolver: Optional[
+            Callable[
+                [
+                    UUID,
+                    UUID,
+                    str,
+                    Optional[Mapping[str, Any]],
+                ],
+                ResolvedAnalysisArtifactRoot,
+            ]
+        ] = None,
     ) -> None:
         root = Path(data_root)
         if not root.is_absolute():
@@ -155,6 +382,7 @@ class AnalysisJobService:
         self._vision_inference = vision_inference or LocalVisionInferenceService(
             model_pack_path=None
         )
+        self._artifact_root_resolver = artifact_root_resolver
         self._jobs: "OrderedDict[UUID, AnalysisJobRecord]" = OrderedDict()
         self._queue: "queue.Queue[Optional[UUID]]" = queue.Queue(
             maxsize=MAX_QUEUED_ANALYSIS_JOBS
@@ -171,15 +399,29 @@ class AnalysisJobService:
         file_name: str,
         hash_job_id: UUID,
         sha256_lower: str,
+        *,
+        artifact_root_binding: Optional[Mapping[str, Any]] = None,
+        artifact_root_owner_id: Optional[UUID] = None,
     ) -> Dict:
         # This is the only source-path resolution point.  The request contains
         # opaque identities and a digest, never a filesystem path.
+        # ``artifact_root_binding`` and ``artifact_root_owner_id`` are
+        # bridge-internal only.  For a PipelineJob, the owner is the durable
+        # PipelineJob UUID, not this AnalysisJob UUID; the renderer has no
+        # contract field through which it can inject either a path or binding.
         grant = self._media_intake.resolve_completed_media(
             project_id,
             snapshot_id,
             file_name,
             hash_job_id,
             sha256_lower,
+        )
+        job_id = uuid4()
+        artifact_locator = self._capture_artifact_locator(
+            project_id,
+            job_id,
+            artifact_root_binding,
+            artifact_root_owner_id,
         )
         with self._lock:
             if self._stop_event.is_set():
@@ -209,7 +451,7 @@ class AnalysisJobService:
                 )
             now = _utc_now()
             job = AnalysisJobRecord(
-                job_id=uuid4(),
+                job_id=job_id,
                 grant=grant,
                 status="queued",
                 stage="queued",
@@ -219,6 +461,7 @@ class AnalysisJobService:
                 updated_at=now,
                 cancel_event=threading.Event(),
                 artifact_directory=None,
+                artifact_locator=artifact_locator,
             )
             self._jobs[job.job_id] = job
             self._ensure_worker_locked()
@@ -246,6 +489,41 @@ class AnalysisJobService:
                 if job.grant.project_id == project_id
             ]
         return jobs[:limit]
+
+    def find_for_artifact_owner(
+        self,
+        project_id: UUID,
+        artifact_root_owner_id: UUID,
+        *,
+        snapshot_id: UUID,
+        file_name: str,
+        source_sha256: str,
+    ) -> Optional[Dict]:
+        """Resolve an AnalysisJob owned by one exact PipelineJob."""
+
+        if not isinstance(artifact_root_owner_id, UUID):
+            raise ValueError("analysis artifact owner is invalid")
+        with self._lock:
+            for job in reversed(tuple(self._jobs.values())):
+                locator = job.artifact_locator
+                if (
+                    job.grant.project_id == project_id
+                    and job.grant.snapshot_id == snapshot_id
+                    and job.grant.file_name == file_name
+                    and job.grant.sha256_lower == source_sha256
+                    and job.status
+                    in {
+                        "queued",
+                        "running",
+                        "cancelling",
+                        "completed",
+                    }
+                    and isinstance(locator, Mapping)
+                    and locator.get("artifact_owner_id")
+                    == str(artifact_root_owner_id)
+                ):
+                    return self._serialize(job)
+        return None
 
     def latest_completed(self, project_id: UUID) -> Optional[Dict]:
         """Return the newest completed result for one project without paths."""
@@ -379,6 +657,8 @@ class AnalysisJobService:
             metadata_key, expected_media_type, expected_suffix = kind_contract
             metadata = candidate.get(metadata_key)
             artifact_directory = job.artifact_directory
+            artifact_locator = job.artifact_locator
+            result_snapshot = job.result
 
         if not isinstance(metadata, dict):
             raise HTTPException(
@@ -406,7 +686,11 @@ class AnalysisJobService:
             )
 
         try:
-            output_root = self._project_output_root(project_id)
+            output_root = self._resolve_artifact_category_root(
+                project_id,
+                job_id,
+                artifact_locator,
+            )
             verified_root = artifact_directory.resolve(strict=True)
             candidate_path = verified_root / relative_path
             verified_path = candidate_path.resolve(strict=True)
@@ -416,6 +700,24 @@ class AnalysisJobService:
                 status_code=410,
                 detail="The candidate evidence artifact is no longer available",
             ) from error
+        if artifact_locator is not None:
+            try:
+                self._verify_external_artifact_manifest(
+                    project_id=project_id,
+                    job_id=job_id,
+                    source_sha256=job.grant.sha256_lower,
+                    result=result_snapshot,
+                    artifact_directory=artifact_directory,
+                    locator=artifact_locator,
+                )
+            except (CandidateExtractionError, ValueError) as error:
+                raise HTTPException(
+                    status_code=410,
+                    detail=(
+                        "The candidate evidence artifact manifest failed "
+                        "integrity verification"
+                    ),
+                ) from error
         if (
             verified_root.parent != output_root
             or artifact_directory.is_symlink()
@@ -463,6 +765,77 @@ class AnalysisJobService:
             media_type=expected_media_type,
             size_bytes=size_bytes,
             sha256=sha256_lower,
+        )
+
+    def resolve_candidate_image_batch(
+        self,
+        project_id: UUID,
+        job_id: UUID,
+        candidate_ids: Sequence[str],
+    ) -> ResolvedAnalysisCandidateImageBatch:
+        """Resolve a bounded candidate batch without serializing local paths.
+
+        Each image goes through ``resolve_artifact`` so root containment,
+        reparse-point rejection, magic-byte inspection, size checking and a
+        fresh SHA-256 are all repeated immediately before local OCR inference.
+        """
+
+        if (
+            isinstance(candidate_ids, (str, bytes))
+            or not isinstance(candidate_ids, Sequence)
+            or not 1 <= len(candidate_ids) <= 512
+        ):
+            raise HTTPException(
+                status_code=404,
+                detail="The candidate image batch was not found",
+            )
+        ordered_ids: list[str] = []
+        for candidate_id in candidate_ids:
+            if (
+                not isinstance(candidate_id, str)
+                or not _CANDIDATE_ID_PATTERN.fullmatch(candidate_id)
+                or candidate_id in ordered_ids
+            ):
+                raise HTTPException(
+                    status_code=404,
+                    detail="The candidate image batch was not found",
+                )
+            ordered_ids.append(candidate_id)
+
+        images: list[ResolvedAnalysisCandidateImage] = []
+        run_directory: Optional[Path] = None
+        for candidate_id in ordered_ids:
+            artifact = self.resolve_artifact(
+                project_id,
+                job_id,
+                candidate_id,
+                "image",
+            )
+            parent = artifact.path.parent
+            if run_directory is None:
+                run_directory = parent
+            elif parent != run_directory:
+                raise HTTPException(
+                    status_code=410,
+                    detail="The candidate image batch is no longer valid",
+                )
+            images.append(
+                ResolvedAnalysisCandidateImage(
+                    candidate_id=candidate_id,
+                    path=artifact.path,
+                    media_type=artifact.media_type,
+                    size_bytes=artifact.size_bytes,
+                    sha256=artifact.sha256,
+                )
+            )
+        if run_directory is None:
+            raise HTTPException(
+                status_code=404,
+                detail="The candidate image batch was not found",
+            )
+        return ResolvedAnalysisCandidateImageBatch(
+            run_directory=run_directory,
+            images=tuple(images),
         )
 
     def shutdown(self) -> None:
@@ -535,7 +908,11 @@ class AnalysisJobService:
                 raise CandidateExtractionCancelled(
                     "Candidate extraction was cancelled"
                 )
-            output_root = self._project_output_root(grant.project_id)
+            output_root = self._resolve_artifact_category_root(
+                grant.project_id,
+                job.job_id,
+                job.artifact_locator,
+            )
             with self._lock:
                 if job.status == "running":
                     job.stage = "extracting_candidates"
@@ -569,6 +946,11 @@ class AnalysisJobService:
                     candidate["candidate_id"]
                 ]
             sanitized["vision_inference"] = inference_summary
+            completed_locator = self._finalize_external_artifact_manifest(
+                job,
+                sanitized,
+                artifact_directory,
+            )
             with self._lock:
                 current = self._jobs.get(job.job_id)
                 if current is None:
@@ -585,11 +967,13 @@ class AnalysisJobService:
                         sanitized,
                         artifact_directory,
                         completed_at,
+                        completed_locator,
                     )
                     current.status = "completed"
                     current.stage = "completed"
                     current.result = sanitized
                     current.artifact_directory = artifact_directory
+                    current.artifact_locator = completed_locator
                     current.updated_at = completed_at
                 if current.status == "cancelled":
                     current.updated_at = _utc_now()
@@ -621,6 +1005,459 @@ class AnalysisJobService:
             job.result = None
             job.artifact_directory = None
             job.updated_at = _utc_now()
+
+    def _finalize_external_artifact_manifest(
+        self,
+        job: AnalysisJobRecord,
+        result: Mapping[str, Any],
+        artifact_directory: Path,
+    ) -> Optional[Dict[str, Any]]:
+        if job.artifact_locator is None:
+            return None
+        locator = self._validate_artifact_locator(
+            job.grant.project_id,
+            job.job_id,
+            job.artifact_locator,
+            require_manifest=False,
+        )
+        files: list[dict[str, Any]] = []
+        declared_names: set[str] = set()
+        for candidate in result.get("candidates", ()):
+            for metadata_key, media_type, _suffix in _ARTIFACT_KINDS.values():
+                artifact = candidate.get(metadata_key)
+                if not isinstance(artifact, Mapping):
+                    raise CandidateExtractionError(
+                        "The analysis artifact manifest input is invalid"
+                    )
+                relative_path = artifact.get("relative_path")
+                if (
+                    not isinstance(relative_path, str)
+                    or relative_path in declared_names
+                ):
+                    raise CandidateExtractionError(
+                        "The analysis artifact manifest input is invalid"
+                    )
+                declared_names.add(relative_path)
+                files.append(
+                    {
+                        "path": relative_path,
+                        "media_type": media_type,
+                        "size_bytes": artifact["size_bytes"],
+                        "sha256": artifact["sha256"],
+                    }
+                )
+        actual_names = {
+            path.name
+            for path in artifact_directory.iterdir()
+            if path.is_file()
+        }
+        if actual_names != declared_names:
+            raise CandidateExtractionError(
+                "The analysis artifact directory contains undeclared files"
+            )
+        manifest = {
+            "schema_version": ANALYSIS_ARTIFACT_MANIFEST_SCHEMA,
+            "project_id": str(job.grant.project_id),
+            "analysis_job_id": str(job.job_id),
+            "artifact_owner_id": locator["artifact_owner_id"],
+            "source_sha256": job.grant.sha256_lower,
+            "category": ANALYSIS_ARTIFACT_CATEGORY,
+            "output_location_id": locator["output_location_id"],
+            "root_identity_sha256": locator[
+                "root_identity_sha256"
+            ],
+            "root_binding_sha256": locator["root_binding_sha256"],
+            "category_root_identity_sha256": locator[
+                "category_root_identity_sha256"
+            ],
+            "run_directory_name": artifact_directory.name,
+            "result_sha256": hashlib.sha256(
+                _canonical_json_bytes(result)
+            ).hexdigest(),
+            "files": files,
+            "artifact_file_count": len(files),
+            "artifact_total_size_bytes": sum(
+                int(item["size_bytes"]) for item in files
+            ),
+        }
+        encoded = _canonical_json_bytes(manifest)
+        temporary = artifact_directory / (
+            f".artifact-manifest.{uuid4().hex}.tmp"
+        )
+        final = artifact_directory / "artifact-manifest.json"
+        try:
+            with temporary.open("xb") as stream:
+                stream.write(encoded)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, final)
+        except OSError as error:
+            raise CandidateExtractionError(
+                "The analysis artifact manifest could not be persisted"
+            ) from error
+        finally:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+        return {
+            **locator,
+            "run_directory_name": artifact_directory.name,
+            "artifact_manifest_sha256": hashlib.sha256(encoded).hexdigest(),
+        }
+
+    def _verify_external_artifact_manifest(
+        self,
+        *,
+        project_id: UUID,
+        job_id: UUID,
+        source_sha256: str,
+        result: Mapping[str, Any],
+        artifact_directory: Path,
+        locator: Mapping[str, Any],
+    ) -> None:
+        validated = self._validate_artifact_locator(
+            project_id,
+            job_id,
+            locator,
+            require_manifest=True,
+        )
+        manifest_path = artifact_directory / "artifact-manifest.json"
+        if (
+            not manifest_path.is_file()
+            or manifest_path.is_symlink()
+            or _is_reparse_point(manifest_path)
+            or manifest_path.stat().st_size <= 0
+            or manifest_path.stat().st_size > 4 * 1024 * 1024
+        ):
+            raise CandidateExtractionError(
+                "The analysis artifact manifest is unavailable"
+            )
+        encoded = manifest_path.read_bytes()
+        if hashlib.sha256(encoded).hexdigest() != validated[
+            "artifact_manifest_sha256"
+        ]:
+            raise CandidateExtractionError(
+                "The analysis artifact manifest hash changed"
+            )
+        try:
+            manifest = json.loads(
+                encoded.decode("utf-8", errors="strict")
+            )
+        except (UnicodeError, ValueError) as error:
+            raise CandidateExtractionError(
+                "The analysis artifact manifest is invalid"
+            ) from error
+        expected_files: list[dict[str, Any]] = []
+        for candidate in result.get("candidates", ()):
+            for metadata_key, media_type, _suffix in _ARTIFACT_KINDS.values():
+                artifact = candidate.get(metadata_key)
+                if not isinstance(artifact, Mapping):
+                    raise CandidateExtractionError(
+                        "The analysis result artifact is invalid"
+                    )
+                expected_files.append(
+                    {
+                        "path": artifact.get("relative_path"),
+                        "media_type": media_type,
+                        "size_bytes": artifact.get("size_bytes"),
+                        "sha256": artifact.get("sha256"),
+                    }
+                )
+        if (
+            not isinstance(manifest, Mapping)
+            or manifest.get("schema_version")
+            != ANALYSIS_ARTIFACT_MANIFEST_SCHEMA
+            or manifest.get("project_id") != str(project_id)
+            or manifest.get("analysis_job_id") != str(job_id)
+            or manifest.get("artifact_owner_id")
+            != validated["artifact_owner_id"]
+            or manifest.get("source_sha256") != source_sha256
+            or manifest.get("category") != ANALYSIS_ARTIFACT_CATEGORY
+            or manifest.get("output_location_id")
+            != validated["output_location_id"]
+            or manifest.get("root_identity_sha256")
+            != validated["root_identity_sha256"]
+            or manifest.get("root_binding_sha256")
+            != validated["root_binding_sha256"]
+            or manifest.get("category_root_identity_sha256")
+            != validated["category_root_identity_sha256"]
+            or manifest.get("run_directory_name")
+            != artifact_directory.name
+            or manifest.get("result_sha256")
+            != hashlib.sha256(_canonical_json_bytes(result)).hexdigest()
+            or manifest.get("files") != expected_files
+            or manifest.get("artifact_file_count") != len(expected_files)
+            or manifest.get("artifact_total_size_bytes")
+            != sum(int(item["size_bytes"]) for item in expected_files)
+        ):
+            raise CandidateExtractionError(
+                "The analysis artifact manifest identity changed"
+            )
+        actual_names = {
+            path.name
+            for path in artifact_directory.iterdir()
+            if path.is_file()
+        }
+        if actual_names != {
+            *(str(item["path"]) for item in expected_files),
+            "artifact-manifest.json",
+        }:
+            raise CandidateExtractionError(
+                "The analysis artifact directory contains undeclared files"
+            )
+
+    def _capture_artifact_locator(
+        self,
+        project_id: UUID,
+        job_id: UUID,
+        root_binding: Optional[Mapping[str, Any]],
+        artifact_root_owner_id: Optional[UUID],
+    ) -> Optional[Dict[str, Any]]:
+        resolver = self._artifact_root_resolver
+        if root_binding is None and artifact_root_owner_id is None:
+            return None
+        if resolver is None:
+            if root_binding is not None:
+                raise CandidateExtractionError(
+                    "The analysis artifact-root resolver is unavailable"
+                )
+            return None
+        if root_binding is None:
+            raise CandidateExtractionError(
+                "The owning PipelineJob artifact-root binding is required "
+                "for external analysis artifacts"
+            )
+        if artifact_root_owner_id is None:
+            raise CandidateExtractionError(
+                "The owning PipelineJob identity is required for "
+                "external analysis artifacts"
+            )
+        if not isinstance(artifact_root_owner_id, UUID):
+            raise CandidateExtractionError(
+                "The analysis artifact owner identity is invalid"
+            )
+        normalized_binding = (
+            _normalize_artifact_root_binding(project_id, root_binding)
+            if root_binding is not None
+            else None
+        )
+        try:
+            resolved = resolver(
+                project_id,
+                artifact_root_owner_id,
+                ANALYSIS_ARTIFACT_CATEGORY,
+                normalized_binding,
+            )
+        except CandidateExtractionError:
+            raise
+        except Exception as error:
+            raise CandidateExtractionError(
+                "The analysis artifact category could not be resolved"
+            ) from error
+        if not isinstance(resolved, ResolvedAnalysisArtifactRoot):
+            raise CandidateExtractionError(
+                "The analysis artifact-root resolver returned an invalid handle"
+            )
+        returned_binding = _normalize_artifact_root_binding(
+            project_id, resolved.binding
+        )
+        if (
+            normalized_binding is not None
+            and _canonical_json_bytes(returned_binding)
+            != _canonical_json_bytes(normalized_binding)
+        ):
+            raise CandidateExtractionError(
+                "The analysis artifact-root binding changed during capture"
+            )
+        category_root = _validated_external_category_root(resolved.root)
+        binding_sha256 = hashlib.sha256(
+            _canonical_json_bytes(returned_binding)
+        ).hexdigest()
+        return {
+            "schema_version": ANALYSIS_ARTIFACT_LOCATOR_SCHEMA,
+            "mode": "external_category_root",
+            "category": ANALYSIS_ARTIFACT_CATEGORY,
+            "project_id": str(project_id),
+            "analysis_job_id": str(job_id),
+            "artifact_owner_id": str(artifact_root_owner_id),
+            "output_location_id": returned_binding[
+                "output_location_id"
+            ],
+            "root_identity_sha256": returned_binding[
+                "root_identity_sha256"
+            ],
+            "root_binding": returned_binding,
+            "root_binding_sha256": binding_sha256,
+            "category_root_identity_sha256": (
+                _artifact_category_identity(
+                    category_root,
+                    project_id=project_id,
+                    owner_id=artifact_root_owner_id,
+                    binding=returned_binding,
+                )
+            ),
+        }
+
+    def _resolve_artifact_category_root(
+        self,
+        project_id: UUID,
+        job_id: UUID,
+        locator: Optional[Mapping[str, Any]],
+    ) -> Path:
+        if locator is None:
+            return self._project_output_root(project_id)
+        validated = self._validate_artifact_locator(
+            project_id,
+            job_id,
+            locator,
+            require_manifest=False,
+        )
+        resolver = self._artifact_root_resolver
+        if resolver is None:
+            raise CandidateExtractionError(
+                "The analysis artifact-root resolver is unavailable"
+            )
+        binding = validated["root_binding"]
+        try:
+            artifact_owner_id = UUID(validated["artifact_owner_id"])
+        except ValueError as error:
+            raise CandidateExtractionError(
+                "The analysis artifact owner identity is invalid"
+            ) from error
+        try:
+            resolved = resolver(
+                project_id,
+                artifact_owner_id,
+                ANALYSIS_ARTIFACT_CATEGORY,
+                binding,
+            )
+        except Exception as error:
+            raise CandidateExtractionError(
+                "The analysis artifact category could not be rebound"
+            ) from error
+        if not isinstance(resolved, ResolvedAnalysisArtifactRoot):
+            raise CandidateExtractionError(
+                "The analysis artifact-root resolver returned an invalid handle"
+            )
+        returned_binding = _normalize_artifact_root_binding(
+            project_id, resolved.binding
+        )
+        if _canonical_json_bytes(returned_binding) != _canonical_json_bytes(
+            binding
+        ):
+            raise CandidateExtractionError(
+                "The analysis artifact-root binding changed after job start"
+            )
+        root = _validated_external_category_root(resolved.root)
+        observed_identity = _artifact_category_identity(
+            root,
+            project_id=project_id,
+            owner_id=artifact_owner_id,
+            binding=returned_binding,
+        )
+        if (
+            observed_identity
+            != validated["category_root_identity_sha256"]
+        ):
+            raise CandidateExtractionError(
+                "The analysis artifact category root changed after job start"
+            )
+        return root
+
+    @staticmethod
+    def _validate_artifact_locator(
+        project_id: UUID,
+        job_id: UUID,
+        locator: Mapping[str, Any],
+        *,
+        require_manifest: bool,
+    ) -> Dict[str, Any]:
+        base_keys = {
+            "schema_version",
+            "mode",
+            "category",
+            "project_id",
+            "analysis_job_id",
+            "artifact_owner_id",
+            "output_location_id",
+            "root_identity_sha256",
+            "root_binding",
+            "root_binding_sha256",
+            "category_root_identity_sha256",
+        }
+        manifest_keys = {
+            "run_directory_name",
+            "artifact_manifest_sha256",
+        }
+        expected_keys = base_keys | (manifest_keys if require_manifest else set())
+        locator_keys = set(locator) if isinstance(locator, Mapping) else set()
+        if (
+            not isinstance(locator, Mapping)
+            or locator_keys not in (base_keys, base_keys | manifest_keys)
+            or (require_manifest and locator_keys != expected_keys)
+            or locator.get("schema_version")
+            != ANALYSIS_ARTIFACT_LOCATOR_SCHEMA
+            or locator.get("mode") != "external_category_root"
+            or locator.get("category") != ANALYSIS_ARTIFACT_CATEGORY
+            or locator.get("project_id") != str(project_id)
+            or locator.get("analysis_job_id") != str(job_id)
+        ):
+            raise CandidateExtractionError(
+                "The analysis artifact locator is invalid"
+            )
+        try:
+            if str(UUID(str(locator.get("artifact_owner_id")))) != str(
+                locator.get("artifact_owner_id")
+            ):
+                raise ValueError
+        except ValueError as error:
+            raise CandidateExtractionError(
+                "The analysis artifact owner identity is invalid"
+            ) from error
+        binding = _normalize_artifact_root_binding(
+            project_id, locator.get("root_binding")
+        )
+        if (
+            locator.get("output_location_id")
+            != binding["output_location_id"]
+            or locator.get("root_identity_sha256")
+            != binding["root_identity_sha256"]
+            or locator.get("root_binding_sha256")
+            != hashlib.sha256(_canonical_json_bytes(binding)).hexdigest()
+            or not isinstance(
+                locator.get("category_root_identity_sha256"), str
+            )
+            or _SHA256_PATTERN.fullmatch(
+                str(locator.get("category_root_identity_sha256"))
+            )
+            is None
+        ):
+            raise CandidateExtractionError(
+                "The analysis artifact locator binding is invalid"
+            )
+        if manifest_keys.issubset(locator):
+            if (
+                not isinstance(locator.get("run_directory_name"), str)
+                or not str(locator["run_directory_name"]).startswith(
+                    "candidate-extraction-"
+                )
+                or _ARTIFACT_NAME_PATTERN.fullmatch(
+                    str(locator["run_directory_name"])
+                )
+                is None
+                or not isinstance(
+                    locator.get("artifact_manifest_sha256"), str
+                )
+                or _SHA256_PATTERN.fullmatch(
+                    str(locator["artifact_manifest_sha256"])
+                )
+                is None
+            ):
+                raise CandidateExtractionError(
+                    "The analysis artifact locator manifest is invalid"
+                )
+        return {**dict(locator), "root_binding": binding}
 
     def _project_output_root(self, project_id: UUID) -> Path:
         project_root = self._projects_root / str(project_id)
@@ -675,6 +1512,7 @@ class AnalysisJobService:
         result: Dict,
         artifact_directory: Path,
         completed_at: datetime,
+        artifact_locator: Optional[Mapping[str, Any]],
     ) -> None:
         records_root = self._project_records_root(
             job.grant.project_id, create=True
@@ -695,6 +1533,8 @@ class AnalysisJobService:
             "artifact_directory_name": artifact_directory.name,
             "result": result,
         }
+        if artifact_locator is not None:
+            payload["artifact_locator"] = dict(artifact_locator)
         encoded = json.dumps(
             payload,
             ensure_ascii=False,
@@ -914,13 +1754,44 @@ class AnalysisJobService:
             )
         ):
             raise ValueError("analysis artifact directory identity is invalid")
-        output_root = self._project_output_root(project_id)
+        raw_locator = decoded.get("artifact_locator")
+        artifact_locator: Optional[Dict[str, Any]]
+        if raw_locator is None:
+            artifact_locator = None
+        else:
+            artifact_locator = self._validate_artifact_locator(
+                project_id,
+                job_id,
+                raw_locator,
+                require_manifest=True,
+            )
+            if (
+                artifact_locator["run_directory_name"]
+                != artifact_directory_name
+            ):
+                raise ValueError(
+                    "analysis artifact locator directory is invalid"
+                )
+        output_root = self._resolve_artifact_category_root(
+            project_id,
+            job_id,
+            artifact_locator,
+        )
         artifact_directory = self._validated_run_directory(
             str(output_root / artifact_directory_name), output_root
         )
         result = self._validate_persisted_result(
             decoded.get("result"), job_id
         )
+        if artifact_locator is not None:
+            self._verify_external_artifact_manifest(
+                project_id=project_id,
+                job_id=job_id,
+                source_sha256=sha256_lower,
+                result=result,
+                artifact_directory=artifact_directory,
+                locator=artifact_locator,
+            )
         grant = CompletedMediaGrant(
             project_id=project_id,
             snapshot_id=snapshot_id,
@@ -942,6 +1813,7 @@ class AnalysisJobService:
             updated_at=updated_at,
             cancel_event=threading.Event(),
             artifact_directory=artifact_directory,
+            artifact_locator=artifact_locator,
         )
 
     @staticmethod
@@ -1146,7 +2018,11 @@ class AnalysisJobService:
             ),
         }
         return {
-            "artifact_set_id": job_id,
+            # Keep the live in-memory result byte-for-byte canonical with the
+            # persisted/recovered JSON result.  A UUID object here survives
+            # until the first ProjectCatalog backfill and then makes the
+            # otherwise valid completed record non-serializable.
+            "artifact_set_id": str(job_id),
             "candidate_count": len(candidates),
             "artifact_count": artifact_count,
             "total_artifact_bytes": total_artifact_bytes,

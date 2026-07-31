@@ -40,8 +40,17 @@ test("bridge child receives a minimal environment without parent credentials", (
       ANTHROPIC_API_KEY: "must-not-cross",
       TRAFFICSUPERVISION_RENDERER_URL: "must-not-cross",
       TRAFFICSUPERVISION_COMMAND_PROPOSAL_RUNNER_ROOT: "must-not-cross",
+      TRAFFICSUPERVISION_DENSE_STAGING_ROOT:
+        "C:\\TrafficVissonDenseStage",
+      TRAFFICSUPERVISION_DFINE_TRAINING_RUNTIME:
+        "C:\\model-runtime\\dfine-worker.json",
+      TRAFFICSUPERVISION_DFINE_TRAINING_RUNTIME_SHA256: "d".repeat(64),
+      TRAFFICSUPERVISION_EXTERNAL_MODEL_RUNTIME_PACK:
+        "C:\\model-runtime\\trafficsupervision-external-model-runtime-pack.json",
       TRAFFICSUPERVISION_VISION_MODEL_PACK:
         "C:\\model-pack\\trafficsupervision-model-pack.json",
+      TRAFFICSUPERVISION_OCR_MODEL_PACK:
+        "C:\\ocr-pack\\trafficvisson-model-pack.json",
     },
     "fixture-token",
   );
@@ -50,8 +59,28 @@ test("bridge child receives a minimal environment without parent credentials", (
   assert.equal(environment.TRAFFICSUPERVISION_BRIDGE_TOKEN, "fixture-token");
   assert.equal(environment.PYTHONDONTWRITEBYTECODE, "1");
   assert.equal(
+    environment.TRAFFICSUPERVISION_DENSE_STAGING_ROOT,
+    "C:\\TrafficVissonDenseStage",
+  );
+  assert.equal(
+    environment.TRAFFICSUPERVISION_DFINE_TRAINING_RUNTIME,
+    "C:\\model-runtime\\dfine-worker.json",
+  );
+  assert.equal(
+    environment.TRAFFICSUPERVISION_DFINE_TRAINING_RUNTIME_SHA256,
+    "d".repeat(64),
+  );
+  assert.equal(
+    environment.TRAFFICSUPERVISION_EXTERNAL_MODEL_RUNTIME_PACK,
+    "C:\\model-runtime\\trafficsupervision-external-model-runtime-pack.json",
+  );
+  assert.equal(
     environment.TRAFFICSUPERVISION_VISION_MODEL_PACK,
     "C:\\model-pack\\trafficsupervision-model-pack.json",
+  );
+  assert.equal(
+    environment.TRAFFICSUPERVISION_OCR_MODEL_PACK,
+    "C:\\ocr-pack\\trafficvisson-model-pack.json",
   );
   assert.equal(environment.OPENAI_API_KEY, undefined);
   assert.equal(environment.ANTHROPIC_API_KEY, undefined);

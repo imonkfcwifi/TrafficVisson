@@ -33,6 +33,15 @@ $startInfo.Environment["PATH"] = (
     $bundle + [IO.Path]::PathSeparator + $startInfo.Environment["PATH"]
 )
 $null = $startInfo.Environment.Remove("TRAFFICSUPERVISION_VISION_MODEL_PACK")
+$null = $startInfo.Environment.Remove(
+    "TRAFFICSUPERVISION_EXTERNAL_MODEL_RUNTIME_PACK"
+)
+$null = $startInfo.Environment.Remove(
+    "TRAFFICSUPERVISION_DFINE_TRAINING_RUNTIME"
+)
+$null = $startInfo.Environment.Remove(
+    "TRAFFICSUPERVISION_DFINE_TRAINING_RUNTIME_SHA256"
+)
 
 $process = [Diagnostics.Process]::new()
 $process.StartInfo = $startInfo

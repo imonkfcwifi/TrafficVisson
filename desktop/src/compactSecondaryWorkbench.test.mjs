@@ -101,15 +101,23 @@ test("short desktop history keeps all four synchronized regions in a fixed grid"
   );
   assert.match(
     compactStyles,
-    /\.screen--history\s*\{[^}]*display:\s*grid;[^}]*grid-template-rows:[^;}]*auto[^;}]*minmax\(230px,\s*1\.35fr\)[^;}]*66px[^;}]*minmax\(148px,\s*0\.8fr\)/s,
+    /\.screen--history\s*\{[^}]*display:\s*grid;[^}]*grid-template-rows:[^;}]*auto[^;}]*minmax\(230px,\s*1\.35fr\)[^;}]*66px[^;}]*minmax\(148px,\s*0\.8fr\)[^}]*overflow:\s*hidden;/s,
   );
   assert.match(
     compactStyles,
-    /\.screen--history \.incident-list\s*\{[^}]*flex:\s*1;[^}]*overflow:\s*auto;/s,
+    /\.screen--history \.incident-list\s*\{[^}]*flex:\s*1;[^}]*overflow-x:\s*hidden;[^}]*overflow-y:\s*auto;[^}]*overscroll-behavior:\s*contain;[^}]*scrollbar-gutter:\s*stable;/s,
   );
   assert.match(
     compactStyles,
     /\.screen--history \.evidence-details\s*\{[^}]*overflow:\s*hidden;/s,
+  );
+  assert.match(
+    compactStyles,
+    /\.screen--history \.history-map-unavailable\s*\{[^}]*overflow:\s*hidden;/s,
+  );
+  assert.match(
+    historySource,
+    /className="incident-list history-scroll-owner"[\s\S]*role="region"[\s\S]*aria-label="사건과 후보 목록"[\s\S]*tabIndex=\{0\}/,
   );
   assert.match(
     compactStyles,

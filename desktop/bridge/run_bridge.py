@@ -15,6 +15,16 @@ if str(BRIDGE_ROOT) not in sys.path:
     # Python is launched with -I, so only this verified application directory is added.
     sys.path.insert(0, str(BRIDGE_ROOT))
 
+from app.external_model_runtime import (  # noqa: E402
+    activate_external_model_runtime_from_environment,
+)
+
+# The frozen bridge remains independently usable when no runtime pack is
+# configured. A configured pack is verified and activated before app modules
+# import any optional ML dependency; invalid packs fail closed by capability
+# while the core bridge can still report the error and serve non-ML workflows.
+MODEL_RUNTIME_STATUS = activate_external_model_runtime_from_environment()
+
 import uvicorn
 
 from app.main import create_app
@@ -22,10 +32,32 @@ from app.main import create_app
 
 def _run_internal_worker() -> bool:
     """Dispatch fixed internal subprocess modes in frozen and source builds."""
+    if (
+        len(sys.argv) >= 2
+        and sys.argv[1]
+        in {"--vision-worker", "--grounding-dino-pack-worker"}
+        and os.environ.get(
+            "TRAFFICSUPERVISION_EXTERNAL_MODEL_RUNTIME_PACK"
+        )
+        and MODEL_RUNTIME_STATUS.get("state") != "ready"
+    ):
+        # The parent bridge remains available to report a failed runtime pack,
+        # but model workers must never continue with partially imported or
+        # ambient dependencies after activation failed.
+        raise SystemExit(78)
     if len(sys.argv) >= 2 and sys.argv[1] == "--vision-worker":
         from app.vision_worker import main as vision_worker_main
 
         raise SystemExit(vision_worker_main(sys.argv[2:]))
+    if (
+        len(sys.argv) >= 2
+        and sys.argv[1] == "--grounding-dino-pack-worker"
+    ):
+        from app.grounding_dino_pack_worker import (
+            main as grounding_dino_worker_main,
+        )
+
+        raise SystemExit(grounding_dino_worker_main())
     return False
 
 
@@ -34,6 +66,16 @@ def _take_token() -> str:
     if len(token) < 43:
         raise RuntimeError("Bridge token is missing or invalid")
     return token
+
+
+def _take_data_root() -> Optional[str]:
+    value = os.environ.pop("TRAFFICSUPERVISION_BRIDGE_DATA_ROOT", "").strip()
+    if not value:
+        return None
+    selected = Path(value)
+    if not selected.is_absolute():
+        raise RuntimeError("Bridge data root must be absolute")
+    return str(selected.resolve())
 
 
 def _frozen_media_tool_paths() -> Tuple[Optional[str], Optional[str]]:
@@ -55,11 +97,13 @@ def _frozen_media_tool_paths() -> Tuple[Optional[str], Optional[str]]:
 
 async def _run() -> None:
     token = _take_token()
+    bridge_data_root = _take_data_root()
     ffmpeg_path, ffprobe_path = _frozen_media_tool_paths()
     application = create_app(
         token,
         ffmpeg_path=ffmpeg_path,
         ffprobe_path=ffprobe_path,
+        bridge_data_root=bridge_data_root,
     )
     listen_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     listen_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

@@ -298,6 +298,94 @@ def test_every_sample_photo_has_exact_semantic_page_pair_binding(
     )
 
 
+def test_4q_page_6_multi_photo_caption_cells_share_deterministic_group(
+    sample_4q,
+):
+    photos = [
+        picture
+        for picture in sample_4q.snapshot.pictures
+        if picture.nearest_table_index == 8
+    ]
+    bindings = [
+        bind_sample_reference_case(sample_4q, picture.target_id)
+        for picture in photos
+    ]
+    groups = {}
+    for binding in bindings:
+        groups.setdefault(
+            binding.sample_evidence_group_id,
+            [],
+        ).append(binding)
+    multi_photo_groups = [
+        sorted(
+            group,
+            key=lambda binding: binding.group_photo_index,
+        )
+        for group in groups.values()
+        if len(group) > 1
+    ]
+
+    assert len(bindings) == 10
+    assert len(groups) == 8
+    assert len(multi_photo_groups) == 2
+    assert {
+        group[0].photo_caption.text_excerpt
+        for group in multi_photo_groups
+    } == {
+        "덕소삼패IC 합류부 차선변경금지봉 파손",
+        "LCS 고장구간 다수 발견",
+    }
+    assert all(
+        [binding.group_photo_index for binding in group]
+        == [1, 2]
+        and {
+            binding.group_photo_count for binding in group
+        }
+        == {2}
+        and len(
+            {binding.photo_slot_id for binding in group}
+        )
+        == 2
+        and len(
+            {
+                binding.photo_caption.cell_target_id
+                for binding in group
+            }
+        )
+        == 1
+        for group in multi_photo_groups
+    )
+
+
+def test_all_sample_photo_slots_keep_individual_hash_identity_but_270_events(
+    sample_3q,
+    sample_4q,
+):
+    bindings = []
+    for inspection in (sample_3q, sample_4q):
+        bindings.extend(
+            bind_sample_reference_case(
+                inspection,
+                picture.target_id,
+            )
+            for picture in inspection.snapshot.pictures
+            if (
+                picture.nearest_table_index is not None
+                and picture.nearest_table_index % 3 == 2
+            )
+        )
+
+    assert len(bindings) == 272
+    assert len({binding.photo_slot_id for binding in bindings}) == 272
+    assert len(
+        {
+            binding.sample_evidence_group_id
+            for binding in bindings
+        }
+    ) == 270
+    assert sum(binding.group_photo_count == 2 for binding in bindings) == 4
+
+
 def test_fixed_inspection_picture_cannot_become_reference_photo(
     sample_3q,
 ):

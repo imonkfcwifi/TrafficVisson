@@ -4,7 +4,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import RLock
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional, Sequence
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException
@@ -178,7 +178,11 @@ class TrafficSuperVisionStore:
             return deepcopy(project)
 
     def project_label_record(
-        self, project_id: UUID, record: Dict
+        self,
+        project_id: UUID,
+        record: Dict,
+        *,
+        materialize_incident: bool = False,
     ) -> Dict:
         """Project one append-only label record into the normalized catalog."""
 
@@ -188,7 +192,9 @@ class TrafficSuperVisionStore:
                 return {"created": False, "fixture_only": True}
             try:
                 projected = self._project_catalog.project_label_record(
-                    project_id, record
+                    project_id,
+                    record,
+                    materialize_incident=materialize_incident,
                 )
             except LabelProjectionError:
                 # A just-completed analysis writes its immutable record after
@@ -196,9 +202,71 @@ class TrafficSuperVisionStore:
                 # then replay the label projection.
                 self._project_catalog.backfill_completed_analysis_records()
                 projected = self._project_catalog.project_label_record(
-                    project_id, record
+                    project_id,
+                    record,
+                    materialize_incident=materialize_incident,
                 )
             return deepcopy(projected)
+
+    def bind_completed_analysis_resolver(self, resolver) -> Dict:
+        """Attach the live analysis verifier and retry durable backfill."""
+
+        with self._lock:
+            if self._project_catalog is None:
+                return {
+                    "scanned_records": 0,
+                    "indexed_records": 0,
+                    "isolated_records": 0,
+                }
+            summary = (
+                self._project_catalog.bind_completed_analysis_resolver(
+                    resolver
+                )
+            )
+            return {
+                "scanned_records": summary.scanned_records,
+                "indexed_records": summary.indexed_records,
+                "isolated_records": summary.isolated_records,
+            }
+
+    def register_label_questions(
+        self,
+        project_id: UUID,
+        analysis_job_id: UUID,
+        source_sha256: str,
+        questions: Sequence[Mapping[str, Any]],
+    ) -> Dict:
+        """Register a prepared review queue without creating approved labels."""
+
+        with self._lock:
+            self._project(project_id)
+            if self._project_catalog is None:
+                raise LabelProjectionError(
+                    "durable label question catalog is unavailable"
+                )
+            try:
+                registered = (
+                    self._project_catalog.register_label_questions(
+                        project_id,
+                        analysis_job_id,
+                        source_sha256,
+                        questions,
+                    )
+                )
+            except LabelProjectionError:
+                # The analysis record may have completed after catalog startup.
+                # Refresh the immutable analysis index once, then replay the
+                # atomic question-set registration.
+                self._project_catalog.backfill_completed_analysis_records()
+                registered = (
+                    self._project_catalog.register_label_questions(
+                        project_id,
+                        analysis_job_id,
+                        source_sha256,
+                        questions,
+                    )
+                )
+            return deepcopy(registered)
 
     def project_label_records(
         self,
@@ -206,6 +274,7 @@ class TrafficSuperVisionStore:
         records: List[Dict],
         *,
         materialize_analysis_job_ids: Optional[List[UUID]] = None,
+        incident_analysis_job_ids: Optional[List[UUID]] = None,
     ) -> List[Dict]:
         """Reconcile the audit ledger and approved normalized projections."""
 
@@ -220,6 +289,9 @@ class TrafficSuperVisionStore:
                     materialize_analysis_job_ids=(
                         materialize_analysis_job_ids
                     ),
+                    incident_analysis_job_ids=(
+                        incident_analysis_job_ids or []
+                    ),
                 )
             except LabelProjectionError:
                 self._project_catalog.backfill_completed_analysis_records()
@@ -228,6 +300,9 @@ class TrafficSuperVisionStore:
                     records,
                     materialize_analysis_job_ids=(
                         materialize_analysis_job_ids
+                    ),
+                    incident_analysis_job_ids=(
+                        incident_analysis_job_ids or []
                     ),
                 )
             return deepcopy(projected)
@@ -273,7 +348,15 @@ class TrafficSuperVisionStore:
                 )
             )
 
-    def create_dataset_version(self, project_id: UUID) -> Dict:
+    def create_dataset_version(
+        self,
+        project_id: UUID,
+        *,
+        approved_reference_records: Sequence[Mapping[str, Any]] = (),
+        fixed_validation_analysis_job_ids: Optional[
+            Sequence[UUID | str]
+        ] = None,
+    ) -> Dict:
         with self._lock:
             self._project(project_id)
             if self._project_catalog is None:
@@ -282,7 +365,15 @@ class TrafficSuperVisionStore:
                     detail="Dataset versions require the durable catalog",
                 )
             return deepcopy(
-                self._project_catalog.create_dataset_version(project_id)
+                self._project_catalog.create_dataset_version(
+                    project_id,
+                    approved_reference_records=(
+                        approved_reference_records
+                    ),
+                    fixed_validation_analysis_job_ids=(
+                        fixed_validation_analysis_job_ids
+                    ),
+                )
             )
 
     def list_dataset_versions(self, project_id: UUID) -> List[Dict]:
@@ -292,6 +383,38 @@ class TrafficSuperVisionStore:
                 return []
             return deepcopy(
                 self._project_catalog.list_dataset_versions(project_id)
+            )
+
+    def list_current_annotations(self, project_id: UUID) -> List[Dict]:
+        """Return only the durable catalog's latest normalized labels.
+
+        Training orchestration uses this server-owned read boundary so an
+        Electron request can select an immutable DatasetVersion id but cannot
+        inject or alter Annotation rows.
+        """
+
+        with self._lock:
+            self._project(project_id)
+            if self._project_catalog is None:
+                return []
+            return deepcopy(
+                self._project_catalog.list_current_annotations(project_id)
+            )
+
+    def list_dataset_annotations(
+        self,
+        project_id: UUID,
+        dataset_version_id: UUID,
+    ) -> List[Dict]:
+        with self._lock:
+            self._project(project_id)
+            if self._project_catalog is None:
+                return []
+            return deepcopy(
+                self._project_catalog.list_dataset_annotations(
+                    project_id,
+                    dataset_version_id,
+                )
             )
 
     def inspect_import(

@@ -1,34 +1,66 @@
 # TrafficSuperVision 통합 로컬 AI 도로점검 플랫폼 마스터 계획서
 
 > 문서 상태: 목표 제품 기준·구현 로드맵  
-> 문서 버전: 2.14
-> 현재 구현 기준일: 2026-07-29  
+> 문서 버전: 2.33
+> 현재 구현 기준일: 2026-07-31
 > 상태 표기: 구현됨 / 부분 구현 / 미구현 / 목표  
 > 완료 표시가 없는 현재형 설명은 최종 제품의 목표 동작을 의미한다.  
 > 대상 플랫폼: Windows 설치형 Electron 애플리케이션  
-> 핵심 원칙: 로컬 영상 처리, 사용자 확인형 라벨링, 프로젝트별 모델, 증거 중심 GPS 재생, 한/글 COM 보고서 작성
+> 핵심 원칙: 로컬 영상 처리, 사용자 또는 명시적 LLM 학습보조 라벨링, 프로젝트별 모델, 증거 중심 GPS 재생, 한/글 COM 보고서 작성
 
 ## North Star — 절대 제품 수용 기준
 
 TrafficSuperVision은 기능 모듈을 모아 둔 웹 화면이 아니라 **Windows Electron 단일 프로그램**이다. 사용자는 프로젝트를 최초 한 번 설정한 뒤 주행 영상 하나만 넣는다. 프로그램은 다른 화면을 돌아다니며 단계별 실행 버튼을 누르게 하지 않고, 입력 검증부터 질문 큐 준비까지 하나의 영속 `PipelineJob`으로 자동 실행한다. 사용자가 질문 검토를 끝내면 같은 provenance 아래의 Incident, 지도·타임라인, raw·확정 CSV, 증거 패키지와 HWPX `DocumentEditPlan` 미리보기가 자동 갱신되어야 한다.
 
-UI는 일반 작업에서 **하나의 기본 Windows 창**을 사용한다. 홈·영상 가져오기·질문 라벨링·분석·사건 검토·모델 관리·GPS 히스토리·보고서·내보내기는 그 창 안에서 전환되는 제품 화면이며, 별도 웹 SaaS나 브라우저 화면을 창 안에 다시 감싸지 않는다. 프로젝트 최초 설정만 영상 가져오기 화면 위의 명시적인 일회성 모달로 열리며, 설정 모달을 제품 본체처럼 보이게 만들어서는 안 된다.
+### 제품의 핵심 학습·조사 수명주기
 
-여기서 “하나의 창”은 “페이지 하나”나 “설정 화면 하나”를 뜻하지 않는다. 1280×720에서도 현재 화면 이름, 이동 가능한 아홉 화면, 활성 화면이 제품 셸에서 즉시 읽혀야 하며, 사용자가 홈을 설정창으로 오해하거나 다른 기능이 별도 프로그램에 있다고 추측하게 만들면 단일 창 UX 수용 실패다.
+이 제품의 중심은 HWPX 작성기가 아니라 **검증 가능한 도로 조사 모델을 만드는 반복 학습 루프**다. HWPX는 승인된 조사 결과를 옮기는 마지막 산출 단계다. 구현·QA·완료 판단의 우선순위는 다음 순서를 절대 바꾸지 않는다.
 
-다음 네 동작만 사용자 승인으로 남긴다.
+1. `sample/`의 3·4분기 HWPX/PDF에서 사진·캡션·점검 의견·분기·노선·페이지·표/행/열·사진 슬롯·네모 위치·문서/사진 해시를 추출해 `weak_unconfirmed` 사례 DB를 만든다.
+2. 사용자가 사례의 표준 유형·조치·영역을 확인한 것만 프로젝트 범위 `approved_reference`로 승격한다. 승인 사례는 유사 사례 검색과 학습 참고가 될 수 있지만 현재 영상의 Incident로 복제하지 않는다.
+3. 새 영상은 2fps 밀집 인덱스와 후보 구간 5~10fps 재분석을 거쳐 DINO·도로 전용 모델·OCR·SAM2·시간축 병합·승인 사례 검색·비전 LLM 비교 제안을 순차 실행한다.
+4. 비전 LLM이나 모델이 선택한 결과는 먼저 `proposed` 또는 `weak_unconfirmed`다. 프로젝트의 라벨 확정 권한은 `사용자 직접 검토`와 `구조화 LLM 학습보조` 중 선택할 수 있다. LLM 학습보조는 사용자가 프로젝트 범위에서 명시적으로 허용한 비긴급 후보만 `structured_llm_assisted` 학습 라벨로 만들며, 낙하물·긴급 후보와 최종 도로조사 Incident·보고서 사실은 대신 확정하지 않는다.
+5. 사용자 확정 라벨과 허용된 `structured_llm_assisted` 학습 라벨을 출처별로 분리한 `DatasetVersion`으로 프로젝트 전용 후보 모델을 명시적으로 학습하고, 영상/주행 단위로 고정한 검증 세트에서 유형별 재현율·오탐·중복을 기존 활성 모델과 비교한다. 기준을 통과해도 자동 승격하지 않으며 사용자가 승격·롤백한다.
+6. 승격한 프로젝트 모델을 새 도로 조사 영상에 적용하고, 조사 후보를 다시 질문·확정하며 지도·영상·타임라인·CSV·증거를 동일 provenance로 갱신한다. 모델이 놓친 장면은 기존 후보 클립이 아니라 불변 2fps 인덱스의 전체 주행 시간축에서 찾아 영상 시각과 한 번의 점/박스 선택으로 새 검토 질문에 추가하고, 승인 뒤 다음 DatasetVersion의 false-negative 교정 표본으로 사용한다. 마지막 기존 질문 뒤에는 `모델 누락 장면 확인` 또는 `누락 없음 · 검토 완료`를 최종 QA 질문으로 남긴다. 이 운영 결과는 다음 학습·검증 주기의 데이터가 된다.
+7. 해당 조사에서 사용자가 최종 승인한 Incident만 기존 3·4분기 양식의 정확한 표·사진·네모·점검 의견 위치에 넣어 새 HWPX를 만든다.
+
+### 혼동 금지 — 서로 대체할 수 없는 다섯 상태
+
+| 상태 | 무엇을 의미하는가 | 아직 의미하지 않는 것 |
+|---|---|---|
+| `CandidateProposal` | DINO·전용 모델·OCR·SAM2·유사 사례·비전 LLM이 실제 영상에서 검토할 후보와 근거를 만들었다 | 확정 라벨, 학습 데이터, 도로조사 결과 |
+| `Annotation` | 사용자 또는 명시적으로 허용된 구조화 LLM 학습보조가 후보의 유형·영역·양성/음성을 학습용으로 확정했다 | 최종 유지보수 Incident, 보고서 사실 |
+| `Promoted ModelVersion` | 충분한 고유 사건 라벨로 CUDA 학습하고 고정 검증을 통과한 후보 모델을 사용자가 승격했다 | 새 도로 영상의 조사 완료 |
+| `Survey ReviewEvent` | 승격 모델이 학습·검증에 쓰지 않은 다른 실제 영상에서 도로 문제 후보를 검지했다 | 확정 도로조사 Incident |
+| `Approved Incident` | 사용자가 새 조사 영상의 후보·오탐·누락을 최종 검토해 유지보수 사실로 승인했다 | HWPX 실제 적용 완료 |
+
+따라서 비전 LLM이 sample 사진과 실제 영상 프레임을 비교해 후보를 고르는 단계는 **학습 데이터 획득 단계**다. 그 라벨로 만든 모델을 다른 실제 영상에 적용하고, 그 영상의 전체 2fps 시간축에서 오탐과 누락을 다시 검토해 고정 검증 기준을 만족할 때까지 `새 라벨 → 새 DatasetVersion → 재학습 → 재승격 → 재조사`를 반복하는 단계가 **모델 QA 및 도로조사 단계**다. 마지막으로 해당 조사 영상의 사용자 승인 Incident만 지도·CSV·증거와 HWPX 사실이 된다. 구현 순서도 이 경계를 따른다. 즉 질문 후보나 HWPX 미리보기를 먼저 보여 주는 데서 멈추지 않고, **실제 승인 라벨로 학습한 모델이 독립 영상에서 결과를 만들고 그 결과를 반복 QA하는 폐쇄루프를 P0로 완성한 뒤** 승인 조사 결과의 보고서 종단을 통과시킨다.
+
+전체 `weak_unconfirmed` 사례는 상태를 명시한 채 이미 다른 검지기가 만든 후보의 비전 LLM 비교 문맥 3~5건으로 사용할 수 있다. 다만 첫 프로젝트 모델이 아직 없는 초기 단계에서 실제 영상의 불변 2fps 프레임을 역으로 훑어 **검토용 후보를 더 찾는 CLIP bootstrap**은 사용자 승인 `approved_reference`만 시작할 수 있다. 이 결과는 질문 큐만 보강하며, 학습된 전용 검지기·승격 모델·Incident를 대신하지 않는다. 승인 reference도 현재 영상의 고유 승인 Annotation 100건이나 유형별 독립 validation 30건에 합산하지 않는다.
+
+따라서 `HWPX 미리보기 성공`, `DINO 박스 생성`, `LLM JSON 생성` 또는 `테스트 fixture 통과`만으로 모델이나 도로 조사가 완성되었다고 판정하지 않는다. 최소 한 개 프로젝트에서 `승인 reference → 영상 후보 → 사용자 확정 또는 명시적으로 허용된 LLM 학습보조 라벨 → DatasetVersion → 학습 후보 모델 → 고정 검증 → 사용자 승격 → 새 영상 조사 → 사용자 승인 Incident → 지도·CSV·HWPX`가 같은 provenance로 이어져야 제품의 학습·조사 루프가 성립한다.
+
+UI는 일반 작업에서 **하나의 기본 Windows 창**을 사용한다. 홈·영상 가져오기·자동 분석·질문 검토·사건 검토·지도·영상 히스토리·보고서·내보내기·모델 관리는 그 창 안에서 전환되는 제품 화면이며, 별도 웹 SaaS나 브라우저 화면을 창 안에 다시 감싸지 않는다. 프로젝트 최초 설정만 영상 가져오기 화면 위의 명시적인 일회성 모달로 열리며, 설정 모달을 제품 본체처럼 보이게 만들어서는 안 된다.
+
+여기서 “하나의 창”은 “페이지 하나”나 “설정 화면 하나”를 뜻하지 않는다. 1280×720에서도 현재 업무 영역, 현재 화면 이름, 지금 할 일, 이동 가능한 아홉 화면과 활성 화면이 제품 셸에서 즉시 읽혀야 한다. `화면 n/9`처럼 아홉 화면을 차례로 방문해야 하는 마법사로 오인시키지 않으며, 사용자가 홈을 설정창으로 오해하거나 다른 기능이 별도 프로그램에 있다고 추측하게 만들면 단일 창 UX 수용 실패다.
+
+다음 다섯 동작만 사용자 승인으로 남긴다.
 
 1. 영상 권리 확인과 분석 시작
-2. 빠른·정밀 질문 답변
+2. `사용자 직접 검토`를 선택했을 때의 빠른·정밀 질문 답변과, `구조화 LLM 학습보조`를 선택했을 때의 프로젝트 범위 위임
 3. 필요할 때 프로젝트 모델 학습 시작
-4. 한/글 문서에 HWPX 편집 계획 실제 적용
+4. 고정 검증 결과를 본 뒤 후보 모델 승격·거절·롤백 결정
+5. 한/글 문서에 HWPX 편집 계획 실제 적용
 
 분석 화면 이동, 2fps 인덱스 실행, 5~10fps 재탐색, DINO·OCR·SAM2 실행, 사건 병합, 유사 사례 검색, CSV 생성 또는 보고서 초안 생성을 단계별 버튼으로 요구하면 해당 기능의 존재 여부와 무관하게 제품 UX 수용 실패다.
 
 ### 최초 1회 프로젝트 설정
 
+- 프로필이 없는 새 프로젝트에서는 `새 프로젝트 준비 1/2 → 영상 선택 2/2` 온보딩으로 표시하고 언제든 프로젝트 홈으로 돌아갈 수 있어야 한다.
+- 프로필이 있는 프로젝트의 상시 편집은 `프로젝트 설정`과 `변경사항 저장`으로 표시하며 `최초 1회` 문구를 재사용하지 않는다.
 - 판정 프로필: `빠른 판정` 또는 `정밀 판정`
 - 질문 정책: 학습 보조·전수 검토·빠른 검토
+- 라벨 확정 권한: `사용자 직접 검토` 또는 `구조화 LLM 학습보조`. 후자는 비긴급 후보의 학습 라벨만 만들고 Incident·보고서 사실은 만들지 않는다.
 - 기본 3·4분기 기반 HWPX 양식
 - 검지·한국어 OCR·SAM2 모델팩과 버전
 - Codex 또는 Claude 보고서·구조화 판단 Provider
@@ -47,7 +79,8 @@ UI는 일반 작업에서 **하나의 기본 Windows 창**을 사용한다. 홈�
 → 3·4분기 승인 사례 DB의 유사 사진·점검 문구 3~5건 검색
 → 비전 LLM의 유형·유지보수 필요·조치·심각도 추천 JSON
 → 대표 이미지·마스크·전후 프레임·클립·GPS·유사 사례를 갖춘 질문 큐
-→ 사용자 검토 후 Annotation·Incident 투영
+→ 사용자 직접 검토 또는 명시적 LLM 학습보조로 학습 Annotation 생성
+→ 최종 조사 후보는 사용자 검토 후에만 Incident 투영
 → 지도·영상·타임라인, raw·확정 CSV와 증거 패키지 자동 갱신
 → sample 양식의 정확한 셀·네모·사진·점검 의견 위치를 대상으로 한 `DocumentEditPlan`과 HWPX 미리보기 자동 준비
 → 사용자 적용 승인 후 한/글 COM 부분 편집·재열기·48쪽 전체 렌더 검증·수락/거절/롤백
@@ -62,7 +95,9 @@ UI는 일반 작업에서 **하나의 기본 Windows 창**을 사용한다. 홈�
 - AI·YOLO 심각도는 추천값이고 사용자 최종값과 별도 필드·provenance로 저장한다.
 - 낙하물과 긴급 제안은 모든 모드에서 강제 질문이다.
 - 영역 수정은 임시 박스 이동이 아니라 `한 번 클릭 → SAM2 마스크 재생성·추적 → 사용자 재확인`이다.
-- 사용자 승인 전 확정 Annotation·Incident·학습 데이터·보고서 사건은 모두 0건이어야 한다.
+- `structured_llm_assisted`는 사용자에게 프로젝트 범위 학습 위임을 받은 뒤 비긴급 후보에만 허용하며 `label_source`, 원본 제안, 사용 모델·프롬프트·입력·요청·실행·이미지/사례 해시를 보존한다. 프로젝트 프로필 위임 또는 단일 질문 사용자 승인은 정확한 프로젝트·PipelineJob·AnalysisJob·ReviewEventSet·ReviewEvent·질문·후보에 결속한 `trafficvisson.structured-assist-provenance.v1`으로 저장한다. 해당 증거가 없는 과거 structured 라벨은 감사에는 남겨도 새 DatasetVersion의 학습 멤버가 될 수 없다. 이 라벨은 학습 전용이고 사용자 확정값과 혼합 표시하지 않는다.
+- 질문 큐의 모든 후보가 비긴급이고 프로젝트 범위 구조화 LLM 위임에 포함됐으며, 후보 순서·위임 revision·답변 원장 SHA-256·질문 큐 revision·AnalysisJob 결속이 서버 검증을 모두 통과하면 별도의 빈 `검토 완료` 클릭을 요구하지 않는다. PipelineJob이 검증된 답변 원장을 `structured_llm_training_only` 완료 증거로 기록하고 DatasetVersion·파생 산출물 단계로 자동 진행한다. 사람 질문·낙하물·긴급 후보가 하나라도 있거나 증거가 다르면 자동 완료하지 않고 사람 검토에 남기거나 fail closed한다. 이 자동 진행은 Incident·보고서 사실·고정 검증 멤버·모델 학습·모델 승격을 만들거나 시작하지 않는다.
+- 사용자 승인 또는 명시적 학습 위임 전 확정 Annotation·Incident·학습 데이터·보고서 사건은 모두 0건이어야 한다. 위임 뒤에도 LLM 학습 라벨에서 파생되는 Incident·보고서 사건은 0건이어야 한다.
 
 ### 정직한 예외와 역할 경계
 
@@ -70,60 +105,75 @@ UI는 일반 작업에서 **하나의 기본 Windows 창**을 사용한다. 홈�
 - Grounding DINO는 객체 박스 후보, SAM2는 마스크·추적, 전용 모델은 포트홀·차선, LLM은 의미·문장 제안을 담당한다. 어느 하나도 단독으로 확정 정답을 생성하지 않는다.
 - Codex·Claude CLI는 보고서와 구조화 판단 Provider이며 수천 프레임 대량 검지 엔진으로 사용하지 않는다.
 - 3·4분기 sample HWPX/PDF는 단순 참고가 아니라 실제 보고서 양식이자 사용자 확인 전 `weak_unconfirmed` 사례 DB다. 사진·캡션·점검 의견·분기·노선·페이지·표/행/열·사진 슬롯·네모 위치와 문서·사진 해시를 보존하고, 사용자 승인 뒤에만 `approved_reference`로 승격한다.
+- sample의 기존 내용은 새 보고서의 사실 데이터가 아니다. 새 보고서의 노선·위치·사진·캡션·OCR·점검/자문 의견·심각도 네모·사건 행은 선택한 현재 `PipelineJob`의 사용자 승인 Incident와 검증된 evidence에서만 결정적으로 생성한다.
+- 현재 작업의 승인 Incident 전체가 문서 계획에 한 번씩 결속되어야 하며, 다른 작업·다른 프로젝트·sample placeholder를 재사용하거나 양식 슬롯 부족을 이유로 사건을 조용히 누락해서는 안 된다. 감사된 슬롯 용량을 넘으면 적용을 차단하고 동일 양식의 추가 권/분할 보고서가 필요하다는 상태를 명시한다.
+- sample은 이미 내용이 채워진 과거 보고서이므로 새 출력에서 사용하지 않는 사진·캡션·노선·점검 의견·평가 네모도 과거 사실이 남지 않도록 교체하거나 명시적인 빈/해당 없음 상태로 정리한다. 과거 sample 내용이 현재 영상 결과처럼 남아 있으면 `stale_sample_content`로 적용을 차단한다. 양식 슬롯 사용은 감사된 layout에서 직접 허용하며 과거 weak case의 학습용 승인 여부와 분리한다.
 
 현재 개발 PC 기준은 Codex CLI `0.145.0`, Claude Code `2.1.201`, `HWPFrame.HwpObject` COM 등록, NVIDIA RTX A2000 12GB·driver `572.16`, FFmpeg/FFprobe `4.4.1`이다. CLI 로그인 ready 상태는 사용자가 확인했으며 프로그램도 실행 시마다 공식 CLI의 비밀정보 비접근 상태 조회로 재검증한다. FFmpeg는 4.4.1 호환 경로를 유지한다.
 
+2026-07-30 실제 NAS 폴더 읽기 전용 preflight 결과는 영상 51개·`112,976,270,871 bytes`(`105.217351 GiB`)·`56,020.0154초`(`15:33:40.015`)다. 파일별 `ceil(duration×2fps)` 합은 `112,065` 프레임이다. `trafficvisson.pipeline-capacity-plan.v2`를 8fps 후보 재분석으로 합산하면 후보 `970`건, 후보 창 `8,403.080885초`, 재분석 `67,255`프레임, 예상 output artifact `144,792,092,672 bytes`와 공유 누적 안전 여유 `71,770,308,608 bytes`, 합계 `216,562,401,280 bytes`(`201.689453 GiB`)가 output volume에 필요하다. 실제 NAS 가용량 `2,008,195,579,904 bytes`는 이 요구량보다 크다. 직렬 작업용 dense staging 최대치는 `17,716,740,096 bytes`이고 앱 관리 `E:\TrafficSuperVisionDenseStage`의 검증 시점 가용량 `35,516,665,856 bytes`도 이를 충족한다. 따라서 용량 자체가 현재 미실행 사유는 아니다. 실제 전체 배치는 사용자의 운영 분석 실행과 결과 위치 등록·권리 확인을 아직 수행하지 않았기 때문에 미실행이며, capacity preflight 통과가 실행 승인이나 분석 완료를 뜻하지 않는다. 프로젝트의 `output_location_id`는 renderer가 경로를 전달하는 문자열이 아니라 main process가 선택하고 bridge가 해시 검증하는 저장 위치 등록 ID다. 51개 중 25개의 정적 `location`은 촬영 시작 좌표 한 점일 뿐 시간대별 GPS 경로가 아니다.
+
+실제 폐쇄루프 QA에서는 데이터 누수를 막기 위해 촬영군과 원본 해시로 split을 고정한다. v42 `천안논산 논산방향.mp4`와 추가 `천안논산 천안방향 논산시점.mp4`(`c8c28e5d…c2969`)는 초기 TRAIN 후보, `천안논산 천안방향.mp4`(`e263ad87…d74`)는 고정 검증 후보로 우선 보류한다. 승격 뒤 첫 독립 SURVEY는 다른 촬영일·해상도·코덱의 `20250905_134452.mp4`(`1dbfd9d7…40717`)로 수행하며, 누수를 막기 위해 같은 `20250905` 촬영군의 영상 8개와 JPG 4개 전부를 TRAIN·검증·임계값 조정에서 제외한다. `옥산오창 오창방향.mp4`(`5ade2b82…e981`)는 두 번째 노선 일반화 QA로 사용한다. 모든 51개 영상에 시간대별 GPS 트랙이 없으므로 별도 GPX가 없는 시험은 검지·질문·CSV·보고서만 진행하고 실제 경로 재생을 차단한다.
+
+설치된 D-FINE-small 학습 Model Pack과 개발 Python의 PyTorch `2.7.0+cu128`, Transformers `4.57.6`, RTX A2000 12GB를 실제로 재검증한 trainer preflight는 `ready/cuda:0`다. 다만 이 상태는 학습 실행 증거가 아니다. 승인된 현재 영상 라벨 100건과 유형별 고정 검증 30건, 사용자 학습 시작 승인이 모두 충족되기 전에는 CUDA 학습을 시작하지 않는다.
+
 ### 최종 E2E 수용 시험
 
-실제 NAS 영상 한 건을 새 프로젝트에 넣는 시점부터 자동 질문 큐 생성, 키보드 검토, 승인 Incident, 시간대별 GPS가 있을 때의 경로 재생, raw·확정 CSV와 증거 패키지, sample HWPX 편집 미리보기의 네모·사진·점검 의견 위치, 한/글 COM 적용과 48쪽 검증까지 **하나의 PipelineJob과 동일 provenance**로 통과해야 한다. 이 시험이 끝나기 전에는 “영상만 넣으면 알아서 된다”거나 제품 전체가 완료되었다고 주장하지 않는다.
+최종 시험은 한 영상의 질문·보고서 종단으로 끝나지 않는다. 실제 NAS 학습 영상을 새 프로젝트에 넣어 자동 질문 큐를 만들고, 사용자 확정 또는 명시적으로 위임된 비긴급 LLM 학습보조 라벨과 승인 3·4분기 reference를 결속한 실제 `DatasetVersion`을 만든다. 사용자가 CUDA 학습을 시작하고, 영상/주행 단위의 고정 validation set에서 기존 모델과 비교한 뒤 후보 모델을 명시적으로 승격해야 한다. 이어서 그 승격 모델을 학습·검증에 쓰지 않은 **다른 실제 NAS 영상**의 PipelineJob에 적용하고, 오탐은 hard negative로, 전체 불변 2fps 시간축에서 찾은 누락은 false-negative 질문으로 되돌려 다음 DatasetVersion·재학습 주기까지 반복 QA한다.
+
+그 별도 조사 영상에서 사용자 승인 Incident, 실제 timed GPS가 있을 때의 경로 재생, raw·확정 CSV와 증거 패키지, sample HWPX의 정확한 네모·사진·점검 의견 위치를 사용하는 미리보기, 한/글 COM 적용·재열기·48쪽 전 페이지 렌더 검증까지 통과해야 한다. 각 영상은 하나의 영속 PipelineJob을 사용하고, 데이터셋·학습 작업·모델 버전·조사 PipelineJob은 같은 프로젝트의 해시 결속 provenance graph로 이어진다. 이 폐쇄 루프가 실제 데이터로 끝나기 전에는 “영상만 넣으면 알아서 된다”거나 제품 전체가 완료되었다고 주장하지 않는다.
 
 ## 0. 현재 구현 현황
 
 이 표는 아래 목표 사양과 현재 실행 가능한 범위를 구분한다. 기능이 화면에 보인다는 이유만으로 구현 완료로 간주하지 않으며, 실제 브리지·저장소·산출물 검증을 통과한 범위만 `구현됨`으로 표시한다.
 
-| 영역 | 상태 | 2026-07-29 현재 확인된 범위 |
+| 영역 | 상태 | 2026-07-30 현재 확인된 범위 |
 |---|---|---|
 | Electron 보안 셸·로컬 브리지 | 구현됨 | renderer 격리, main process 파일 선택, loopback 브리지, 실행별 토큰, 직접 파일·쉘·COM 접근 차단 |
-| Electron 통합 UI·UX | 구현됨 | 기본 메뉴와 중첩 웹페이지형 외곽 프레임을 제거하고 Windows 네이티브 caption overlay가 있는 전체 창형 제품 셸로 통합했다. 앱은 한 설정 화면이 아니라 하나의 OS 창 안에서 `홈 → 영상 입력 → 자동 분석 진행 → 질문 라벨링 → 사건 검토 → GPS 히스토리 → 보고서 → 내보내기 → 모델 관리`의 9개 업무 화면을 전환한다. v2.14는 상단에 `업무 화면 n/9`, 좌측에 자동 점검·결과 확인·관리 그룹을 표시하고, PipelineJob의 정밀/빠른 판정값은 편집 설정처럼 보이는 토글 대신 `현재 검토 모드` 요약으로 바꿨다. 라벨링에는 영상 입력→자동 분석→질문 검토→결과 자동 갱신의 큰 흐름, 일반 사건의 정직한 GPS 상태, AI 추천 심각도 근거와 사용자 최종 심각도 분리를 지속 표시한다. 앱 번들 `SUIT Variable 2.0.5`(OFL-1.1), 절제된 blue-gray 표면, 핵심 글자 11px 이상과 1280×720 한 화면 작업 계약을 유지하며 최신 Electron 재캡처를 별도 증거로 기록한다 |
-| 로컬·UNC 영상 수집 | 구현됨 | MP4/MOV 선택, 안정성 확인, ffprobe, SHA-256, 불투명 파일 핸들, 프로젝트 등록 |
+| Electron 통합 UI·UX | 부분 구현 | 기본 메뉴와 중첩 웹페이지형 외곽 프레임을 제거하고 Windows 네이티브 caption overlay가 있는 전체 창형 제품 셸로 통합했다. 앱은 한 설정 화면이 아니라 하나의 OS 창 안에서 `홈 → 영상 입력 → 자동 분석 진행 → 질문 검토 → 사건 검토 → 지도·영상 히스토리 → 보고서 → 내보내기 → 모델 관리`의 9개 업무 화면을 전환한다. v2.16은 `업무 화면 n/9`를 제거하고 자동 점검·결과 확인·관리의 영역 breadcrumb, 현재 화면, 남은 질문을 반영한 지금 할 일을 표시한다. 프로필이 없는 새 프로젝트의 `준비 1/2 → 영상 선택 2/2` 온보딩과 기존 프로젝트의 `프로젝트 설정/변경사항 저장` 편집 모드를 분리하고 홈으로 나갈 수 있게 했다. 프로필 미설정과 로드 실패를 분리해 후자는 재시도·홈만 허용하고, 프로젝트 전환 중 이전 설정을 다른 프로젝트에 저장하지 못하도록 fail-closed 처리했다. 일반 자동 분석 화면은 영속 PipelineJob 또는 영상 가져오기 이동만 표시하며 수동 후보·dense 실행 제어는 라우트에서 격리한다. 전체 workspace를 감싸던 포커스 액자는 제목 단위 포커스와 얇은 좌측 표식으로 교체했고, 외곽의 단일 창 구조는 유지하면서 내부 shell·titlebar·주요 패널의 절제된 liquid-glass 투명도와 blur를 복구했다. 홈·분석 단계는 여러 개의 독립 카드가 아닌 하나의 평면 진행 표면으로 합쳤고, 1280×720 홈 히어로는 고정 높이 압축 대신 비축소 콘텐츠와 재배분된 높이 예산으로 글자·단계 절단을 막는다. 사용자 판단 문장은 12.5px, 기술 메타데이터는 11~11.5px 하한을 사용한다. 다만 이 소스 변경 뒤 실제 Electron 재캡처를 사용자가 중지한 상태이므로 시각 수용은 재검증 전까지 부분 구현으로 남긴다 |
+| 로컬·UNC 영상 수집 | 부분 구현 | MP4/MOV 선택, 안정성 확인, ffprobe, SHA-256, 불투명 파일 핸들과 프로젝트 등록을 구현했다. 서버 영속 folder-batch 원장, stable snapshot 재시작 복구, 지원 최상위 MP4/MOV의 결정적 파일별 enqueue와 서버 소유 결과 위치 registry를 연결했다. capacity plan v2는 단계별 category/frame/fixed-byte 예상, hard ceiling, 기본 4GiB와 누적 stage revision delta, 같은 물리 볼륨의 batch/job 예약, 재시작 예약 복구, 실제 발견량에 따른 쓰기 전 불변 replan과 `blocked_storage`/`storage_blocked` 계약을 확대 backend 194건·Electron 4건으로 검증했다. 51개 output 요구량은 `216,562,401,280 bytes`, 직렬 staging 최대치는 `17,716,740,096 bytes`이며 현재 NAS output 가용량과 E: staging 가용량은 각각 이를 충족한다. 실제 전체 batch는 용량 부족이 아니라 운영 실행·결과 위치 등록·권리 확인을 아직 하지 않아 미실행이다 |
 | URL 영상 수집 | 부분 구현 | URL 형식·기본 보안 정책 검사와 권리 확인 UI를 구현했다. 공급자 자동 분류, 원격 메타데이터 조회, 다운로드·재개·저장·프로젝트 등록은 미구현 |
-| 프로젝트 저장소 | 부분 구현 | SQLite v4에 기존 `Project`, `ImportInspection`, `Import`, `MediaAsset`, `Trip`, 완료 `AnalysisJob`, 정규 라벨·DatasetVersion과 영구 `incidents` 테이블을 함께 유지한다. JSONL 답변 감사 기록을 원본 권위로 삼아 최신 `yes`·`edit` 답변을 `incident_id=question_id`인 active Incident로 결정적으로 upsert하고, `no`·`unsure` 최신 revision은 기존 사건을 감사 정보와 함께 superseded 상태로 전환한다. 프로젝트·분석 작업 격리 API와 Review·History 재조회까지 연결했으며, 기존 JSON·SHA-256·증거 파일과 51개 완료 작업은 재작성하지 않았다. 실제 사용자 승인 Incident는 현재 0건이다. 신규 queued/running 작업, 정규 `Detection`, 모델·보고서 카탈로그는 아직 영속화하지 않았다 |
+| 프로젝트 저장소 | 부분 구현 | SQLite v4에 기존 `Project`, `ImportInspection`, `Import`, `MediaAsset`, `Trip`, 완료 `AnalysisJob`, 정규 라벨·DatasetVersion과 영구 `incidents` 테이블을 함께 유지한다. JSONL 답변 감사 기록을 원본 권위로 삼되 `materialize_analysis_job_ids`와 기본 빈 `incident_analysis_job_ids`를 분리했다. 따라서 초기 학습영상의 최신 `yes`·`edit`는 positive Annotation, `no`는 hard negative, `unsure`는 held가 되며 곧바로 Incident가 되지 않는다. Incident는 승격 모델이 학습·검증과 다른 영상에서 실행되고 전체 2fps 누락 QA·ReviewEvent·최종 사용자 완료 provenance가 검증된 경우에만 결정적으로 투영한다. 서버 소유 `output_location_id`와 path-free root binding, Provider/보고서 PipelineJob category root를 구현했다. production 분석 시작은 소유 PipelineJob의 `analysis-candidates` binding을 전달하고, 명시적 모델 학습 시작은 당시 현재 project profile에서 `project-models/<trainingJobId>` binding을 새로 캡처한다. 두 경로의 재시작 재결속·root swap·cross-scope·변조·symlink/reparse 차단은 집중 테스트를 통과했다. 남은 범위는 기존 내부 artifact의 실제 전환과 custom-root 운영 산출물이며, 실제 사용자 승인 Incident도 현재 0건이다 |
 | 실제 영상 장면 후보 추출 | 구현됨 | 공유 폴더 51개, 112,976,270,871 bytes, 56,020.015초(15.561시간)가 카탈로그와 파일명·크기 기준으로 정확히 일치한다. 장면·선명도 후보 349건과 JPEG/H.264 근거 698개를 저장했다. 영상당 최대 8프레임 제한 때문에 후보 간 평균은 160.52초이며, 이는 학습·검토용 희소 표본이지 도로 결함의 dense recall 결과가 아니다 |
-| 도로 결함·삭초·낙하물·OCR 모델 | 부분 구현 | 모델팩 스키마, 격리 worker, CLIP·ONNX 비파괴 평가, resumable dense 실행기와 review-only sidecar에 더해 alpha.9에서 고정 해시의 오프라인 ONNX Grounding DINO Tiny Q4 실행기를 번들 대상으로 구현했다. 소스 앱 경로에서 실제 완료 작업의 후보 프레임 7개를 CPU로 약 23.844초에 평가해 사용자 검토용 제안 7건을 만들었지만, 표지판·식생 객체를 찾는 것과 “식생이 표지판을 가려 삭초가 필요하다”는 관계·유지보수 판정을 신뢰성 있게 확정하는 것은 다르다. 별도 Vinoth RDD YOLOv8s intake는 349개 대표 JPEG에서 10프레임·11박스를 제안했으나 사람 확인 결과 확정 양성 0프레임, 판단 어려움 1프레임, 오탐 9프레임·10박스였고 출처·권리도 확정되지 않아 활성화·설치본 번들·재배포를 거부했다. 기존 희소 JPEG 평가와 Grounding DINO·EasyOCR 제한평가도 확정 양성 성능을 입증하지 못했다. 모든 결과는 모델 점수의 review-only 후보이며 자동 라벨·확정 사건·모델 승격으로 사용하지 않는다 |
-| 질문형 라벨링 | 부분 구현 | 실제 후보 이미지·클립과 빠른/정밀 판정, 키보드·클릭 자동 진행, 정밀 판정의 사용자 심각도 확정을 구현했다. 자연어 명령과 번들 Grounding DINO 결과는 review-only 제안이며 사용자 응답 없이 라벨·Incident·학습 데이터를 만들지 않는다. `PipelineJob` review gate는 질문 검토 완료 전 확정 투영을 차단한다. 3·4분기 HWPX 사례는 프로젝트 범위 승인 원장에서 원본 문서·인덱스·사진·구조·셀 결속 해시와 사용자 확인 revision을 검증한 뒤에만 `approved_reference`가 되며, 승인 전후 모두 Annotation·Incident는 0건이다. renderer는 새 승인 provenance를 fail-closed 파싱하고 약한 참고와 승인 사례를 구분한다. point-prompt SAM2 service·IPC·UI는 구현됐지만 현재 runtime 모델을 사용할 수 없고 실제 마스크·추적 종단은 미완료다 |
-| 프로젝트별 데이터셋·모델 | 부분 구현 | SQLite v4의 승인·음성·보류·제외 라벨 통계와 불변 `DatasetVersion` 생성·목록·해시 재사용을 구현했다. 같은 `analysis_job_id`의 표본은 train/validation으로 갈라지지 않는다. ModelScreen은 실제 bridge 통계를 읽고 현재 답변이 1건 이상일 때만 `userConfirmed=true`로 스냅샷을 만들며, 실제 답변 0건 상태에서는 스냅샷과 학습 버튼이 모두 비활성이다. GPU 학습, 유형별 고정 검증 게이트, 성능 비교, 승격·롤백은 미구현 |
-| 외부 모델·라벨 데이터 출처 | 부분 구현 | 읽기 전용 `/source-candidates`와 고정 `ProgramData\TrafficSuperVision` 증거 probe를 유지한다. 이 카탈로그 경로는 임의 탐색·다운로드·가중치 실행·라벨 생성을 하지 않는다. runtime이 `ready`가 되려면 모델명·버전·artifact SHA-256, source repository와 고정 revision, weights/runtime SPDX, 상업 이용·재배포 판단, GPU/CPU·최소 VRAM·CUDA 요구량과 Model Pack manifest SHA-256을 모두 검증해야 한다. 현재 Grounding DINO 소스팩만 이 provenance를 충족하고, SAM2·EasyOCR·PyTorch는 identity나 설치 흔적만으로 `ready`가 되지 않는다. 패키징은 runner→model manifest→artifact trust chain이 현재 소스와 일치하지 않으면 release manifest 생성 전에 실패한다 |
+| 도로 결함·삭초·낙하물·OCR 모델 | 부분 구현 | 고정 해시의 로컬 Grounding DINO, 연구용 1-class 포트홀 ONNX, 한국어·영어 EasyOCR, SAM2.1 Hiera Tiny와 LAION CLIP B/32 Model Pack을 서로 다른 역할로 검증한다. 기본 실행은 DINO·EasyOCR·SAM2·CLIP의 검토용 팩만 무결성 검증 후 사용한다. 오탐 19/19로 격리한 포트홀 연구팩은 ProgramData에 파일이 있어도 자동 활성화하지 않으며, 명시적으로 검토된 binding 없이는 전용 detector로 사용할 수 없다. 실제 v36은 전체 2fps frame 162개, 8fps 후보 frame 27개, DINO 32건, SAM2 prompt 16/mask 14, 추적 후보 12건/추적 frame 71건을 거쳐 시간축 병합 질문 7건을 만들고 각 후보에 512차원 로컬 CLIP으로 찾은 약한 사례 5건을 결속했다. 전용 프로젝트 detector 부재는 부분 실패로 기록했고 수동 spot check에서 오탐 가능성이 높아 모두 review-only로 유지했다. 이는 파이프라인 근거 전달 증거이지 한국 도로 유형별 정밀도·재현율이나 승인 Incident 증거가 아니다 |
+| 질문형 라벨링 | 부분 구현 | 실제 후보 이미지·클립과 빠른/정밀 판정, 키보드·클릭 자동 진행, 정밀 판정의 사용자 심각도 확정을 구현했다. 자연어 명령과 Grounding DINO·전용 모델·OCR·구조화 LLM 결과는 review-only 제안이다. 사용자는 직접 답하거나 프로젝트 범위에서 비긴급 학습 라벨을 구조화 LLM에 명시적으로 위임할 수 있지만 낙하물·긴급·최종 Incident는 위임하지 않는다. 초기 학습영상의 `yes/edit/no/unsure`는 각각 positive Annotation/영역수정 Annotation/hard negative/held로 투영되며 Incident·지도·최종 CSV·보고서 사실은 0을 유지한다. 3·4분기 HWPX 사례는 원본 문서·PDF 동반 렌더·사진·구조·셀 결속 해시와 사용자 확인 revision을 검증한 뒤에만 `approved_reference`가 된다. 실제 v36 질문 7건과 유사 사례 35건을 재시작 뒤 복구했지만 privacy 승인, 실제 사용자 답변, approved reference, Annotation·Incident는 0건이며 50건 사용성 시험도 미실행이다 |
+| 프로젝트별 데이터셋·모델 | 부분 구현 | 승인·음성·보류·제외 라벨 통계와 불변 `DatasetVersion`에 더해 restart-safe 프로젝트 모델 ledger를 구현했다. **현재 영상 train split의 학습 권한 확정 Annotation 100건**과 대상 유형별 고정 검증 30건 게이트를 서로 독립 집계하며, validation 멤버는 100건 train 게이트에 중복 합산하지 않는다. 동일 검증 세트의 active/candidate 비교에는 유형별 절대 재현율 80%·정밀도 50% 하한을 먼저 적용하고, 기존 대비 재현율 2%p 이상 하락·오탐 증가·중복 증가도 계속 차단한다. 명시적 학습 시작·재개·승격·거절·롤백과 artifact 재해시를 적용한다. 이 100건에는 사용자 확정 라벨과 프로젝트 범위에서 명시적으로 위임된 `structured_llm_assisted` 학습 전용 라벨만 포함한다. 사용자 승인 3·4분기 사례는 낮은 가중치 보조 seed로 DatasetVersion에 결속하되 두 게이트에는 합산하지 않는다. production trainer는 CUDA·Torch·GPU·VRAM provenance를 기록하고 CPU fallback을 거부하며, 고정 검증 실패 모델은 artifact와 사유를 보존한 `rejected`가 된다. Apache-2.0 D-FINE-small 기반 12유형 training Model Pack과 in-process adapter에 더해 hash-pinned 외부 subprocess 경계도 구현해 executable/entrypoint·manifest·DatasetVersion·고정 검증·요청·출력 safetensors를 재검증한다. 모델 artifact의 path-free external-root adapter와 production 학습 시작 경로는 source PipelineJob이 아니라 명시적 학습 클릭 시점의 project binding을 캡처한다. 실제 training-authorized Annotation·DatasetVersion·CUDA 학습·고정 검증 후보·승격 모델·별도 영상 조사는 모두 미실행이다 |
+| 외부 모델·라벨 데이터 출처 | 부분 구현 | 읽기 전용 출처 카탈로그와 고정 `ProgramData\TrafficVisson\ModelPacks` manifest를 유지하며 임의 탐색·자동 다운로드·실행 파일 수신을 하지 않는다. 현재 고정 artifact hash·source revision·SPDX·상업 이용/재배포·GPU 계약을 검증한 로컬 팩은 Grounding DINO 평가팩, LAION CLIP B/32, SAM2.1 Hiera Tiny, EasyOCR ko/en과 포트홀 연구용 ONNX다. 포트홀 연구팩과 EasyOCR은 redistribution을 비활성화한 로컬 review-only 팩이며, 설치 흔적만으로 현장 성능이나 배포 가능성을 주장하지 않는다. 패키징은 runner→model manifest→artifact trust chain이 현재 소스와 일치하지 않으면 release manifest 전에 실패한다 |
 | GPS 히스토리 | 부분 구현 | 완료 분석 작업을 Trip으로 사용해 `.gpx` 원본을 불투명 파일 선택으로 연결·교체하고, 시간대가 있는 최대 50,000개 지점을 원본 SHA-256·정규 레코드 해시·revision과 함께 프로젝트별로 저장한다. 영상 오프셋 ±24시간, 10초 초과 gap, 최대 8,000개 표시용 샘플을 검증하며 MapLibre에서 실제 경로·진행선·현재 위치·후보 위치와 영상·타임라인·사건 선택을 같은 재생 시각으로 동기화한다. gap과 GPX 시간 범위 밖에서는 좌표를 만들지 않는다. 현재 사용자 영상에는 시간대별 GPX가 없어 실제 운영 주행 재생 증거는 아직 없고, 방향 마커·도로명/주소 검증도 남아 있다 |
 | CSV·구조화 내보내기 | 구현됨 | `trafficvisson-artifact-export-v3`로 7개 CSV, `report_payload.json`, `manifest.json`과 승인 사건의 실제 근거 미디어를 검증 ZIP으로 생성한다. 정확히 선택한 분석 작업의 active·approved Incident만 대상으로 `evidence/{incident_id}/representative.jpg`와 `evidence/{incident_id}/preview.mp4`를 포함하고, 전체 원본 영상은 제외한다. GPX가 연결된 작업은 renderer 샘플과 별개로 최대 50,000개 전체 지점을 `route_points.csv`에 보존하고 manifest에 track/source/record SHA-256, offset, revision, gap·영상 범위 통계를 기록한다. GPX 미연결은 `not_attached`로 명시한다. 선택 작업 밖·비활성·미승인 후보는 확정 출력과 증거 패키지에 포함하지 않는다 |
-| 증거 미디어·비식별화 공유본 | 부분 구현 | 내부 검토용 승인 Incident JPEG·MP4의 ZIP 포함과 파일별 magic·크기·SHA-256 검증을 구현했다. 얼굴·번호판 자동 흐림과 공유용 비식별화 파생본 생성은 아직 연결되지 않았다 |
-| Codex·Claude Provider | 부분 구현 | 공식 CLI 상태·로그인 흐름·제한 데이터 보고서 생성·JSON 스키마 검사와 로컬 모델 비활성 슬롯 구현. 연결 해제·독립 사용량 API는 미구현 |
-| HWP/HWPX COM | 부분 구현 | COM 점검, 파일 선택, HWPML 요약, 텍스트·셀 편집 미리보기/적용, 별도 저장·재열기·해시·세션 롤백 코드 경로를 구현했다. 3·4분기 sample의 272개 사진을 정확한 표·셀·1~48쪽 쌍, 좌우 병합 캡션, 노선명, 점검 의견과 전체 `■` 위치에 재결속하고, 승인 사례 record/document/structure/index/binding SHA와 현재 expected value가 일치하는 `DocumentEditPlan`만 COM 전 의미 검증을 통과시킨다. 다만 이 validator는 아직 결정적 sample writer·48쪽 렌더 수용 경로와 연결되지 않았다. `HWPFrame.HwpObject` 등록 여부와 실문서 편집 성공은 다르므로 sample 원본 보존, 작업본 적용, 재열기와 48쪽 전체 렌더 종단은 여전히 미검증이다 |
-| Windows 설치본 | 부분 구현 | alpha.10 NSIS의 frozen bridge·FFmpeg·Q4 ONNX 모델팩과 서명 전 배포 경계는 역사 패키지 증거로 보존한다. v2.14 현재 소스 회귀와 시각 증거는 아래에 별도로 기록한다. 패키지 검증기는 오래된 unpacked runner trust manifest를 의도적으로 거부하므로 현재 소스를 다시 패키징하기 전에는 새 설치본이 준비됐다고 표시하지 않는다. 기존 설치본은 `NotSigned`, `development_only_not_distribution_ready`이며 별도 `HistoryMap` 947.96kB(gzip 249.38kB)의 첫 지도 진입 성능과 클린 PC 설치·업그레이드·제거 검증도 남아 있다 |
+| 증거 미디어·비식별화 공유본 | 부분 구현 | 내부 검토용 승인 Incident JPEG·MP4 ZIP, 파일별 magic·크기·SHA-256과 Provider용 후보 파생본 preparation을 구현했다. 보고서 전용 full-frame 비식별화 registry·API·IPC·검토 UI는 원본/파생본·검출 모델·redaction region·Incident/PipelineJob/AnalysisJob을 결속하고 `local_user` 승인 뒤에만 `verified_for_shared_report`를 반환한다. 실제 승인 Incident가 없어 운영 보고서 파생본 승인과 공유 패키지 종단은 미실행이다 |
+| Codex·Claude Provider | 부분 구현 | 공식 CLI 상태·로그인 흐름·제한 데이터 보고서 생성·JSON 스키마 검사와 로컬 모델 비활성 슬롯을 구현했다. 후보 6/6의 현재 영상·유사 사례 visual preparation과 최소 문맥 revision은 실제 v21b에서 검증했으나 사용자 privacy 승인 전이라 해당 재개본 CLI 호출은 0이다. 연결 해제·독립 사용량 API는 목표 계약이며 승인 Incident 기반 보고서 종단은 미실행이다 |
+| HWP/HWPX COM | 부분 구현 | 3·4분기 HWPX 원본 구조·ZIP member·표·문단·글꼴·좌우 2열 사진 슬롯을 보존하는 결정적 exact writer, 현재 Incident binder, 과거 sample 사실값 중화, 네모/사진/점검 의견 exact-address 계획, 저장 후 재열기와 48쪽 렌더 검증을 구현했다. 실제 두 sample PDF는 48쪽이며 1·24·48쪽 렌더 스모크와 페이지별 텍스트 해시를 통과했고 관련 exact writer/renderer 회귀 47건도 통과했다. 그러나 실제 사용자 승인 Incident가 0건이므로 현장 영상 결과를 넣은 COM apply·수락/거절/롤백 종단은 아직 실행하지 않는다. `HWPFrame.HwpObject` 등록과 sample 구조 테스트만으로 완성을 주장하지 않는다 |
+| Windows 설치본 | 부분 구현 | alpha.10 NSIS의 frozen bridge·FFmpeg·Q4 ONNX 모델팩과 서명 전 배포 경계는 역사 패키지 증거로 보존한다. 현재 소스에는 작은 core frozen bridge와 대형 ML 의존성을 분리하는 외부 runtime-pack loader, 오프라인 원자 설치기, frozen child-worker 재검증, Electron 최소 환경 전달과 readiness 구분을 구현했고 no-model fallback 및 모의 external-runtime frozen smoke를 통과했다. 그러나 실제 full PyTorch/CUDA runtime pack은 원본 cp39-win_amd64 wheelhouse·wheel SHA-256·패키지별 검토 SPDX/NOTICE·OpenCV headless 결정·상업 이용/재배포 승인 자료가 없어 ambient `site-packages`로 조립하지 않았다. 패키지 검증기는 오래된 unpacked runner trust manifest를 의도적으로 거부하므로 현재 소스를 다시 패키징하기 전에는 새 설치본이 준비됐다고 표시하지 않는다. 기존 설치본은 `NotSigned`, `development_only_not_distribution_ready`이며 별도 `HistoryMap` 947.96kB(gzip 249.38kB)의 첫 지도 진입 성능과 클린 PC 설치·업그레이드·제거 검증도 남아 있다 |
 
-### 0.1 v2.14 통합 변경의 정직한 경계
+### 0.1 v2.16 통합 변경의 정직한 경계
 
 - `PipelineJob`은 검지 결과가 실제 0건인 경우에만 `zero_detections` 완료 모드를 기록하고, 빈 ledger·빈 CSV·manifest의 해시를 남긴다. 모델 미설치·분석 실패·거짓 0건은 빈 성공으로 저장하지 않는다.
 - 동일 프로젝트 설정과 동일 source SHA-256 재입력은 먼저 실제 intake·SHA 검증을 수행한 뒤 canonical job을 가리키는 영속 alias를 만들며, 명시적인 새 실행 지시만 멱등 재사용을 우회한다.
 - 재시작 시 `cancelling` 작업은 `cancelled`로 마감하고 다시 큐에 넣지 않는다.
 - 3·4분기 사례의 프로젝트별 승인은 약한 참고를 사용자 확인형 `approved_reference`로만 승격한다. 이 단계는 학습 참고 자격만 부여하며 확정 Annotation·Incident를 만들지 않는다.
-- sample HWPX 의미 validator는 LLM 계획을 COM 전에 거부할 수 있지만 실제 한/글 쓰기·재열기·48쪽 전 페이지 렌더를 대신하지 않는다.
+- 현재 Pipeline profile v4는 보고서 제한 데이터 전송 동의, sample 대상 구조 맵 ID·SHA-256, Provider 준비 상태와 결과 위치를 불변 설정에 결속하며 v1~v3 checkpoint를 안전하게 이관한다.
+- 질문 검토 완료 뒤 Annotation·Incident를 같은 provenance로 투영하고 CSV·증거 패키지를 자동 재생성한다. exact sample binder가 없으면 CSV·증거 성공과 별개로 `report_preview_blocked`를 기록하며 Provider 호출·COM 호출은 각각 0이어야 한다.
+- sample HWPX validator는 대상 문서·구조·승인 reference 해시의 일치만 검증한다. 현재 Incident 내용·사진·문구가 결속됐다는 의미 검증을 주장하지 않으며, 결정적 writer·재열기·48쪽 전 페이지 렌더 전에는 실제 적용을 거부한다.
 - 모델팩 `ready`는 설치 흔적이 아니라 고정 provenance·라이선스·artifact hash·GPU 계약 검증 결과다. 오래된 package trust chain은 새 패키징 전에 실패가 정상이다.
 - Electron 한 창의 9개 업무 화면 IA와 3·4분기 참고 사례 복구는 실제 개발 Electron에서 확인한다. 실제 사용자의 현재 질문에는 답하지 않으며 답변 원장 0건을 유지한다.
 
-### 0.2 v2.14 실제 NAS PipelineJob 현재 증거
+### 0.2 v2.16 실제 NAS PipelineJob 현재 증거
 
 - 프로젝트: `11111111-1111-4111-8111-111111111111`
 - `PipelineJob`: `98282642-e5bd-42a2-98b2-04c8c2c81a6d`
 - 분석 작업: `7571e9f1-09ff-4236-aeb7-4946fca4ac0a`
 - 원본: `20250905_095953.mp4`
 - 원본 SHA-256: `020ac3d642e1b02ad1d3834a5fd98b6e24ad38de00b74262bce93e4280eb16a4`
-- 현재 상태: `awaiting_review` / `question_queue`, 92%, 질문 1건
+- 현재 상태: `awaiting_review` / `question_queue`, 질문 1건
 - GPS 경계: 시간대별 GPS와 연결된 GPX가 모두 없으므로 경로·사건 좌표를 만들지 않는다.
-- 승인 경계: 사용자 답변 0건, 확정 `Annotation` 0건, 확정 `Incident` 0건이다.
+- 무결성: 원본 sidecar SHA-256과 `PipelineJob` checkpoint 결속을 읽기 전용으로 재검증했다.
+- 승인 경계: `answers.jsonl` 없음, 사용자 답변 0건, 확정 `Annotation` 0건, 확정 `Incident` 0건, 학습 membership 0건이다.
+- 파생 산출물: 검토 전이므로 CSV·증거·보고서 미리보기를 생성하지 않았다.
 
 `PipelineJob`은 모든 durable stage checkpoint를 검사해 질문 검토 완료 전에는 답변 감사 원장만 보존하고 `Annotation`·`Incident`를 투영하지 않는다. 검토 완료 뒤에도 완료된 원본·질문 후보 provenance를 다시 검증한 **정확히 같은 analysis**만 확정 투영하며, 그때 해당 analysis의 CSV와 증거 패키지를 자동 생성한다. 다른 작업·미승인 후보·불완전 stage를 부분 성공으로 승격하지 않는다.
 
-SAM2 point refinement의 서비스·IPC·라벨링 UI 경로는 구현되어 있다. 그러나 현재 런타임 모델은 사용할 수 없고 실제 영상에서 `한 번 클릭 → 마스크 재생성·추적 → 재확인` 종단은 아직 통과하지 않았으므로 자동 분할 완료로 표시하지 않는다.
+SAM2 point refinement의 서비스·IPC·라벨링 UI와 검증된 SAM2.1 Hiera Tiny 런타임은 구현되어 있으며 단일 프레임·3프레임 추적 스모크를 통과했다. 실제 v20의 dense 후보는 `CandidateEvidenceOverlay`와 `ReviewEventSet`을 거쳐 영속 질문 증거로 결속됐다. 다만 실제 사용자의 `한 번 클릭 → SAM2 마스크 재생성·추적 → 재확인` E2E는 아직 통과하지 않았으므로 제품 종단의 영역 수정 완료로 표시하지 않는다.
 
 현재 확보된 영상에는 시간대별 GPS 트랙이 없다. 유효한 ISO 6709 좌표는 `촬영 시작 위치`로만 사용하며 후보 위치나 이동 경로로 보간하지 않는다. GPX 입력·오프셋·경로 재생 기능은 구현됐지만 실제 경로는 사용자가 시간대가 있는 GPX를 연결한 작업에서만 활성화한다.
 
@@ -155,7 +205,7 @@ SAM2 point refinement의 서비스·IPC·라벨링 UI 경로는 구현되어 있
 - 검증 환경: Windows x64, OS build 26200
 - 실행 스모크: alpha.6 clean frozen bridge에서 H.264 후보 클립 생성·재생과 `scene_fallback`을 확인했다. unpacked Electron의 창 제목·제품 아이콘·네이티브 caption·AUMID와 1280×720 자연어 recipe compile·실제 bridge ModelScreen을 확인했다. 별도 alpha.4 읽기 전용 actual-data QA에서는 동봉 bridge가 실제 완료 작업 51건·후보/질문 349건·질문 제안 43건(CLIP 24, ONNX 19)·사용자 답변 0건을 복구했고, bridge-data·라벨·sidecar·SQLite·UNC 지문은 전후 동일했다
 - 한/글 사전 점검: alpha.6 당시 registry-only opt-in preflight 1건은 통과했으며 문서나 COM 객체를 실행하지 않았다. 당시 결과는 `available=false`, `HWPFrame.HwpObject`의 `prog_id_registered=false`, `security_module_registered=true`였다. 이는 역사 기록이며, 현재 PC에는 COM이 등록돼 있다. 다만 sample 적용·재열기·48쪽 전체 렌더 종단은 현재도 미검증이다
-- 모델 상태: LAION CLIP과 peterhdd 포트홀 ONNX 개발 후보 팩은 별도 비파괴 평가와 질문 sidecar에만 사용했다. 별도 Vinoth RDD YOLOv8s intake도 349개 JPEG에서 10프레임·11박스를 제안했지만 확정 양성 0, 판단 어려움 1프레임, 오탐 9프레임·10박스였고 정확한 RDD 출처·라이선스와 YOLOv8 base-weight 권리가 불명확하다. 두 포트홀 계열 팩 모두 승격하지 않았으며 Vinoth 팩은 활성화·설치본 번들·재배포를 명시적으로 거부한다
+- 모델 상태: LAION CLIP과 peterhdd 포트홀 ONNX 개발 후보 팩은 별도 비파괴 평가와 질문 sidecar에만 사용했다. 별도 Vinoth RDD YOLOv8s intake도 349개 JPEG에서 10프레임·11박스를 제안했지만 확정 양성 0, 판단 어려움 1프레임, 오탐 9프레임·10박스였고 정확한 RDD 출처·라이선스와 YOLOv8 base-weight 권리가 불명확하다. 두 포트홀 계열 팩 모두 승격하지 않았으며 Vinoth 팩은 활성화·설치본 번들·재배포를 명시적으로 거부한다. ProgramData에 연구 팩이 남아 있어도 production bridge가 자동 활성화하지 않으며, 새 프로젝트는 DINO·OCR·SAM2 검토 후보로 시작하고 프로젝트 전용 검지기는 실제 라벨 학습·고정 검증·사용자 승격 뒤에만 사용한다
 - 배포 차단 조건: 설치본과 내부 실행 파일은 `NotSigned`; 클린 PC 설치·업그레이드·제거, 정식 아이콘·EULA·Third-Party Notices·SBOM, 지원 중인 Python 빌드 환경, 고정된 Python 의존성, FFmpeg GPL/libx264 재배포 의무, 한컴 보안 모듈, 실제 결함/OCR 모델을 검증해야 함
 
 따라서 이 산출물은 기능 확인용 개발 알파 설치본이며 외부 납품·상용 배포본이 아니다.
@@ -537,10 +587,11 @@ flowchart LR
 
 따라서 “LLM이 프레임을 보고 바로 정답 라벨을 쓰는 방식”은 채택하지 않는다. LLM은 사용자 명령을 허용 유형·고정 prompt recipe로 해석하고, Grounding DINO·전용 detector·OCR이 검토 전용 후보를 만들며, SAM2가 사용자의 클릭·박스를 마스크로 다듬는 조정 계층으로 사용된다. 외부 데이터는 별도 출처·라이선스·중복·품질 검증을 통과한 뒤에도 프로젝트 사용자 라벨과 구분한다.
 
+- Codex의 직접 시각 비교는 현재 영상 대표 crop 한 장을 보내지 않는다. 가장 가까운 실제 전 프레임, DINO 박스가 표시된 대표 프레임, SAM2 polygon을 실제로 합성한 마스크 프레임, 가장 가까운 실제 후 프레임을 결정적 2×2 PNG 한 장으로 만든다. 시간 병합 질문 ID와 SAM2 prompt ID가 다른 DINO 사건은 temporal peak와 parent/evidence/image/proposal hash를 교차 검증한 alias manifest로 결속한다. 모든 source artifact는 작업·프로젝트 범위에서 다시 해시하고, montage는 경로 없이 Provider 비식별화 서비스의 로컬 얼굴·번호판 처리와 사용자 privacy 승인으로 넘긴다. 전후 프레임·alias·마스크·artifact 해시 중 하나라도 없으면 대표 이미지 fallback이나 CLI 호출 없이 `not_run`으로 남긴다. Claude는 이미지 첨부를 주장하지 않고 메타데이터 전용으로만 표시한다.
 - 목표 결함 모델 후보는 분할 성능·라이선스·배포 가능성을 검증한 뒤 확정한다. 개인 연구용 후보로 `YOLO26s-seg`, 입력 크기 1280px를 평가한다.
 - 목표 추적기는 짧은 구간의 객체 연결을 위한 ByteTrack 계열이다.
 - 도로·차선·식생 관계는 분할 마스크로 계산한다.
-- point-prompt 기반 `InteractiveSegmenter` 서비스·IPC·라벨링 UI는 구현했다. 현재 SAM2 런타임 모델을 사용할 수 없고 실제 프레임 마스크·추적 종단을 통과하지 않았으므로 임시 박스 fallback과 완성된 SAM2 보정을 구분한다.
+- point-prompt 기반 `InteractiveSegmenter` 서비스·IPC·라벨링 UI와 검증된 SAM2.1 Hiera Tiny 런타임을 구현했다. 단일·3프레임 로컬 스모크와 PipelineJob SAM2 stage 회귀는 통과했지만 실제 dense review event와 사용자 클릭 재확인 E2E는 남아 있으므로 box 제안과 확정 mask를 계속 구분한다.
 - 한국어 이정표·터널명 OCR의 목표 후보는 PaddleOCR 한국어 인식 모델이다.
 - 얼굴·번호판 비식별화는 도로 결함 모델과 분리된 전용 검지 모델로 처리한다.
 - 학습은 PyTorch 환경, 배포 추론은 검증된 ONNX 모델을 우선 사용한다.
@@ -642,7 +693,7 @@ Ultralytics 계열은 개인 연구 단계의 초기 선택이다. 비공개 납
 - AI 예상 유형·심각도·신뢰도
 - 답변이 학습에 어떻게 반영되는지에 대한 설명
 
-현재 알파는 분석 작업별 장면 후보를 질문 단위로 제공한다. 완료 영상 51개를 선택할 수 있고 작업별 실험 제안 수를 표시하지만, 같은 실제 결함을 dense 프레임에서 추적·병합하는 사건 단위 중복 제거는 목표 기능이다. sidecar가 겹치는 5개 후보에는 최신 유효 제안 하나만 표시하며 원본 평가 provenance는 보존한다.
+현재 알파는 분석 작업별 장면 후보와 dense `ReviewEventSet` 후보를 같은 질문 계약으로 resolve한다. 실제 v20에서는 OCR+DINO 중복 이정표를 엄격한 ORB/기하 근거로 하나의 사건에 병합해 6개 ReviewEvent를 만들고 후보당 약한 유사 사례 5건을 결속했다. 이는 동일 사건 병합과 근거 overlay가 실제 pre-review 영상에서 동작한 증거지만 사용자 답변·Annotation·Incident는 0건이다. 화면에서 선택 가능한 역사적 완료 작업 51개와 현재 NAS 최상위 영상 51개의 미실행 folder batch를 혼동하지 않는다.
 
 1280×720에서는 영상 선택, AI 명령, recipe와 실행 결과, 현재 질문과 응답 조작을 같은 첫 화면에 배치한다. 화면 전체와 여러 자식 패널에 세로 스크롤을 중첩하지 않으며, 앞뒤 프레임·클립처럼 길이가 달라지는 미디어 스택 한 곳만 명확한 경계 안에서 스크롤을 소유한다.
 
@@ -745,11 +796,11 @@ alpha.8의 별도 운영자용 `evaluate_grounding_dino_candidates.py` GPU 평�
 
 ## 9. 프로젝트별 데이터셋·모델
 
-> 현재 상태: JSONL 답변 감사 원본을 SQLite v4의 질문·답변 revision·annotation·Incident로 멱등 투영하고, 현재 답변 통계와 불변 DatasetVersion 생성·목록 API를 구현했다. 최신 승인 답변의 영구 Incident와 비승인 revision의 supersession 감사 경계도 같은 프로젝트·분석 작업 계약으로 보존한다. ModelScreen은 localStorage 집계가 아니라 실제 bridge의 승인·음성·보류·제외 수치와 최신 DatasetVersion을 표시한다. 현재 사용자 답변이 0건이므로 실기동 화면의 Incident·스냅샷·DatasetVersion은 0건이고 학습 버튼은 비활성이다. GPU 학습 실행, 유형별 고정 검증 게이트, 성능 비교, 모델 승격·롤백 API는 미구현이다.
+> 현재 상태: JSONL 답변 감사 원본을 SQLite v4의 질문·답변 revision·annotation·Incident로 멱등 투영하고, 현재 답변 통계와 불변 DatasetVersion 생성·목록 API를 구현했다. 답변 원장은 최종 box, 대표 이미지 해시, 선택적 SAM2 polygon/mask/track, 사용자 또는 구조화 LLM 권한과 Provider 실행 증거를 경로 없이 hash-chain으로 보존한다. restart-safe 모델 ledger와 실제 로컬 CLIP centroid head trainer, 오프라인 로컬 D-FINE small/RT-DETR-v2 객체검지 학습 adapter, 현재 영상 학습 권한 확정 Annotation 100건·유형별 고정 검증 30건 게이트, 동일 세트 성능 비교, 명시적 승격·거절·롤백 API와 Electron UI도 연결했다. CLIP head는 보조 분류기이고 로컬 객체검지 adapter만 승인 box/negative geometry를 학습한다. 두 경로 모두 CPU fallback을 성공으로 인정하지 않는다. 공식 D-FINE small의 immutable revision·Apache-2.0·5개 artifact SHA-256을 가진 local training Model Pack을 설치하고 production `create_app()`에 우선 주입했으며 RTX A2000 12GB/CUDA 12.8에서 `ready`와 12개 표준 조사 유형 head의 실제 오프라인 로드를 확인했다. 승격 detector의 별도 영상 2fps boxed proposal과 재학습 시 기존 승격 detector의 동일 fixed-validation 재평가도 연결했다. 후속 조사에서 사용자가 놓친 장면을 선택하면 활성 모델·독립 영상·2fps index 계보를 서버가 검증하고, 기존 질문을 바꾸지 않는 delta ReviewEventSet과 의무 질문으로 다시 편입하는 false-negative 경로도 연결했다. Electron 히스토리는 후보 2~5초 클립을 누락 QA 입력으로 사용하지 않고 서버가 검증한 전체 주행 2fps JPEG를 0.5초 단위로 탐색하며, 마지막 기존 질문 뒤에도 자동 완료하지 않고 `모델 누락 장면 확인` 또는 `누락 없음 · 검토 완료`를 명시적으로 요구한다. 이 경로는 사용자 승인 전 Annotation·Incident·학습·보고서 truth를 0으로 유지한다. 다만 실제 100/30 승인 geometry가 없으므로 CUDA 학습은 아직 실행하지 않았다. 현재 사용자 답변이 0건이므로 실기동 화면의 Incident·DatasetVersion·후보 프로젝트 모델은 0건이고 학습 버튼은 정상적으로 비활성이다.
 
 ### 9.1 프로젝트 격리
 
-- 새 프로젝트는 공통 초기 모델을 복제해 시작한다.
+- 검증·배포 승인을 마친 공통 초기 모델이 있을 때만 새 프로젝트에 불변 복제한다. 현재 그런 artifact는 없으므로 DINO·OCR·SAM2와 승인 reference의 review-assist bootstrap으로 후보를 모으고, 실제 100/30 게이트를 통과해 승격한 첫 프로젝트 전용 모델이 생기기 전에는 UI도 `전용 모델 없음`으로 표시한다.
 - 한 프로젝트의 영상·라벨·데이터셋·모델은 다른 프로젝트에 자동으로 섞지 않는다.
 - 공통 모델로 데이터를 보내는 기능은 1차에 제공하지 않는다.
 - 모델과 데이터셋 파일 경로에 항상 `project_id`를 포함한다.
@@ -786,7 +837,8 @@ alpha.8의 별도 운영자용 `evaluate_grounding_dino_candidates.py` GPU 평�
 ### 9.4 재학습 시작
 
 - 사용자가 `새 모델 학습`을 눌러야 시작한다.
-- 새 확정 라벨 100건 이상일 때 버튼을 활성화한다.
+- 현재 영상의 train split에서 사용자 확정 또는 명시적으로 위임된 `structured_llm_assisted` 학습 전용 Annotation을 합쳐 100건 이상일 때 버튼을 활성화한다. validation split 멤버는 이 100건에 중복 합산하지 않는다.
+- 승인 3·4분기 reference는 보조 학습 seed로만 쓰며 이 100건과 고정 검증 30건에 합산하지 않는다.
 - 학습 대상 유형별 검증 표본 30건 이상을 요구한다.
 - 시작 전에 예상 시간, VRAM, 디스크, 클래스 불균형을 보여준다.
 - 조건이 부족하면 모델 학습 대신 추가 질문 수집을 제안한다.
@@ -795,6 +847,7 @@ alpha.8의 별도 운영자용 `evaluate_grounding_dino_candidates.py` GPU 평�
 
 - 활성 모델과 같은 검증 세트를 사용한다.
 - 사건 단위 정밀도·재현율, 중복 사건, 오탐, 클래스별 혼동을 비교한다.
+- 후보 모델은 대상 유형별 사건 재현율 80% 이상, 정밀도 50% 이상의 절대 하한을 먼저 충족해야 한다.
 - 클래스별 재현율이 2%p 이상 하락하면 자동 승격하지 않는다.
 - 중복 생성률 또는 오탐률이 증가하면 자동 승격하지 않는다.
 - 후보 모델은 활성화 전 사용자가 비교 결과를 승인한다.
@@ -1076,13 +1129,16 @@ project/
 | 한컴오피스 COM 사전 점검·사용자 파일 선택 | 코드 경로 구현, 현 PC registry-only 점검 |
 | HWP/HWPX 열기, HWPML 구조 요약, 텍스트·셀 편집 미리보기 | 코드 경로 구현, 현 PC 실문서 미검증 |
 | 사용자 수락 후 별도 파일 저장·재열기·SHA-256·세션 롤백 | 코드 경로 구현, 현 PC 실문서 미검증 |
+| exact 3·4분기 sample 대상·구조 미리보기 | 구현됨. suffix/magic/fingerprint/구조·분기별 승인 reference·일회성 hash binding 검증 |
+| 승인 Incident 내용·사진·문구·네모의 exact sample 결속 | 현재 Incident 전체를 exact page/table/row/column/photo-slot/checkbox/opinion 주소에 결속하고 미사용 과거 사실을 중립화하는 path-free `DocumentEditPlan` 및 stale sample 차단 계약 구현. 실제 승인 Incident 0건이므로 운영 결속 증거 없음 |
+| exact sample 결정적 writer·COM 적용 | exact-address writer와 구조/ZIP 재검증, 미리보기부터 적용·수락·거절·롤백까지 binding/exact/document/decision 네 해시 검증 및 Electron strict contract 구현. 실제 current-Incident 승인과 COM 호출은 미실행 |
 | 현재 열린 문서 자동 감지·기본 양식 | 미구현 |
-| 이미지·지도·표 삽입의 제품 UI 연결 | 미구현 |
+| 이미지·지도·표 삽입의 제품 UI 연결 | exact sample `DocumentEditPlan` 검토·적용 UI는 연결. 일반 사용자 양식의 자유 삽입 UI는 미구현 |
 | 한/글 변경 내용 추적·항목별 수락/거절 | 미구현 |
 | 재시작 가능한 영구 복구 저널 | 미구현 |
-| 전 페이지 렌더·누락·겹침·넘침 자동 검사 | 미구현 |
+| 전 페이지 렌더·누락·겹침·넘침 자동 검사 | renderer/validator와 sample 페이지 스모크 구현. 운영 저장본 재열기·48쪽 전체 렌더는 미실행 |
 
-아래 절차는 완성 제품의 목표 흐름이며, 현재 실제 쓰기 경로는 검증된 `fill_text`와 `fill_cell` 작업으로 제한한다.
+아래 절차는 완성 제품의 목표 흐름이다. legacy 사용자 양식의 실제 쓰기 경로는 검증된 `fill_text`와 `fill_cell` 작업으로 제한한다. exact 3·4분기 sample 경로는 결정적 writer·binder·validator의 소스 계약이 있어도 실제 승인 Incident와 현재 문서의 apply eligibility가 모두 결속되기 전에는 COM 쓰기를 차단한다.
 
 2026-07-29 읽기 전용 재점검에서 현재 개발 PC의 `HWPFrame.HwpObject`와 `HWPFrame.HwpObject.1` ProgID가 CLSID `{2291CF00-64A1-4877-A9B4-68CFE89612D6}`로 등록된 것을 확인했다. 과거 alpha.6의 미등록 기록은 당시 역사 증거로만 유지한다. COM 등록은 실행 가능성의 필요조건일 뿐이며, sample 원본을 건드리지 않는 작업본 편집, 정확한 표·네모·사진·점검 의견 위치, 저장·재열기·48쪽 전체 렌더 검증을 통과하기 전에는 HWP/HWPX 종단 완료로 간주하지 않는다.
 
@@ -1117,6 +1173,8 @@ project/
 4. 규칙 엔진이 확정 가능한 표·사진·필드를 매핑한다.
 5. 연결된 Codex·Claude가 필요한 설명문과 구조화 편집 계획을 제안한다.
 6. 스키마·대상 주소·기대값을 검증한다.
+   - exact sample은 원본 suffix/magic/fingerprint, 계획이 실제 참조한 승인 reference, 문서·계획·구조 해시를 함께 검증한다.
+   - 이 단계는 현재 Incident 내용·사진·문구가 대상 셀과 결속됐다는 뜻이 아니며, 그 결속이 없으면 미리보기 상태를 `report_preview_blocked`로 유지한다.
 7. 사용자에게 변경 위치와 내용을 미리 보여준다.
 8. 사용자가 수락한 작업만 한/글 COM으로 적용한다.
 9. 변경 내용 추적에서 수락·거절할 수 있게 한다.
@@ -1134,6 +1192,9 @@ project/
 - 표, 스타일, 문단 번호, 필드, 그림, 페이지 제어를 보존한다.
 - 실패 시 원본을 덮어쓰지 않고 작업본을 폐기한다.
 - 강제 종료 후에도 저널을 읽어 미완료 작업을 복구·폐기할 수 있게 한다.
+- 사용자 제공 `new-hwpx-master-v5-1-20260720` 스킬의 검증된 구조 편집 원칙을 참고하되 TrafficSuperVision 독립 모듈로 구현한다. XML을 문자열 전체 치환하거나 section을 재작성하지 않고 정확한 주소의 기존 `t`만 바꾸며, 제목·표·`secPr`·`ctrl`을 포함한 복합 run은 삭제하지 않는다.
+- 텍스트를 바꾼 최소 `hp:p`의 **직계** `linesegarray`만 제거해 한/글이 줄 배치를 다시 계산하게 한다. 하위 표·장식 셀 등 수정하지 않은 문단의 lineseg 캐시는 보존한다.
+- HWPX 재패키징 시 원본 ZIP member 순서·압축 방식·메타데이터를 보존하고 `mimetype`을 첫 번째 비압축 member로 유지한다. 출력 재열기 후 대상값·구조 해시와 과거 sample 문구·사진·서명·네모의 잔존 여부를 정확 주소 기준으로 전수 검사한다.
 
 ### 14.5 변경 검토
 
@@ -1150,7 +1211,7 @@ project/
 
 ## 15. Codex·Claude Provider
 
-> 현재 상태: Codex·Claude 공식 CLI 상태 확인·로그인 실행, 구조화된 최소 데이터 전송 동의, 보고서 초안·편집 계획 생성과 JSON 스키마 검사를 구현했다. 현재는 사건 JSON, 문서 구조 요약, 불투명 증거·지도 참조만 전송하며 원본 영상·이미지는 전송하지 않는다. 자동 비식별화 이미지 생성은 미구현이다. Local Model은 비활성 UI 슬롯이며 연결 해제와 독립 사용량 조회는 목표 계약이다.
+> 현재 상태: Codex·Claude 공식 CLI 상태 확인·로그인 실행, 구조화된 최소 데이터 전송 동의, 보고서 초안·편집 계획 생성과 JSON 스키마 검사를 구현했다. Provider용 시각 근거 준비는 PipelineJob·후보·유사 사례·원본/파생본 해시를 고정한 불변 preparation으로 구현했고, 사용자 privacy 확인 전에는 CLI 호출을 차단한다. 실제 v21b 재개본은 후보 6건마다 현재 영상 1장과 3·4분기 유사 사례 5장을 준비했으며 최소 320×256 문맥 revision까지 검증했지만, privacy 자동 승인은 `false`, 해당 재개본 Provider 호출은 `0`이다. 보고서용 얼굴·번호판 비식별화도 별도 registry·API·IPC·검토 UI와 계약 테스트를 구현했으며 `local_user` 확인 뒤에만 `verified_for_shared_report`가 된다. 현재 승인 Incident에 대한 실제 보고서 파생본 승인과 HWP COM 적용은 실행하지 않았다. Local Model은 비활성 UI 슬롯이며 연결 해제와 독립 사용량 조회는 목표 계약이다.
 
 ### 15.1 1차 Provider
 
@@ -1232,7 +1293,7 @@ project/
 - 유형별 진행률
 - 고급 라벨 편집기
 
-현재 alpha.10은 완료 영상 51개를 한 화면에서 선택하고 작업별 AI 제안 수를 확인하며, 제안이 있는 다음 영상으로 이동하는 흐름까지 구현했다. 제안 수 조회는 6개 작업씩 제한해 renderer가 51개 API 요청을 동시에 만들지 않는다. alpha.9에서 도입한 자연어 명령 작업대는 고정 recipe, 실행 동의, 번들 ONNX 추론 진행, 새 로컬 제안·검증 캐시·실행 불가 출처, review-only 결과와 `first_match` 이동을 alpha.10에서도 구분해 보여준다. 사용자 답변 0건인 현재 상태에서 어떤 제안도 승인 라벨·Incident·학습 데이터로 표시하지 않는다.
+현재 alpha.10은 당시 복구된 완료 작업 51개를 한 화면에서 선택하고 작업별 AI 제안 수를 확인하며, 제안이 있는 다음 영상으로 이동하는 흐름까지 구현했다. 이 역사적 51개 완료 작업은 2026-07-30에 읽기 전용 inventory만 수행한 현재 NAS 최상위 영상 51개의 folder batch 실행 증거가 아니다. 제안 수 조회는 6개 작업씩 제한해 renderer가 51개 API 요청을 동시에 만들지 않는다. alpha.9에서 도입한 자연어 명령 작업대는 고정 recipe, 실행 동의, 번들 ONNX 추론 진행, 새 로컬 제안·검증 캐시·실행 불가 출처, review-only 결과와 `first_match` 이동을 alpha.10에서도 구분해 보여준다. 사용자 답변 0건인 현재 상태에서 어떤 제안도 승인 라벨·Incident·학습 데이터로 표시하지 않는다.
 
 ### 16.4 분석
 
@@ -1261,7 +1322,7 @@ project/
 - 활성·후보 모델 성능 비교
 - 승격·거부·롤백
 
-현재 화면은 실제 bridge의 프로젝트 라벨 통계와 DatasetVersion 목록을 읽는다. 승인·음성·보류·제외·검증 표본과 최신 스냅샷을 표시하며 원시 UUID 대신 선택 프로젝트의 격리 상태를 설명한다. `current_answer_count > 0`일 때만 사용자의 클릭으로 `userConfirmed=true` DatasetVersion 생성 요청을 보낼 수 있다. 학습 실행은 아직 연결하지 않아 버튼을 항상 비활성으로 유지한다.
+현재 화면은 실제 bridge의 프로젝트 라벨 통계와 DatasetVersion·학습 작업·활성/후보/이전 모델 원장을 읽는다. 승인·음성·보류·제외·검증 표본과 최신 스냅샷을 표시하며 원시 UUID나 파일 경로 대신 선택 프로젝트의 격리 상태를 설명한다. `current_answer_count > 0`일 때만 사용자의 클릭으로 `userConfirmed=true` DatasetVersion 생성 요청을 보낼 수 있고, 현재 영상의 사용자 확정 및 명시 위임 `structured_llm_assisted` 학습 전용 Annotation 합계 100건과 대상 유형별 사용자 확정 고정 검증 30건을 서버가 다시 확인해야 명시적 학습 시작 버튼이 활성화된다. 승인 3·4분기 reference는 낮은 가중치 보조 seed로 표시하되 두 게이트에는 합산하지 않는다. 학습이 끝나도 자동 승격하지 않으며 같은 고정 검증 세트의 기존 활성 모델 비교를 통과한 후보만 사용자가 승격·거절·롤백할 수 있다. 실제 사용자 답변과 기준을 충족한 DatasetVersion이 아직 없으므로 현재 실데이터 화면에서 버튼이 비활성인 것은 미연결이 아니라 학습 게이트를 정직하게 반영한 상태다.
 
 ### 16.7 GPS 히스토리
 
@@ -1407,6 +1468,14 @@ TrafficSuperVision/
 ```
 
 `superkorea` 저장소를 런타임 의존성이나 import 경로로 사용하지 않는다.
+
+### 18.1 프로젝트 결과 저장소와 작업별 artifact 경계
+
+- 프로젝트의 결과 위치는 renderer가 전달한 실제 경로가 아니라 서버가 등록·해시 검증한 `output_location_id`로 선택한다. API·IPC·작업 원장에는 실제 선택 경로를 반환하지 않고 path-free binding과 root identity만 남긴다.
+- 네트워크 폴더 입력은 stable snapshot으로 고정한 최상위 MP4/MOV를 결정적 순서로 검증하고 파일당 하나의 PipelineJob을 만드는 계약을 구현했다. capacity plan v2는 파일별 단계/category/frame/fixed-byte 예상과 hard ceiling을 합산하고, 기본 4GiB와 단계별 상향 revision의 **누적 양수 delta**, 같은 물리 볼륨의 다른 batch/job 예약까지 비교한다. 상향 revision을 수락할 때 남은 공유 headroom을 같은 값만큼 차감해 이중 계산 없이 다음 stage를 preflight한다. 실제 후보·Provider·derived 수가 계획을 넘으면 쓰기 전에 해시된 불변 same-volume revision을 저장하며, hard ceiling 또는 가용량을 넘으면 차단한다. 모델 학습과 HWP COM·48쪽 렌더는 별도 capacity preflight다.
+- Provider 시각 근거와 보고서 비식별화 파생본은 선택 프로젝트 저장소의 PipelineJob별 category root에 결속하는 production 경로가 연결돼 있다.
+- 분석 JPEG·MP4·manifest의 `analysis-candidates` root는 **소유 PipelineJob ID**, 프로젝트 모델의 `project-models` root는 **명시적 학습 시작 시 새로 캡처한 training job ID**를 소유자로 사용하는 서비스 계약과 집중 테스트를 구현했다. 모델 저장 위치는 source PipelineJob의 과거 binding을 재사용하지 않는다.
+- 분석·모델의 외부 root locator는 production 분석 시작과 명시적 모델 학습 시작 경로에 결속됐다. 재시작 후 재결속, root identity·manifest 재해시, root swap·cross-project·symlink/reparse 거부와 legacy 내부 저장 읽기도 검증했다. 다만 기존 artifact의 실제 전환, custom-root 운영 산출물과 현재 NAS 51개 전체 batch는 아직 실행하지 않았다.
 
 ---
 
@@ -1651,11 +1720,37 @@ alpha.9의 마지막 완결 패키지 확인도 역사 기록으로 다음과 �
 - Vinoth RDD intake는 349개 JPEG에서 10프레임·11박스를 제안했으나 확정 양성 0, 판단 어려움 1프레임, 오탐 9프레임·10박스였고 활성화·설치본 번들·재배포를 거부함
 - **PASSED — final-suit-p2 UI 시각 감사:** [`qa/aaa-continuation-20260729/final-suit-p2-audit.md`](qa/aaa-continuation-20260729/final-suit-p2-audit.md)에서 P0 0건·P1 0건·P2 0건으로 판정했다. 실제 Electron의 1280×720 DPR 1.0, Windows 최소 창 반올림이 적용된 1282×722 DPR 1.25, 1600×900 DPR 1.0에서 라벨링 안전 문구·정책값 고아행·11.5px 증거 메타데이터/검지 오버레이·History 하단 독립 스크롤의 마지막 사건과 provenance 도달성을 확인했다
 - **v2.13 post-fix UI 재감사:** `qa/visual-reaudit-20260729/`의 Home·Labeling·Report 실화면과 참조 결합본 6개에서 P0 0건·P1 0건·P2 0건이다. 다만 1280×720 live pixel 재캡처, 정밀 판정의 심각도 선택 상태, OCR 관측이 실제로 존재하는 카드 상태는 P3 증거 공백으로 남는다
-- **v2.14 단일 창 IA 실기동 재검증:** `qa/ia-confusion-20260729/`에 변경 전 Electron, 실제 1282×721 개발 Electron과 유일한 참조 결합본을 보존했다. 한 창 안의 9개 업무 화면, `업무 화면 4/9`, 자동 파이프라인 4단계, 현재 검토 모드, 일반 질문 GPS 상태, AI 심각도 추천 경계, 3·4분기 유사 사례 4건과 Y/N/U/E가 문서 스크롤 없이 함께 보인다
-- **v2.14 현재 소스 회귀:** renderer 156/156, Electron 80/80, Python bridge 640 passed·2 skipped, domain 10/10, vision-runner 20/20, release 9/9, Sites 4/4, TypeScript typecheck와 Vite production build passed
+- **v2.16 단일 창 IA 경계:** `qa/ia-confusion-20260729/`에는 이전 1282×721 개발 Electron과 유일한 참조 결합본이 있다. 최신 소스는 업무 영역·현재 화면·지금 할 일 breadcrumb, 새 프로젝트 1/2 온보딩과 기존 설정 편집 분리, 자동 PipelineJob 전용 분석 경로, 제목 단위 포커스, 절제된 내부 liquid glass, 평면 진행 단계와 1280×720 질문 카드 높이 예산을 추가로 고쳤다. 사용자가 화면 제어를 중지한 뒤에는 최신 코드를 실제 Electron으로 다시 캡처하지 않았으므로 소스 회귀 통과를 새 시각 수용 증거로 대신하지 않는다
 - **P3 성능 경계:** `HistoryScreen` 초기 청크는 22.28kB(gzip 7.60kB)로 분리됐고, 지도를 열 때 lazy-load되는 `HistoryMap` 청크 947.96kB(gzip 249.38kB)가 Vite 500kB 경고를 남긴다. 초기 화면 성능 회귀는 해소했지만 저사양 현장 PC의 첫 지도 진입 시간은 별도 측정해야 한다
 
 이 수치는 앱 버튼이 실제 로컬 ONNX 추론을 시작하고 검토 전용 제안을 가져오는 연결 및 현재 소스·패키지 회귀를 검증한다. GPU 학습·승격, 실제 운영 GPX 수용, 한/글 COM 실문서 종단이나 도로 결함 정밀도·재현율을 통과했다는 뜻은 아니다. 실제 사용자 승인 라벨·Incident는 0건이다.
+
+### 21.10 2026-07-30 실제 영상·증거·저장 경계
+
+- `sample/`의 3·4분기 HWPX/PDF는 3분기 123건, 4분기 149건, 합계 272건의 사진·캡션·노선·점검 의견·문서 구조·PDF 페이지 결속을 통과했다. 모두 `weak_unconfirmed`이며 실제 사용자 승인 reference와 학습 승격은 `0`건이다.
+- 실제 원본 4개의 SHA-256을 다시 확인해 3·4분기 각각 48쪽·24 page-pair·72 table의 불변 sample-template attestation으로 고정했고 North Star verifier가 기본 4분기 양식 ID와 문서 해시를 읽는다. 이는 정확한 양식 계약의 감사 증거일 뿐 `approved_reference` 사용자 승인이 아니다.
+- 사용자가 사례를 `approved_reference`로 확정하면 DatasetVersion은 분기, 문서명·문서/사진 SHA-256·사진 크기, section/picture/table/cell ID와 행·열, 점검/사진 페이지, 사진 슬롯, semantic cell 4개, 네모·평가 마커 대상, 원래 캡션·노선·점검 의견을 `source_address_sha256`과 `approved_reference_member_sha256`으로 직접 동결한다. TrainingJob의 lower-weight auxiliary seed는 이 스냅샷을 그대로 재검증하며 주소 변조·stale 승인 revision·cross-project·중복 사진 SHA를 fail closed한다. 승인 reference는 현재 영상 TRAIN 100건과 유형별 fixed validation 30건에 합산하지 않는다.
+- 실제 `20250916_123653.mp4` v20은 2fps dense frame 162개, 후보 구간 8fps frame 27개, DINO prediction 32건, SAM2 prompt 16건/mask 14건을 거쳐 OCR+DINO 중복 이정표를 엄격한 기하 근거로 병합했다. 최종 ReviewEvent 6건과 후보당 약한 유사 사례 5건을 불변 evidence overlay/`ReviewEventSet`에 결속했으며 approved reference·확정 truth는 `0`건이다.
+- 실제 330.026초 `천안논산 논산방향.mp4`는 659개 2fps frame을 잘림 없이 만들고 48개 8fps frame, DINO 64, SAM2 mask 11/추적 frame 68, 최종 질문 17건과 유사 사례 85건을 거쳐 `awaiting_review`에 도달했다. 해당 실행은 seed 합집합 P0 수정 전이므로 초기 후보 recall 개선의 증거로 사용하지 않는다.
+- seed 합집합과 ReviewEventSet 계보를 수정한 뒤 실제 13.783초 `20250905_122849.mp4` v38은 dense detector/OCR 후보 0건이어도 non-classifying scene seed 1건을 버리지 않고 8fps 8frame→DINO 1→SAM2 mask 1/추적 frame 6→ReviewEvent/질문 1→약한 사례 5건으로 이어져 `awaiting_review/success`와 재시작 load 1/reject 0을 통과했다. Provider 호출과 승인 전 Annotation·Incident·training/report truth는 모두 0이다. 이 증거는 질문 후보 recall 경로의 실행 증거이며 도로 결함 정답이나 전용 모델 성능 증거가 아니다.
+- 위 v38 대표 근거 이미지(SHA-256 `02bfbe66c6056d60ba9017b973b4fb360946c885cdbc8a13e29f1c9608f4ce5d`)를 로컬에서 직접 확인한 결과 화면이 심하게 흐려지거나 가려져 도로·표지판·유지보수 결함을 판정할 수 없었다. 이를 `likely_false_positive_unusable_obscured_frame` QA 관찰로만 기록하고 Annotation·Incident는 만들지 않았다. 질문 큐 도달과 검지 정확도를 분리하고, 독립 영상의 오탐·미탐을 다음 DatasetVersion으로 되돌리는 반복 QA를 완료 기준으로 유지한다.
+- 실제 visual-quality v40은 `20250905_122849.mp4`의 연속 비도로/판정불가 근거를 `unusable_visual_evidence`로 종료했다. 2fps 28frame과 5~10fps 재분석 40frame 중 지속 비도로 window 3/3을 차단하고 DINO·SAM2·Provider·질문·Annotation·Incident·보고서 truth를 모두 0으로 유지했다. 이는 모델 실패나 0건 검지가 아니라 입력 근거 품질 차단 상태다.
+- 이어 실제 2.809522초 `20250905_095953.mp4` v41 최종 실행은 2fps 6frame→8fps window 1/22frame→품질 평가 7/선별 3→DINO 3→SAM2 prompt/mask 3, 추적 후보 2/추적 frame 6→시간축 사건 1→약한 유사 사례 5→질문 1로 `awaiting_review/success`에 도달했다. proof JSON SHA-256은 `821ef9ecb40bd41b004751a9d431832fe09be5dbc570b11ef80425e91d85845c`이며 재시작 load 1/reject 0과 동일 입력 멱등 재사용을 확인했다. 구조화 Provider는 설정되지 않아 호출 0이고 승인 전 Annotation·Incident·training/report truth는 모두 0이다.
+- v41 질문은 `median_barrier_damage` 검토 후보였지만 대표 이미지 SHA-256 `908480880225bab3e9616b4711682aff1c4abc90e4d428b93a195aa7e366679d`의 로컬 육안 QA에서는 일반 교차로 장면에 가까워 중앙분리대 파손 근거가 보이지 않았다. 따라서 이를 확정 결함이 아니라 잠재 false-positive 질문으로만 유지한다. 사용자가 `아니오`로 확정하면 다음 DatasetVersion의 hard negative가 될 수 있으나, 사용자 답변이나 명시적 LLM 학습 위임 없이 Annotation으로 만들지 않는다.
+- 최신 v42는 실제 330.026초 `천안논산 논산방향.mp4`를 잘림 없는 2fps 659frame→24개 후보 창의 8fps 392frame→품질 평가 168/선택 근거 67→review-only DINO 86→SAM2 mask 16/추적 frame 28→시간 병합 56질문→약한 3·4분기 유사 사례 280건으로 연결했다. 같은 Job의 재시작 load 1/reject 0과 Job 개수 1→1 멱등 재생을 통과했고 최종 proof SHA-256은 `38d1738e2513c017e17f59d2de790bdcc496547833f3676f20cee1dbd7a2fbca`다. 질문 큐의 O(N²) evidence 반복 읽기는 overlay load 1회·ReviewEvent resolver 1회·item resolver 0회의 fail-closed 원자 batch로 교체했으며 집중 회귀 `134 passed`를 통과했다.
+- 그러나 v42의 승인 reference는 0건이고 전용 프로젝트 detector는 `local_vision_inference_failed`로 결과 0건이며, 구조화 비전 LLM은 Provider 미설정으로 56건 모두 미실행이다. DINO 유형별 육안 표본에서 정상 중앙분리대·차량 부위·노면 화살표를 파손/낙하물로 잡은 오탐 가능성이 높았고, 별도 dense OCR의 `세종`·`전주` 후보만 실제 표지판 글자와 일치했다. 따라서 56건은 낮은 정밀도의 review-only 질문 큐이지 모델 생성·Incident·도로조사 완료 증거가 아니다. 사용자 답변·Annotation·Incident·학습 membership·보고서 truth는 모두 0건이다.
+- 실제 추가 TRAIN 후보 `천안논산 천안방향 논산시점.mp4` v43은 450.723초 원본 전체를 2fps 901frame→41개 후보 창의 8fps 771frame→품질 평가 287/선택 근거 120→review-only DINO 220→SAM2 prompt 233/mask 206, 15개 batch·추적 후보 125/추적 frame 384→시간 병합 143질문으로 연결했다. 첫 실행은 143사건의 유사 사례를 중복 저장해 2MiB 작업 레코드 상한을 넘었고 worker가 죽은 뒤 상태가 `running`으로 남는 실제 P0를 드러냈다. 완료 checkpoint를 보존한 채 실패 프로세스만 종료하고, 로컬 CLIP을 계산 식별자에 포함된 고정폭 8 CUDA batch로 바꾸고 전체 사건을 `[128, 15]`로 처리했다. 카드당 약한 사례 3건만 필요한 주소·문구·점수와 함께 저장하고 중복 flattened 목록을 제거했으며, 작업 레코드는 유한 8MiB 상한과 64KiB 실패 reserve를 갖는다. 초과 시 `pipeline_record_too_large`의 hash-bound 실패를 저장하고 worker·재시작 복구를 유지한다.
+- 같은 v43 Job `be9d9071-d0c6-4b48-923d-d6b3b997b3d7`은 upstream을 재계산하지 않고 `similar_case_search` 2번째 시도부터 복구해 143/143사건과 3·4분기 약한 사례 429건을 결속하고 `awaiting_review/success`에 도달했다. 새 인덱스 manifest SHA-256은 `1c908b01fcb4936b54c2c693ebfd8f01d69cde9fde4d3088d6f9d9bc96a3cd8a`, 최종 compact proof SHA-256은 `d0b39bdf322321f2c658a691e8f6b2bcd5eb2059f67bc71359d3411f8065d98b`이며 restart load 1/reject 0과 `recovered_after_restart=true`를 확인했다. 실제 RTX A2000에서 고정폭 8의 단독·혼합·역순 입력 결과가 8/8 raw-bit exact였고 peak CUDA allocation은 335,005,696 bytes였다. Provider는 `none`이므로 구조화 LLM 143건은 모두 `not_run`, CLI 호출 0이다. 승인 reference·답변·Annotation·Incident·학습 membership·보고서 truth도 모두 0이므로 이는 두 번째 TRAIN 질문 풀의 실행 증거이지 DatasetVersion·모델 생성·도로조사 완료가 아니다.
+- 동일 원본 v21b는 후보 6/6의 Provider 시각 근거를 준비하고 최소 320×256 문맥 revision, BMP→검증 PNG 파생, GET/list/restart 복구를 확인했다. 큰 자동 번호판 가림 후보가 남아 `human_review_required=true`이며, privacy 승인 `false`, 해당 재개본 Provider 호출 `0`, Annotation·Incident `0`을 유지한다.
+- 프로젝트 범위 구조화 LLM 학습 위임은 v4 프로필의 `Codex` 또는 `Claude` 선택과 명시적 전송 동의가 동시에 있어야 한다. 실제 제안 Provider가 선택값과 다르거나 검토 완료된 비식별 시각 근거가 4~6장 없으면 학습 Annotation을 만들지 않고 사람 질문으로 돌린다. 구조화 JSON의 review-only·Incident/보고서 금지 플래그를 소비 시점에 다시 검사하며 낙하물·긴급 후보는 언제나 사용자 확인을 요구한다.
+- DatasetVersion은 승격 모델의 immutable fixed-validation AnalysisJob을 다음 반복 QA 버전에 상속한다. 새 독립 survey의 FP/FN Annotation은 우발적으로 validation으로 재배정되지 않고 train으로만 들어가며, 기존 fixed set 누락·변경 또는 TRAIN과 질문·source·candidate·대표/추적 이미지·mask/proposal hash가 겹치면 GPU trainer와 staging artifact 생성 전에 fail closed한다.
+- 현재 Annotation→DatasetVersion→비동기 CUDA TrainingJob→ModelVersion 구간은 프로젝트·PipelineJob·AnalysisJob·ReviewEventSet/Event·질문·source/candidate/image/mask/proposal·최종 답변/위임 권한의 canonical provenance graph와 root SHA-256으로 결속한다. lineage가 없는 과거 라벨은 감사에는 남기되 `training_authorized=false`로 새 DatasetVersion 진입을 차단하고, cross-project·cross-job·stale revision·TRAIN↔fixed-validation overlap은 trainer 호출 전에 거부한다. 승격 모델을 새 PipelineJob에서 사용할 때는 작업 시작 시점의 정확한 ModelVersion·DatasetVersion·artifact·fixed validation·dataset provenance graph binding을 입력 fingerprint에 고정해 중간 승격 변경을 조용히 소비하지 않는다.
+- 새로운 도로 문제 유형을 검증 범위에 넣을 때 기존 고정 검증 세트를 자동 변경하지 않는다. 부모 버전·membership/validation hash·추가 유형·추가 validation AnalysisJob을 결속한 별도 사용자 승인과 새 유형별 사용자 확정 양성 30건을 요구하고, 기존 truth 보존·중복 증거 금지를 통과한 경우에만 immutable 자식 validation-set 버전을 만든다. 이 버전은 TrainingJob·ModelVersion·artifact manifest에 함께 결속한다.
+- 후보 승격은 유형별 사건 재현율 0.80·정밀도 0.50 절대 하한과 기존 모델 대비 재현율 2%p 하락·오탐·중복 증가 차단을 모두 만족해야 한다. 100건 게이트는 current-video TRAIN Annotation만, 유형별 30건은 독립 validation만 세며 historical approved reference는 둘 다에 합산하지 않는다.
+- 보고서 전용 비식별화 registry는 원본 JPEG/MP4·파생본·검출 모델·redaction region·Incident/PipelineJob/AnalysisJob 해시 결속과 `local_user` 승인 경계를 서비스·API·IPC·renderer 계약 테스트로 검증했다. 실제 승인 Incident가 없으므로 운영 보고서용 `verified_for_shared_report` 파생본, HWPX 사실 결속과 COM 적용 증거는 아직 없다.
+- exact report application record는 draft의 `render_binding_sha256`을 영속 보존하고 48쪽 validator의 `binding_manifest_sha256`이 다르면 `render_validation_binding_conflict`로 HWPX·PDF·PNG를 모두 롤백한다. 실제 승인 Incident가 0이므로 이 fail-closed 계약과 sample copy-render 회귀를 실제 COM 적용 완료로 간주하지 않는다.
+- 프로젝트 저장소 registry, stable folder snapshot, capacity plan v2의 단계별 예상·hard ceiling·누적 stage-delta 안전 여유·같은 물리 볼륨 예약·재시작 복구·쓰기 전 불변 replan, `blocked_storage`, path-free 작업 binding과 외부 root 무결성 검사는 확대 backend 194건과 Electron supervisor 4건 회귀에서 통과했다. NAS 최상위 51개의 output 요구량은 예상 artifact `144,792,092,672 bytes` + 공유 누적 안전 여유 `71,770,308,608 bytes` = `216,562,401,280 bytes`(`201.689453 GiB`)다. NAS 가용 `2,008,195,579,904 bytes`는 충분하다. 직렬 dense staging 최대치는 `17,716,740,096 bytes`이며 앱 관리 E: staging 가용 `35,516,665,856 bytes`도 충분하다. 전체 folder batch와 질문 순회는 용량 부족이 아니라 실제 운영 분석 실행·결과 위치 등록·권리 확인을 아직 하지 않아 미실행이다.
+- 따라서 현재 실제 미실행 항목은 `approved_reference`, v42·v43 질문의 사용자 확정 또는 명시 위임 training Annotation, 그 멤버로 만든 DatasetVersion, CUDA 후보 모델 학습, 고정 검증 비교, 사용자 승격·롤백, 승격 모델의 별도 실제 영상 조사, 사용자 승인 Incident, timed GPS 지도 재생, HWP COM 적용·재열기·48쪽 전체 렌더다. v42 56건과 v43 143건, 합계 199건의 CandidateProposal은 학습 라벨 수로 세지 않는다.
 
 ---
 
@@ -1705,7 +1800,7 @@ alpha.9의 마지막 완결 패키지 확인도 역사 기록으로 다음과 �
 
 완료 조건: 비전문 사용자가 50건을 처리하고 유효 annotation을 생성한다.
 
-현재 진척: 실제 bridge 질문 GET과 빠른/정밀 판정 UI, 키보드·클릭 자동 진행, 정밀 판정의 사용자 심각도 확정, review-only Grounding DINO 제안을 연결했다. point-prompt SAM2 service·IPC·UI 경로도 구현했지만 runtime 모델을 사용할 수 없어 실제 마스크·추적 종단은 미완료다. 실제 NAS PipelineJob은 질문 1건 대기, 사용자 답변·Annotation·Incident 0건이며 50건 사용성 시험과 한국 도로 성능 검증이 남아 있어 M3 완료가 아니다.
+현재 진척: 실제 bridge 질문 GET과 빠른/정밀 판정 UI, 키보드·클릭 자동 진행, 정밀 판정의 사용자 심각도 확정, review-only Grounding DINO·별도 EasyOCR·구조화 LLM 제안을 연결했다. 실제 v20의 162개 dense frame→27개 후보 frame→DINO 32→SAM2 mask 14→ReviewEvent 6, 330초 장영상의 659개 dense frame→질문 17, seed recall 수정 뒤 v38의 dense OCR 0+scene seed 1→8fps 8frame→DINO/SAM2/질문 1을 각각 불변 evidence/`ReviewEventSet`과 재시작 복구로 확인했다. v21b에서는 후보별 현재 영상 1장+약한 사례 5장의 Provider preparation과 최소 문맥 revision·재시작 복구까지 확인했다. 다만 privacy 승인, 사용자 답변, approved reference, Annotation·Incident는 0건이며 50건 사용성 시험과 한국 도로 성능 검증이 남아 있어 M3 완료가 아니다.
 
 ### M4 - 핵심 도로 검지
 
@@ -1751,7 +1846,7 @@ alpha.9의 마지막 완결 패키지 확인도 역사 기록으로 다음과 �
 
 완료 조건: 프로젝트 A 모델이 B 데이터 없이 독립 학습·복구된다.
 
-현재 진척: SQLite v4의 정규 라벨·Incident projection, 프로젝트별 최신 답변 통계, 분석 작업 단위 train/validation split, 해시 기반 불변 DatasetVersion 생성·재사용·목록, 프로젝트 경계와 외래키·불변 trigger를 구현했다. ModelScreen도 실제 bridge 통계와 스냅샷 API로 전환했다. 현재 사용자 답변·DatasetVersion·Incident는 0건이어서 스냅샷은 비활성이고, GPU 학습·후보 모델 평가·승격·롤백은 아직 연결하지 않았다. 따라서 M7 완료가 아니다.
+현재 진척: SQLite v4의 정규 라벨·Incident projection, 프로젝트별 최신 답변 통계, 분석 작업 단위 train/validation split, 해시 기반 불변 DatasetVersion과 restart-safe 모델·학습 job ledger를 구현했다. 서버는 DatasetVersion과 현재 승인 라벨을 직접 resolve해 학습 요청을 만들며 renderer가 원시 라벨·참조·artifact 경로·trainer 인수를 주입하지 못한다. 실제 로컬 CLIP centroid head는 보조 분류를, 새 로컬 D-FINE small/RT-DETR-v2 adapter는 승인 box/negative geometry의 객체검지 학습·고정검증 mAP/recall/중복/오탐 평가를 담당한다. 모델팩은 모델명·revision·라이선스·SHA-256·CUDA/VRAM 조건을 검증하고 네트워크 다운로드·Hub token·원격 코드를 사용하지 않는다. 공식 D-FINE small revision `f79e65b5fbb33ceb9d3ebba042955d7410c608f8` Model Pack을 설치했고 manifest SHA-256 `99970dec28149975dcd0c7869c6a62f2fd65bfb11e8bce052e3a4727ee13816b` 및 RTX A2000/CUDA runtime `ready`를 확인했다. COCO 80-class head를 활성 모델로 잘못 비교하지 않고 프로젝트 12-class head만 재초기화하며, 재학습 때는 기존 승격 detector를 같은 fixed validation에서 다시 평가한다. 실제 학습 100건과 유형별 고정 검증 30건이 없으므로 GPU 학습은 미실행이다. 승격 모델의 새 영상 2fps 검지→ReviewEvent→질문 연결은 소스·테스트에서 완료했지만, 별도 실제 영상과 누락 사건 추가 QA까지 통과하기 전에는 M7 완료가 아니다.
 
 ### M8 - GPS 증거 히스토리
 
@@ -1773,7 +1868,7 @@ alpha.9의 마지막 완결 패키지 확인도 역사 기록으로 다음과 �
 
 완료 조건: AI 원본과 사용자 확정 결과를 모두 재현한다.
 
-현재 진척: `trafficvisson-artifact-export-v3`가 선택 작업의 최신 실험 제안과 점수 의미·승인 경계·모델/데이터셋/평가/이미지 provenance를 원시 CSV와 manifest에 보존한다. active·approved·exact-analysis-job Incident만 `evidence/{incident_id}/representative.jpg`와 `preview.mp4` 두 파일로 포함하고 전체 원본 영상, 비활성·타 작업·미승인 근거는 제외한다. GPX 연결 시 renderer의 8,000점 표시 샘플과 분리해 최대 50,000개 전체 지점을 `route_points.csv`에 내보내며 원본·정규 레코드 해시, offset, revision, gap·영상 범위 통계를 manifest에 기록한다. 파일별 magic·크기·SHA-256과 사건·답변 revision·감사 해시 연결을 검증했다. 실제 운영 데이터의 승인 Incident와 GPX는 0건이며 얼굴·번호판 비식별화 공유 파생본은 아직 미구현이다.
+현재 진척: `trafficvisson-artifact-export-v3`가 선택 작업의 최신 실험 제안과 점수 의미·승인 경계·모델/데이터셋/평가/이미지 provenance를 원시 CSV와 manifest에 보존한다. active·approved·exact-analysis-job Incident만 `evidence/{incident_id}/representative.jpg`와 `preview.mp4` 두 파일로 포함하고 전체 원본 영상, 비활성·타 작업·미승인 근거는 제외한다. GPX 연결 시 renderer의 8,000점 표시 샘플과 분리해 최대 50,000개 전체 지점을 `route_points.csv`에 내보내며 원본·정규 레코드 해시, offset, revision, gap·영상 범위 통계를 manifest에 기록한다. 파일별 magic·크기·SHA-256과 사건·답변 revision·감사 해시 연결을 검증했다. Provider용 후보 파생본과 보고서 전용 얼굴·번호판 비식별화 파생본은 서로 다른 불변 registry로 구현했고, 후자는 원본/파생본·검출 모델·redaction region·Incident/PipelineJob/AnalysisJob 결속, 사용자 승인·거절, 재시작, 변조·cross-job·symlink/reparse 거부를 계약 테스트했다. 실제 운영 승인 Incident와 timed GPX는 0건이며 실제 보고서 공유 파생본의 `local_user` 승인도 실행하지 않았다.
 
 ### M10 - Codex·Claude와 HWP/HWPX
 
@@ -1785,6 +1880,8 @@ alpha.9의 마지막 완결 패키지 확인도 역사 기록으로 다음과 �
 - 저장·전 페이지 검증
 
 완료 조건: 기본·사용자 양식에 실제 사건·지도·사진을 넣고 검증된 HWP/HWPX를 생성한다.
+
+현재 진척: Codex·Claude CLI 상태와 구조화 출력 계약, Provider 시각 근거의 사용자 privacy 승인 경계, 보고서 전용 비식별화 검토 UI, sample exact-address preview·현재 Incident binder·결정적 HWPX writer·재열기/렌더 validator의 소스 계약을 구현했다. current-Incident 전체를 path-free `DocumentEditPlan`으로 exact page/table/row/column/photo-slot/checkbox/opinion 주소에 결속하고, binding/exact/document/decision 네 해시를 미리보기·COM 적용·수락·거절·롤백 API와 Electron strict parser까지 유지한다. 그러나 현재 실제 사용자 승인 Incident가 없으며, 운영 문서에 대한 사용자 승인, 한/글 COM 부분 편집, 재열기, 48쪽 전체 렌더, 수락·거절·롤백은 실행하지 않았다. 따라서 M10 완료가 아니다.
 
 ### M11 - 설치본·현장 수용
 
@@ -1799,7 +1896,7 @@ alpha.9의 마지막 완결 패키지 확인도 역사 기록으로 다음과 �
 
 현재 진척: 현재 소스에서 자연어 선라벨 recipe·실행 감사, 고정 해시의 번들 ONNX Grounding DINO 실행기와 review-only bridge import, SQLite v4 라벨·DatasetVersion·Incident, 실제 bridge ModelScreen, 읽기 전용 `/source-candidates`, 승인 사건 근거 JPEG·MP4 export v3를 구현했다. alpha.10 package 정의는 실행기와 Q4 모델팩을 `extraResources`로 포함하고 release manifest schema v2가 runner→model manifest→ONNX 무결성을 검증한다. 546 passed·2 skipped 전체 회귀, TypeScript, Vite production build, Windows NSIS 패키징과 frozen bridge 스모크를 통과했다. `SUIT Variable 2.0.5` 전체 face를 번들했고 Vite 산출물에 `SUIT-Variable` WOFF2가 포함된다. GPX import·offset·interpolation·MapLibre 재생·전체 경로 export는 구현됐지만 실제 운영 GPX 수용은 남아 있다. Vinoth RDD 팩은 활성화·번들·재배포 거부 상태다.
 
-alpha.6·alpha.7·alpha.8·alpha.9 설치본과 alpha.10 installer의 크기·해시는 역사 기록이다. 현재 source gate는 renderer 156/156, Electron 80/80, bridge 640 passed·2 skipped, typecheck/build passed이며 실제 1282×721 단일 창 IA 재검증도 통과했다. 실제 사용자 답변·DatasetVersion·자동 승인 라벨은 0건이며 GPU 학습·승격, 실제 운영 GPX 수용, 한/글 sample 적용·48쪽 검증, 별도 `HistoryMap` 947.96kB(gzip 249.38kB)의 저사양 PC 첫 지도 진입 성능 측정, 현재 trust chain으로 다시 만든 서명 설치본, 클린 PC 설치·업그레이드·제거가 남아 있다.
+alpha.6·alpha.7·alpha.8·alpha.9 설치본과 alpha.10 installer의 크기·해시는 역사 기록이다. 현재 source gate는 domain 10/10, renderer 172/172, Electron 80/80, bridge 665 passed·2 skipped, vision runner 20/20, release 9/9, Sites 경계 4/4, typecheck/build passed로 총 960 passed·2 skipped다. 이전 1282×721 단일 창 증거 뒤 최신 높이 예산 패치는 아직 실제 Electron 재캡처로 수용하지 않았다. 실제 사용자 답변·approved reference·DatasetVersion·승인 Incident는 0건이며 CUDA 학습·고정 검증·승격·별도 실제 영상 재조사, 현재 NAS 51개 folder batch, 실제 운영 GPX 수용, 한/글 sample 적용·48쪽 검증, 별도 `HistoryMap` 947.96kB(gzip 249.38kB)의 저사양 PC 첫 지도 진입 성능 측정, 현재 trust chain으로 다시 만든 서명 설치본, 클린 PC 설치·업그레이드·제거가 남아 있다.
 
 ---
 
@@ -1856,22 +1953,27 @@ Provider 슬롯, 데이터 계약, 비교용 필드는 후속 확장을 위해 �
 1. 로컬 영상과 지원 등급의 링크 영상을 안전하게 가져올 수 있다.
 2. GPX를 영상과 동기화하고 누락 상태를 구분할 수 있다.
 3. AI가 대표 이미지·영역·클립·GPS가 포함된 질문을 만든다.
-4. 사용자가 예·아니오·판단 어려움·영역 수정으로 라벨을 확정한다.
-5. 질문·답변·라벨·영상·프레임·사건·모델이 추적된다.
-6. 프로젝트별 데이터셋과 모델이 다른 프로젝트와 격리된다.
-7. 사용자 승인 없이 재학습이나 모델 승격이 일어나지 않는다.
-8. 정의된 도로·시설물·식생·차선·낙하물 유형을 처리한다.
-9. 이정표와 터널명을 OCR하고 GPS 기반 검증 상태를 표시한다.
-10. 지도 경로가 재생 방향으로 채워지고 모든 화면이 같은 사건으로 이동한다.
-11. 촬영하지 않은 사용자가 증거 카드만으로 사건을 이해할 수 있다.
-12. 원시·최종 CSV, 라벨, 증거, Trip Package를 내보낼 수 있다.
-13. 공유 자료의 얼굴·번호판이 비식별화된다.
-14. Codex·Claude 공식 CLI 연결 상태를 확인하고 최소 데이터로 보고서 초안을 만든다.
-15. AI 편집 계획이 스키마와 문서 대상 검사를 통과해야만 한/글에 적용된다.
-16. 기본·사용자 HWP/HWPX 양식에서 미리보기·수락·거절·롤백이 동작한다.
-17. 최종 HWP/HWPX가 재읽기와 전 페이지 렌더 검증을 통과한다.
-18. 로컬 모델은 비활성 슬롯으로 존재하며 향후 Provider 추가가 가능하다.
-19. 실제 영상 종단 테스트와 Windows 설치본 검증을 통과한다.
+4. 사용자 직접 검토 또는 명시적 프로젝트 범위 LLM 학습 위임으로만 학습 Annotation을 확정하며, LLM 위임은 비긴급 학습 라벨에만 적용된다.
+5. 3·4분기 약한 사례 중 최소 한 건 이상을 사용자가 `approved_reference`로 승격하고, 원문·사진·주소·해시 provenance를 보존한다.
+6. 질문·답변·라벨·영상·프레임·사건·데이터셋·모델이 추적된다.
+7. 실제 학습 권한 라벨로 불변 `DatasetVersion`을 만들고 프로젝트별 데이터셋과 모델을 다른 프로젝트와 격리한다.
+8. 사용자 승인으로 시작한 후보 모델 학습이 실제 CUDA provenance를 남기고 CPU fallback을 성공으로 처리하지 않는다.
+9. 같은 영상/주행 단위를 나누지 않은 고정 validation set에서 유형별 재현율·오탐·중복을 기존 활성 모델과 비교한다.
+10. 기준을 통과한 모델도 자동 승격하지 않으며 사용자가 승격·거절·롤백한다.
+11. 승격 모델이 학습·검증에 쓰지 않은 다른 실제 영상을 조사하고, 오탐·누락을 다음 DatasetVersion과 재학습 주기로 환류하는 반복 QA를 통과한다.
+12. 정의된 도로·시설물·식생·차선·낙하물 유형을 처리한다.
+13. 이정표와 터널명을 OCR하고 GPS 기반 검증 상태를 표시한다.
+14. 최종 도로조사 Incident와 보고서 사실은 항상 사용자가 승인한다.
+15. 지도 경로가 재생 방향으로 채워지고 모든 화면이 같은 사건으로 이동한다.
+16. 촬영하지 않은 사용자가 증거 카드만으로 사건을 이해할 수 있다.
+17. 원시·최종 CSV, 라벨, 증거, Trip Package를 내보낼 수 있다.
+18. 공유 자료의 얼굴·번호판이 비식별화된다.
+19. Codex·Claude 공식 CLI 연결 상태를 확인하고 최소 데이터로 보고서 초안을 만든다.
+20. AI 편집 계획이 스키마와 문서 대상 검사를 통과해야만 한/글에 적용된다.
+21. 기본·사용자 HWP/HWPX 양식에서 미리보기·수락·거절·롤백이 동작한다.
+22. 최종 HWP/HWPX가 재열기와 48쪽 전 페이지 렌더 검증을 통과한다.
+23. 로컬 모델은 비활성 슬롯으로 존재하며 향후 Provider 추가가 가능하다.
+24. 위 전체 폐쇄 루프의 실제 NAS 영상 종단 테스트와 Windows 설치본 검증을 통과한다.
 
 ---
 

@@ -94,6 +94,28 @@ export type AnalysisCandidateInference = {
     | null;
 };
 
+export type DenseCandidateProposal = {
+  issueType: AnalysisVisionIssueType;
+  score: number;
+  normalizedBox: AnalysisNormalizedBox | null;
+  ocrText: string | null;
+  urgentReview: boolean;
+  proposalSources: string[];
+};
+
+export type CandidateEvidenceOverlayIdentity = {
+  schemaVersion: "trafficvisson.candidate-evidence-overlay.v1";
+  overlayId: string;
+  pipelineJobId: string;
+  manifestSha256: string;
+  discoveryRevision: string;
+  denseIndexSha256: string;
+  providerProvenanceSha256: string;
+  modelProvenanceSha256: string;
+  candidateSetMetadataSha256: string;
+  reviewOnly: true;
+};
+
 export type AnalysisCandidate = {
   candidateId: string;
   startSeconds: number;
@@ -112,6 +134,9 @@ export type AnalysisCandidate = {
    * Its presence is only a model proposal; it is never an approved incident.
    */
   aiInference?: AnalysisCandidateInference;
+  candidateKind?: "dense_candidate_evidence_overlay";
+  denseProposal?: DenseCandidateProposal;
+  evidenceOverlay?: CandidateEvidenceOverlayIdentity;
 };
 
 export type SourceLocation = {

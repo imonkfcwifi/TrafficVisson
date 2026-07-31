@@ -7,6 +7,10 @@ export const IPC_CHANNELS = Object.freeze({
   DIALOG_GPX_FILE: "trafficvisson:dialogs:gpx-file",
   DIALOG_HWP_DOCUMENT: "trafficvisson:dialogs:hwp-document",
   DIALOG_EXPORT_DIRECTORY: "trafficvisson:dialogs:export-directory",
+  DIALOG_PROJECT_OUTPUT_DIRECTORY:
+    "trafficvisson:dialogs:project-output-directory",
+  NOTIFICATION_QUESTION_REVIEW_READY:
+    "trafficvisson:notifications:question-review-ready",
   HEALTH: "trafficvisson:health",
   PROJECT_CREATE: "trafficvisson:projects:create",
   PROJECT_GET: "trafficvisson:projects:get",
@@ -31,15 +35,51 @@ export const IPC_CHANNELS = Object.freeze({
   DENSE_INDEX_CANCEL: "trafficvisson:dense-index:cancel",
   PIPELINE_PROFILE_CONFIGURE: "trafficvisson:pipeline:profile-configure",
   PIPELINE_PROFILE_GET: "trafficvisson:pipeline:profile-get",
+  PROJECT_OUTPUT_LOCATION_REGISTER:
+    "trafficvisson:project-output-locations:register",
+  PROJECT_OUTPUT_LOCATION_LIST:
+    "trafficvisson:project-output-locations:list",
   PIPELINE_START: "trafficvisson:pipeline:start",
+  PIPELINE_RERUN_CURRENT_PROFILE:
+    "trafficvisson:pipeline:rerun-current-profile",
   PIPELINE_LIST: "trafficvisson:pipeline:list",
   PIPELINE_GET: "trafficvisson:pipeline:get",
   PIPELINE_CANCEL: "trafficvisson:pipeline:cancel",
   PIPELINE_RESUME: "trafficvisson:pipeline:resume",
   PIPELINE_REVIEW_COMPLETE: "trafficvisson:pipeline:review-complete",
+  USER_DISCOVERED_CANDIDATE_CREATE:
+    "trafficvisson:pipeline:user-discovered-candidate-create",
+  USER_DISCOVERED_REVIEW_FRAME_GET:
+    "trafficvisson:pipeline:user-discovered-review-frame-get",
+  PIPELINE_FOLDER_BATCH_START:
+    "trafficvisson:pipeline:folder-batch-start",
+  PIPELINE_FOLDER_BATCH_LIST:
+    "trafficvisson:pipeline:folder-batch-list",
+  PIPELINE_FOLDER_BATCH_GET:
+    "trafficvisson:pipeline:folder-batch-get",
+  PIPELINE_FOLDER_BATCH_RETRY:
+    "trafficvisson:pipeline:folder-batch-retry",
+  PROVIDER_VISUAL_EVIDENCE_LIST:
+    "trafficvisson:pipeline:provider-visual-evidence-list",
+  PROVIDER_VISUAL_EVIDENCE_GET:
+    "trafficvisson:pipeline:provider-visual-evidence-get",
+  PROVIDER_VISUAL_EVIDENCE_ARTIFACT:
+    "trafficvisson:pipeline:provider-visual-evidence-artifact",
+  PROVIDER_VISUAL_EVIDENCE_PRIVACY_REVIEW:
+    "trafficvisson:pipeline:provider-visual-evidence-privacy-review",
+  REPORT_DEIDENTIFIED_EVIDENCE_PREPARE:
+    "trafficvisson:pipeline:report-deidentified-evidence-prepare",
+  REPORT_DEIDENTIFIED_EVIDENCE_LIST:
+    "trafficvisson:pipeline:report-deidentified-evidence-list",
+  REPORT_DEIDENTIFIED_EVIDENCE_ARTIFACT:
+    "trafficvisson:pipeline:report-deidentified-evidence-artifact",
+  REPORT_DEIDENTIFIED_EVIDENCE_REVIEW:
+    "trafficvisson:pipeline:report-deidentified-evidence-review",
   CANDIDATE_QUESTIONS_LIST:
     "trafficvisson:candidate-questions:list",
   CANDIDATE_ANSWER: "trafficvisson:candidate-questions:answer",
+  CANDIDATE_STRUCTURED_LLM_ASSIST:
+    "trafficvisson:candidate-questions:structured-llm-assist",
   MASK_REFINEMENT_CAPABILITY:
     "trafficvisson:mask-refinement:capability",
   MASK_REFINEMENT_REQUEST:
@@ -54,10 +94,30 @@ export const IPC_CHANNELS = Object.freeze({
   LABEL_STATS: "trafficvisson:labels:stats",
   DATASET_LIST: "trafficvisson:datasets:list",
   DATASET_CREATE: "trafficvisson:datasets:create",
+  MODEL_TRAINING_START: "trafficvisson:project-models:training-start",
+  MODEL_TRAINING_LIST: "trafficvisson:project-models:training-list",
+  MODEL_TRAINING_RESUME: "trafficvisson:project-models:training-resume",
+  MODEL_TRAINING_CANCEL: "trafficvisson:project-models:training-cancel",
+  MODEL_FIXED_VALIDATION_LIST:
+    "trafficvisson:project-models:fixed-validation-list",
+  MODEL_VERSIONS_LIST: "trafficvisson:project-models:versions-list",
+  MODEL_ITERATIONS_LIST:
+    "trafficvisson:project-models:iterations-list",
+  MODEL_STATE_GET: "trafficvisson:project-models:state-get",
+  MODEL_PROMOTE: "trafficvisson:project-models:promote",
+  MODEL_REJECT: "trafficvisson:project-models:reject",
+  MODEL_ROLLBACK: "trafficvisson:project-models:rollback",
   SOURCE_CANDIDATES_LIST: "trafficvisson:source-candidates:list",
   WEAK_CASE_SOURCES_LIST:
     "trafficvisson:weak-cases:sources-list",
   WEAK_CASE_SEARCH: "trafficvisson:weak-cases:search",
+  WEAK_CASE_STANDARDIZATION_PROPOSE:
+    "trafficvisson:weak-cases:standardization-propose",
+  WEAK_CASE_STANDARDIZATION_LIST:
+    "trafficvisson:weak-cases:standardization-list",
+  WEAK_CASE_APPROVE: "trafficvisson:weak-cases:approve",
+  WEAK_CASE_APPROVED_LIST:
+    "trafficvisson:weak-cases:approved-list",
   QUESTIONS_LIST: "trafficvisson:questions:list",
   QUESTION_ANSWER: "trafficvisson:questions:answer",
   HISTORY_GET: "trafficvisson:history:get",
@@ -73,6 +133,11 @@ export const IPC_CHANNELS = Object.freeze({
   REPORT_APPLY: "trafficvisson:reports:apply",
   REPORT_ACCEPT: "trafficvisson:reports:accept",
   REPORT_REJECT: "trafficvisson:reports:reject",
+  REPORT_EXACT_PREVIEW: "trafficvisson:reports:exact-preview",
+  REPORT_EXACT_APPLY: "trafficvisson:reports:exact-apply",
+  REPORT_EXACT_ACCEPT: "trafficvisson:reports:exact-accept",
+  REPORT_EXACT_REJECT: "trafficvisson:reports:exact-reject",
+  REPORT_EXACT_ROLLBACK: "trafficvisson:reports:exact-rollback",
   HWP_PREFLIGHT: "trafficvisson:hwp:preflight",
   HWP_PREVIEW: "trafficvisson:hwp:preview",
   HWP_APPLY: "trafficvisson:hwp:apply",
@@ -112,6 +177,14 @@ function text(value, label, { min = 1, max = 256, optional = false } = {}) {
   const normalized = value.trim();
   if (normalized.length < min || normalized.length > max || normalized.includes("\0")) {
     throw new IpcValidationError(`${label} has an invalid length or character`);
+  }
+  return normalized;
+}
+
+function reportContextText(value, label, maximum) {
+  const normalized = text(value, label, { max: maximum });
+  if (/[\u0000-\u001f\u007f-\u009f]/u.test(normalized)) {
+    throw new IpcValidationError(`${label} must not contain controls`);
   }
   return normalized;
 }
@@ -228,6 +301,113 @@ function reviewIssueType(
     throw new IpcValidationError(`${label} is not a canonical issue type`);
   }
   return normalized;
+}
+
+function fixedValidationExtensionApproval(value) {
+  if (value === undefined || value === null) return undefined;
+  const approval = record(
+    value,
+    [
+      "schemaVersion",
+      "expectedParentVersion",
+      "expectedParentMembershipSha256",
+      "expectedParentFixedValidationSha256",
+      "addedIssueTypes",
+      "addedValidationAnalysisJobIds",
+      "userConfirmed",
+    ],
+    "fixedValidationExtensionApproval",
+  );
+  if (
+    approval.schemaVersion !==
+    "trafficvisson.fixed-validation-extension-approval.v1"
+  ) {
+    throw new IpcValidationError(
+      "fixedValidationExtensionApproval.schemaVersion is not supported",
+    );
+  }
+  const expectedParentVersion = safeCount(
+    approval.expectedParentVersion,
+    "fixedValidationExtensionApproval.expectedParentVersion",
+    { minimum: 1, maximum: 1_000_000 },
+  );
+  const hash = (raw, label) => {
+    const normalized = text(raw, label, { min: 64, max: 64 });
+    if (!/^[a-f0-9]{64}$/.test(normalized)) {
+      throw new IpcValidationError(`${label} must be a SHA-256`);
+    }
+    return normalized;
+  };
+  if (
+    !Array.isArray(approval.addedIssueTypes) ||
+    approval.addedIssueTypes.length < 1 ||
+    approval.addedIssueTypes.length > 12
+  ) {
+    throw new IpcValidationError(
+      "fixedValidationExtensionApproval.addedIssueTypes must be a bounded array",
+    );
+  }
+  const addedIssueTypes = approval.addedIssueTypes.map((item, index) =>
+    reviewIssueType(
+      item,
+      `fixedValidationExtensionApproval.addedIssueTypes[${index}]`,
+    ),
+  );
+  if (new Set(addedIssueTypes).size !== addedIssueTypes.length) {
+    throw new IpcValidationError(
+      "fixedValidationExtensionApproval.addedIssueTypes must be unique",
+    );
+  }
+  if (
+    !Array.isArray(approval.addedValidationAnalysisJobIds) ||
+    approval.addedValidationAnalysisJobIds.length < 1 ||
+    approval.addedValidationAnalysisJobIds.length > 100_000
+  ) {
+    throw new IpcValidationError(
+      "fixedValidationExtensionApproval.addedValidationAnalysisJobIds must be a bounded array",
+    );
+  }
+  const addedValidationAnalysisJobIds =
+    approval.addedValidationAnalysisJobIds.map((item, index) =>
+      uuid(
+        item,
+        `fixedValidationExtensionApproval.addedValidationAnalysisJobIds[${index}]`,
+      ),
+    );
+  if (
+    addedValidationAnalysisJobIds.some(
+      (item, index) =>
+        index > 0 && addedValidationAnalysisJobIds[index - 1] >= item,
+    )
+  ) {
+    throw new IpcValidationError(
+      "fixedValidationExtensionApproval.addedValidationAnalysisJobIds must be sorted and unique",
+    );
+  }
+  const userConfirmed = bool(
+    approval.userConfirmed,
+    "fixedValidationExtensionApproval.userConfirmed",
+  );
+  if (userConfirmed !== true) {
+    throw new IpcValidationError(
+      "fixedValidationExtensionApproval.userConfirmed must be true",
+    );
+  }
+  return {
+    schemaVersion: approval.schemaVersion,
+    expectedParentVersion,
+    expectedParentMembershipSha256: hash(
+      approval.expectedParentMembershipSha256,
+      "fixedValidationExtensionApproval.expectedParentMembershipSha256",
+    ),
+    expectedParentFixedValidationSha256: hash(
+      approval.expectedParentFixedValidationSha256,
+      "fixedValidationExtensionApproval.expectedParentFixedValidationSha256",
+    ),
+    addedIssueTypes,
+    addedValidationAnalysisJobIds,
+    userConfirmed,
+  };
 }
 
 function finiteNumber(value, label, { minimum, maximum }) {
@@ -416,10 +596,42 @@ export function validateIpcPayload(channel, payload) {
   assertKnownChannel(channel);
 
   if (
+    channel === IPC_CHANNELS.NOTIFICATION_QUESTION_REVIEW_READY
+  ) {
+    const value = record(payload, [
+      "projectId",
+      "pipelineJobId",
+      "queueRevision",
+      "questionCount",
+    ]);
+    const questionCount = value.questionCount;
+    if (
+      typeof questionCount !== "number" ||
+      !Number.isInteger(questionCount) ||
+      questionCount < 1 ||
+      questionCount > 100_000
+    ) {
+      throw new IpcValidationError(
+        "questionCount must be a bounded positive integer",
+      );
+    }
+    return {
+      projectId: uuid(value.projectId, "projectId"),
+      pipelineJobId: uuid(value.pipelineJobId, "pipelineJobId"),
+      queueRevision: safeId(
+        value.queueRevision,
+        "queueRevision",
+      ),
+      questionCount,
+    };
+  }
+
+  if (
     channel === IPC_CHANNELS.DIALOG_VIDEO_FILES ||
     channel === IPC_CHANNELS.DIALOG_GPX_FILE ||
     channel === IPC_CHANNELS.DIALOG_HWP_DOCUMENT ||
     channel === IPC_CHANNELS.DIALOG_EXPORT_DIRECTORY ||
+    channel === IPC_CHANNELS.DIALOG_PROJECT_OUTPUT_DIRECTORY ||
     channel === IPC_CHANNELS.HEALTH ||
     channel === IPC_CHANNELS.PROJECT_LIST ||
     channel === IPC_CHANNELS.SOURCE_CANDIDATES_LIST ||
@@ -444,6 +656,26 @@ export function validateIpcPayload(channel, payload) {
   if (channel === IPC_CHANNELS.PROJECT_GET) {
     const value = record(payload, ["projectId"]);
     return { projectId: uuid(value.projectId, "projectId") };
+  }
+
+  if (
+    channel === IPC_CHANNELS.PROJECT_OUTPUT_LOCATION_REGISTER
+  ) {
+    const value = record(payload, [
+      "projectId",
+      "selectionId",
+    ]);
+    return {
+      projectId: uuid(value.projectId, "projectId"),
+      selectionId: uuid(value.selectionId, "selectionId"),
+    };
+  }
+
+  if (channel === IPC_CHANNELS.PROJECT_OUTPUT_LOCATION_LIST) {
+    const value = record(payload, ["projectId"]);
+    return {
+      projectId: uuid(value.projectId, "projectId"),
+    };
   }
 
   if (channel === IPC_CHANNELS.IMPORT_INSPECT) {
@@ -682,12 +914,19 @@ export function validateIpcPayload(channel, payload) {
       "projectId",
       "questionPolicy",
       "reviewMode",
+      "labelConfirmationAuthority",
       "defaultTemplateId",
       "defaultTemplateSha256",
       "detectorPackId",
       "ocrPackId",
       "sam2PackId",
       "reportProvider",
+      "reportTransmissionConsent",
+      "templateSemanticMapId",
+      "reportRouteName",
+      "reportInspectorName",
+      "reportEvidenceMode",
+      "reportInspectionDatePolicy",
       "outputLocationId",
       "candidateRescanFps",
     ]);
@@ -710,6 +949,43 @@ export function validateIpcPayload(channel, payload) {
         "candidateRescanFps must be an integer from 5 to 10",
       );
     }
+    if (typeof value.reportTransmissionConsent !== "boolean") {
+      throw new IpcValidationError(
+        "reportTransmissionConsent must be boolean",
+      );
+    }
+    const reportRouteName =
+      value.reportRouteName === undefined
+        ? "unconfigured"
+        : reportContextText(
+            value.reportRouteName,
+            "reportRouteName",
+            300,
+          );
+    const reportInspectorName =
+      value.reportInspectorName === undefined
+        ? "unconfigured"
+        : reportContextText(
+            value.reportInspectorName,
+            "reportInspectorName",
+            120,
+          );
+    const reportEvidenceMode =
+      value.reportEvidenceMode === undefined
+        ? "internal_original"
+        : enumValue(
+            value.reportEvidenceMode,
+            "reportEvidenceMode",
+            ["internal_original", "shared_deidentified"],
+          );
+    const reportInspectionDatePolicy =
+      value.reportInspectionDatePolicy === undefined
+        ? "source_filename_yyyymmdd_or_block"
+        : enumValue(
+            value.reportInspectionDatePolicy,
+            "reportInspectionDatePolicy",
+            ["source_filename_yyyymmdd_or_block"],
+          );
     return {
       projectId: uuid(value.projectId, "projectId"),
       questionPolicy: enumValue(
@@ -721,6 +997,11 @@ export function validateIpcPayload(channel, payload) {
         value.reviewMode,
         "reviewMode",
         ["precision", "quick"],
+      ),
+      labelConfirmationAuthority: enumValue(
+        value.labelConfirmationAuthority,
+        "labelConfirmationAuthority",
+        ["human_review", "structured_llm_training_assist"],
       ),
       defaultTemplateId: safeId(
         value.defaultTemplateId,
@@ -735,6 +1016,15 @@ export function validateIpcPayload(channel, payload) {
         "reportProvider",
         ["codex", "claude", "local", "none"],
       ),
+      reportTransmissionConsent: value.reportTransmissionConsent,
+      templateSemanticMapId: safeId(
+        value.templateSemanticMapId,
+        "templateSemanticMapId",
+      ),
+      reportRouteName,
+      reportInspectorName,
+      reportEvidenceMode,
+      reportInspectionDatePolicy,
       outputLocationId: safeId(
         value.outputLocationId,
         "outputLocationId",
@@ -787,6 +1077,136 @@ export function validateIpcPayload(channel, payload) {
     };
   }
 
+  if (channel === IPC_CHANNELS.PIPELINE_RERUN_CURRENT_PROFILE) {
+    const value = record(payload, [
+      "projectId",
+      "sourceJobId",
+      "expectedSourceRecordSha256",
+      "expectedProfileRevision",
+      "rightsConfirmed",
+      "userConfirmed",
+      "idempotencyKey",
+    ]);
+    const expectedSourceRecordSha256 = text(
+      value.expectedSourceRecordSha256,
+      "expectedSourceRecordSha256",
+      { min: 64, max: 64 },
+    );
+    if (
+      expectedSourceRecordSha256 !== value.expectedSourceRecordSha256 ||
+      !/^[a-f0-9]{64}$/.test(expectedSourceRecordSha256)
+    ) {
+      throw new IpcValidationError(
+        "expectedSourceRecordSha256 must be a lowercase SHA-256 value",
+      );
+    }
+    if (
+      typeof value.expectedProfileRevision !== "number" ||
+      !Number.isSafeInteger(value.expectedProfileRevision) ||
+      value.expectedProfileRevision < 1
+    ) {
+      throw new IpcValidationError(
+        "expectedProfileRevision must be a positive integer",
+      );
+    }
+    if (value.rightsConfirmed !== true) {
+      throw new IpcValidationError(
+        "rightsConfirmed must be explicitly true",
+      );
+    }
+    if (value.userConfirmed !== true) {
+      throw new IpcValidationError(
+        "userConfirmed must be explicitly true",
+      );
+    }
+    const idempotencyKey = text(
+      value.idempotencyKey,
+      "idempotencyKey",
+      { min: 16, max: 128 },
+    );
+    if (
+      idempotencyKey !== value.idempotencyKey ||
+      !/^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$/.test(idempotencyKey)
+    ) {
+      throw new IpcValidationError("idempotencyKey is invalid");
+    }
+    if (idempotencyKey.startsWith("explicit-new:")) {
+      throw new IpcValidationError(
+        "idempotencyKey uses a reserved prefix",
+      );
+    }
+    return {
+      projectId: uuid(value.projectId, "projectId"),
+      sourceJobId: uuid(value.sourceJobId, "sourceJobId"),
+      expectedSourceRecordSha256,
+      expectedProfileRevision: value.expectedProfileRevision,
+      rightsConfirmed: true,
+      userConfirmed: true,
+      idempotencyKey,
+    };
+  }
+
+  if (channel === IPC_CHANNELS.PIPELINE_FOLDER_BATCH_START) {
+    const value = record(payload, [
+      "projectId",
+      "snapshotId",
+      "rightsConfirmed",
+      "idempotencyKey",
+    ]);
+    if (value.rightsConfirmed !== true) {
+      throw new IpcValidationError(
+        "rightsConfirmed must be explicitly true",
+      );
+    }
+    const idempotencyKey = text(
+      value.idempotencyKey,
+      "idempotencyKey",
+      { min: 16, max: 128 },
+    );
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:@-]{15,127}$/.test(idempotencyKey)) {
+      throw new IpcValidationError("idempotencyKey is invalid");
+    }
+    return {
+      projectId: uuid(value.projectId, "projectId"),
+      snapshotId: uuid(value.snapshotId, "snapshotId"),
+      rightsConfirmed: true,
+      idempotencyKey,
+    };
+  }
+
+  if (channel === IPC_CHANNELS.PIPELINE_FOLDER_BATCH_LIST) {
+    const value = record(payload, ["projectId"]);
+    return {
+      projectId: uuid(value.projectId, "projectId"),
+    };
+  }
+
+  if (channel === IPC_CHANNELS.PIPELINE_FOLDER_BATCH_GET) {
+    const value = record(payload, ["projectId", "batchId"]);
+    return {
+      projectId: uuid(value.projectId, "projectId"),
+      batchId: uuid(value.batchId, "batchId"),
+    };
+  }
+
+  if (channel === IPC_CHANNELS.PIPELINE_FOLDER_BATCH_RETRY) {
+    const value = record(payload, [
+      "projectId",
+      "batchId",
+      "userConfirmed",
+    ]);
+    if (value.userConfirmed !== true) {
+      throw new IpcValidationError(
+        "userConfirmed must be explicitly true",
+      );
+    }
+    return {
+      projectId: uuid(value.projectId, "projectId"),
+      batchId: uuid(value.batchId, "batchId"),
+      userConfirmed: true,
+    };
+  }
+
   if (
     channel === IPC_CHANNELS.PIPELINE_GET ||
     channel === IPC_CHANNELS.PIPELINE_CANCEL ||
@@ -804,6 +1224,7 @@ export function validateIpcPayload(channel, payload) {
       "projectId",
       "jobId",
       "reviewCompletionId",
+      "finalQaChoice",
     ]);
     return {
       projectId: uuid(value.projectId, "projectId"),
@@ -812,6 +1233,324 @@ export function validateIpcPayload(channel, payload) {
         value.reviewCompletionId,
         "reviewCompletionId",
       ),
+      finalQaChoice:
+        value.finalQaChoice === undefined
+          ? undefined
+          : enumValue(value.finalQaChoice, "finalQaChoice", [
+              "no_miss_complete",
+              "miss_candidates_reviewed",
+            ]),
+    };
+  }
+
+  if (
+    channel === IPC_CHANNELS.USER_DISCOVERED_CANDIDATE_CREATE
+  ) {
+    const value = record(payload, [
+      "projectId",
+      "pipelineJobId",
+      "analysisJobId",
+      "timestampSeconds",
+      "selection",
+      "issueTypeProposal",
+      "requestSam2Mask",
+      "expectedQuestionQueueRevision",
+    ]);
+    const selection = record(
+      value.selection,
+      value.selection?.kind === "box"
+        ? ["kind", "x", "y", "width", "height"]
+        : ["kind", "x", "y"],
+      "selection",
+    );
+    const kind = enumValue(
+      selection.kind,
+      "selection.kind",
+      ["point", "box"],
+    );
+    const x = finiteNumber(selection.x, "selection.x", {
+      minimum: 0,
+      maximum: 1,
+    });
+    const y = finiteNumber(selection.y, "selection.y", {
+      minimum: 0,
+      maximum: 1,
+    });
+    let normalizedSelection;
+    if (kind === "box") {
+      const width = finiteNumber(
+        selection.width,
+        "selection.width",
+        { minimum: Number.EPSILON, maximum: 1 },
+      );
+      const height = finiteNumber(
+        selection.height,
+        "selection.height",
+        { minimum: Number.EPSILON, maximum: 1 },
+      );
+      if (x + width > 1.00000001 || y + height > 1.00000001) {
+        throw new IpcValidationError(
+          "selection box must remain inside the frame",
+        );
+      }
+      normalizedSelection = { kind, x, y, width, height };
+    } else {
+      normalizedSelection = { kind, x, y };
+    }
+    const expectedQuestionQueueRevision = text(
+      value.expectedQuestionQueueRevision,
+      "expectedQuestionQueueRevision",
+      { min: 64, max: 64 },
+    );
+    if (!/^[a-f0-9]{64}$/.test(expectedQuestionQueueRevision)) {
+      throw new IpcValidationError(
+        "expectedQuestionQueueRevision must be a lowercase SHA-256 value",
+      );
+    }
+    return {
+      projectId: uuid(value.projectId, "projectId"),
+      pipelineJobId: uuid(
+        value.pipelineJobId,
+        "pipelineJobId",
+      ),
+      analysisJobId: uuid(value.analysisJobId, "analysisJobId"),
+      timestampSeconds: finiteNumber(
+        value.timestampSeconds,
+        "timestampSeconds",
+        { minimum: 0, maximum: 2_678_400 },
+      ),
+      selection: normalizedSelection,
+      issueTypeProposal: reviewIssueType(
+        value.issueTypeProposal,
+        "issueTypeProposal",
+        { allowOther: true, optional: true },
+      ),
+      requestSam2Mask: bool(
+        value.requestSam2Mask,
+        "requestSam2Mask",
+      ),
+      expectedQuestionQueueRevision,
+    };
+  }
+
+  if (
+    channel === IPC_CHANNELS.USER_DISCOVERED_REVIEW_FRAME_GET
+  ) {
+    const value = record(payload, [
+      "projectId",
+      "pipelineJobId",
+      "analysisJobId",
+      "timestampSeconds",
+    ]);
+    return {
+      projectId: uuid(value.projectId, "projectId"),
+      pipelineJobId: uuid(
+        value.pipelineJobId,
+        "pipelineJobId",
+      ),
+      analysisJobId: uuid(value.analysisJobId, "analysisJobId"),
+      timestampSeconds: finiteNumber(
+        value.timestampSeconds,
+        "timestampSeconds",
+        { minimum: 0, maximum: 86_400 },
+      ),
+    };
+  }
+
+  if (channel === IPC_CHANNELS.PROVIDER_VISUAL_EVIDENCE_LIST) {
+    const value = record(payload, ["projectId", "jobId"]);
+    return {
+      projectId: uuid(value.projectId, "projectId"),
+      jobId: uuid(value.jobId, "jobId"),
+    };
+  }
+
+  if (
+    channel === IPC_CHANNELS.PROVIDER_VISUAL_EVIDENCE_GET ||
+    channel === IPC_CHANNELS.PROVIDER_VISUAL_EVIDENCE_ARTIFACT
+  ) {
+    const allowedKeys =
+      channel === IPC_CHANNELS.PROVIDER_VISUAL_EVIDENCE_ARTIFACT
+        ? [
+            "projectId",
+            "jobId",
+            "candidateId",
+            "preparationId",
+            "order",
+          ]
+        : [
+            "projectId",
+            "jobId",
+            "candidateId",
+            "preparationId",
+          ];
+    const value = record(payload, allowedKeys);
+    const candidateId = text(value.candidateId, "candidateId", {
+      min: 20,
+      max: 20,
+    });
+    const preparationId = text(
+      value.preparationId,
+      "preparationId",
+      { min: 24, max: 24 },
+    );
+    if (
+      !/^[a-f0-9]{20}$/.test(candidateId) ||
+      !/^[a-f0-9]{24}$/.test(preparationId)
+    ) {
+      throw new IpcValidationError(
+        "provider visual evidence identity is invalid",
+      );
+    }
+    return {
+      projectId: uuid(value.projectId, "projectId"),
+      jobId: uuid(value.jobId, "jobId"),
+      candidateId,
+      preparationId,
+      ...(channel === IPC_CHANNELS.PROVIDER_VISUAL_EVIDENCE_ARTIFACT
+        ? {
+            order: safeCount(value.order, "order", {
+              maximum: 5,
+            }),
+          }
+        : {}),
+    };
+  }
+
+  if (
+    channel ===
+    IPC_CHANNELS.PROVIDER_VISUAL_EVIDENCE_PRIVACY_REVIEW
+  ) {
+    const value = record(payload, [
+      "projectId",
+      "jobId",
+      "candidateId",
+      "preparationId",
+      "expectedManifestSha256",
+      "approved",
+      "explicitUserConfirmation",
+    ]);
+    const candidateId = text(value.candidateId, "candidateId", {
+      min: 20,
+      max: 20,
+    });
+    const preparationId = text(
+      value.preparationId,
+      "preparationId",
+      { min: 24, max: 24 },
+    );
+    const expectedManifestSha256 = text(
+      value.expectedManifestSha256,
+      "expectedManifestSha256",
+      { min: 64, max: 64 },
+    );
+    if (
+      !/^[a-f0-9]{20}$/.test(candidateId) ||
+      !/^[a-f0-9]{24}$/.test(preparationId) ||
+      !/^[a-f0-9]{64}$/.test(expectedManifestSha256)
+    ) {
+      throw new IpcValidationError(
+        "provider visual evidence review identity is invalid",
+      );
+    }
+    if (value.explicitUserConfirmation !== true) {
+      throw new IpcValidationError(
+        "explicitUserConfirmation must be explicitly true",
+      );
+    }
+    return {
+      projectId: uuid(value.projectId, "projectId"),
+      jobId: uuid(value.jobId, "jobId"),
+      candidateId,
+      preparationId,
+      expectedManifestSha256,
+      approved: bool(value.approved, "approved"),
+      explicitUserConfirmation: true,
+    };
+  }
+
+  if (
+    channel ===
+      IPC_CHANNELS.REPORT_DEIDENTIFIED_EVIDENCE_PREPARE ||
+    channel === IPC_CHANNELS.REPORT_DEIDENTIFIED_EVIDENCE_LIST
+  ) {
+    const value = record(payload, ["projectId", "jobId"]);
+    return {
+      projectId: uuid(value.projectId, "projectId"),
+      jobId: uuid(value.jobId, "jobId"),
+    };
+  }
+
+  if (
+    channel === IPC_CHANNELS.REPORT_DEIDENTIFIED_EVIDENCE_ARTIFACT
+  ) {
+    const value = record(payload, [
+      "projectId",
+      "jobId",
+      "incidentId",
+      "derivativeId",
+    ]);
+    const derivativeId = text(
+      value.derivativeId,
+      "derivativeId",
+      { min: 36, max: 36 },
+    );
+    if (!/^rde_[a-f0-9]{32}$/.test(derivativeId)) {
+      throw new IpcValidationError(
+        "report deidentified derivative identity is invalid",
+      );
+    }
+    return {
+      projectId: uuid(value.projectId, "projectId"),
+      jobId: uuid(value.jobId, "jobId"),
+      incidentId: uuid(value.incidentId, "incidentId"),
+      derivativeId,
+    };
+  }
+
+  if (
+    channel === IPC_CHANNELS.REPORT_DEIDENTIFIED_EVIDENCE_REVIEW
+  ) {
+    const value = record(payload, [
+      "projectId",
+      "jobId",
+      "incidentId",
+      "derivativeId",
+      "expectedManifestSha256",
+      "approved",
+      "explicitUserConfirmation",
+    ]);
+    const derivativeId = text(
+      value.derivativeId,
+      "derivativeId",
+      { min: 36, max: 36 },
+    );
+    const expectedManifestSha256 = text(
+      value.expectedManifestSha256,
+      "expectedManifestSha256",
+      { min: 64, max: 64 },
+    );
+    if (
+      !/^rde_[a-f0-9]{32}$/.test(derivativeId) ||
+      !/^[a-f0-9]{64}$/.test(expectedManifestSha256)
+    ) {
+      throw new IpcValidationError(
+        "report deidentified review identity is invalid",
+      );
+    }
+    if (value.explicitUserConfirmation !== true) {
+      throw new IpcValidationError(
+        "explicitUserConfirmation must be explicitly true",
+      );
+    }
+    return {
+      projectId: uuid(value.projectId, "projectId"),
+      jobId: uuid(value.jobId, "jobId"),
+      incidentId: uuid(value.incidentId, "incidentId"),
+      derivativeId,
+      expectedManifestSha256,
+      approved: bool(value.approved, "approved"),
+      explicitUserConfirmation: true,
     };
   }
 
@@ -1031,6 +1770,37 @@ export function validateIpcPayload(channel, payload) {
       maintenanceAction,
       ocrText,
       normalizedBox,
+    };
+  }
+
+  if (channel === IPC_CHANNELS.CANDIDATE_STRUCTURED_LLM_ASSIST) {
+    const value = record(payload, [
+      "projectId",
+      "jobId",
+      "candidateId",
+      "questionId",
+      "userAuthorizedTraining",
+    ]);
+    const candidateId = text(value.candidateId, "candidateId", {
+      min: 20,
+      max: 20,
+    });
+    if (!/^[a-f0-9]{20}$/.test(candidateId)) {
+      throw new IpcValidationError(
+        "candidateId must be a lowercase candidate identifier",
+      );
+    }
+    if (value.userAuthorizedTraining !== true) {
+      throw new IpcValidationError(
+        "userAuthorizedTraining must be explicitly true",
+      );
+    }
+    return {
+      projectId: uuid(value.projectId, "projectId"),
+      jobId: uuid(value.jobId, "jobId"),
+      candidateId,
+      questionId: uuid(value.questionId, "questionId"),
+      userAuthorizedTraining: true,
     };
   }
 
@@ -1370,7 +2140,9 @@ export function validateIpcPayload(channel, payload) {
   if (
     channel === IPC_CHANNELS.LABEL_STATS ||
     channel === IPC_CHANNELS.DATASET_LIST ||
-    channel === IPC_CHANNELS.WEAK_CASE_SOURCES_LIST
+    channel === IPC_CHANNELS.WEAK_CASE_SOURCES_LIST ||
+    channel === IPC_CHANNELS.WEAK_CASE_STANDARDIZATION_LIST ||
+    channel === IPC_CHANNELS.WEAK_CASE_APPROVED_LIST
   ) {
     const value = record(payload, ["projectId"]);
     return { projectId: uuid(value.projectId, "projectId") };
@@ -1408,16 +2180,319 @@ export function validateIpcPayload(channel, payload) {
     };
   }
 
+  if (channel === IPC_CHANNELS.WEAK_CASE_STANDARDIZATION_PROPOSE) {
+    const value = record(payload, [
+      "projectId",
+      "sourceId",
+      "caseId",
+      "provider",
+      "expectedDocumentSha256",
+      "expectedIndexManifestSha256",
+      "expectedImageSha256",
+      "expectedRevision",
+      "metadataTransmissionConfirmed",
+    ]);
+    const sourceId = text(value.sourceId, "sourceId", { max: 64 });
+    const caseId = text(value.caseId, "caseId", { max: 64 });
+    if (!/^sample-hwpx-[34]q-[a-f0-9]{16}$/.test(sourceId)) {
+      throw new IpcValidationError("sourceId is not an audited sample source");
+    }
+    if (!/^hwpx-weak-case-[a-f0-9]{32}$/.test(caseId)) {
+      throw new IpcValidationError("caseId is not a weak-case identifier");
+    }
+    const sha256 = (input, label) => {
+      const normalized = text(input, label, { min: 64, max: 64 });
+      if (!/^[a-f0-9]{64}$/.test(normalized)) {
+        throw new IpcValidationError(`${label} must be a lowercase SHA-256 value`);
+      }
+      return normalized;
+    };
+    const provider = text(value.provider, "provider", { min: 5, max: 6 });
+    if (provider !== "codex" && provider !== "claude") {
+      throw new IpcValidationError("provider must be codex or claude");
+    }
+    const metadataTransmissionConfirmed = bool(
+      value.metadataTransmissionConfirmed,
+      "metadataTransmissionConfirmed",
+    );
+    if (metadataTransmissionConfirmed !== true) {
+      throw new IpcValidationError(
+        "metadataTransmissionConfirmed must be true before sending weak-case text",
+      );
+    }
+    const expectedRevision =
+      value.expectedRevision === undefined || value.expectedRevision === null
+        ? undefined
+        : safeCount(value.expectedRevision, "expectedRevision", {
+            minimum: 1,
+            maximum: 1_000_000_000,
+          });
+    return {
+      projectId: uuid(value.projectId, "projectId"),
+      sourceId,
+      caseId,
+      provider,
+      expectedDocumentSha256: sha256(
+        value.expectedDocumentSha256,
+        "expectedDocumentSha256",
+      ),
+      expectedIndexManifestSha256: sha256(
+        value.expectedIndexManifestSha256,
+        "expectedIndexManifestSha256",
+      ),
+      expectedImageSha256: sha256(
+        value.expectedImageSha256,
+        "expectedImageSha256",
+      ),
+      expectedRevision,
+      metadataTransmissionConfirmed,
+    };
+  }
+
+  if (channel === IPC_CHANNELS.WEAK_CASE_APPROVE) {
+    const value = record(payload, [
+      "projectId",
+      "sourceId",
+      "caseId",
+      "expectedDocumentSha256",
+      "expectedIndexManifestSha256",
+      "expectedImageSha256",
+      "issueType",
+      "maintenanceAction",
+      "caption",
+      "route",
+      "location",
+      "evaluation",
+      "opinion",
+      "expectedRevision",
+      "duplicateImageReviewConfirmed",
+      "userConfirmed",
+    ]);
+    const sourceId = text(value.sourceId, "sourceId", { max: 64 });
+    const caseId = text(value.caseId, "caseId", { max: 64 });
+    if (!/^sample-hwpx-[34]q-[a-f0-9]{16}$/.test(sourceId)) {
+      throw new IpcValidationError("sourceId is not an audited sample source");
+    }
+    if (!/^hwpx-weak-case-[a-f0-9]{32}$/.test(caseId)) {
+      throw new IpcValidationError("caseId is not a weak-case identifier");
+    }
+    const sha256 = (input, label) => {
+      const normalized = text(input, label, { min: 64, max: 64 });
+      if (!/^[a-f0-9]{64}$/.test(normalized)) {
+        throw new IpcValidationError(`${label} must be a lowercase SHA-256 value`);
+      }
+      return normalized;
+    };
+    const userConfirmed = bool(value.userConfirmed, "userConfirmed");
+    if (userConfirmed !== true) {
+      throw new IpcValidationError(
+        "userConfirmed must be true before approving a reference case",
+      );
+    }
+    const expectedRevision =
+      value.expectedRevision === undefined || value.expectedRevision === null
+        ? undefined
+        : safeCount(value.expectedRevision, "expectedRevision", {
+            minimum: 1,
+            maximum: 1_000_000_000,
+          });
+    const duplicateImageReviewConfirmed =
+      value.duplicateImageReviewConfirmed === undefined
+        ? false
+        : bool(
+            value.duplicateImageReviewConfirmed,
+            "duplicateImageReviewConfirmed",
+          );
+    return {
+      projectId: uuid(value.projectId, "projectId"),
+      sourceId,
+      caseId,
+      expectedDocumentSha256: sha256(
+        value.expectedDocumentSha256,
+        "expectedDocumentSha256",
+      ),
+      expectedIndexManifestSha256: sha256(
+        value.expectedIndexManifestSha256,
+        "expectedIndexManifestSha256",
+      ),
+      expectedImageSha256: sha256(
+        value.expectedImageSha256,
+        "expectedImageSha256",
+      ),
+      issueType: reviewIssueType(value.issueType, "issueType"),
+      maintenanceAction: text(
+        value.maintenanceAction,
+        "maintenanceAction",
+        { max: 500 },
+      ),
+      caption: text(value.caption, "caption", {
+        max: 320,
+        optional: true,
+      }),
+      route: text(value.route, "route", { max: 320, optional: true }),
+      location: text(value.location, "location", {
+        max: 320,
+        optional: true,
+      }),
+      evaluation: text(value.evaluation, "evaluation", {
+        max: 320,
+        optional: true,
+      }),
+      opinion: text(value.opinion, "opinion", {
+        max: 320,
+        optional: true,
+      }),
+      expectedRevision,
+      duplicateImageReviewConfirmed,
+      userConfirmed,
+    };
+  }
+
   if (channel === IPC_CHANNELS.DATASET_CREATE) {
-    const value = record(payload, ["projectId", "userConfirmed"]);
+    const value = record(payload, [
+      "projectId",
+      "userConfirmed",
+      "fixedValidationExtensionApproval",
+    ]);
     const userConfirmed = bool(value.userConfirmed, "userConfirmed");
     if (userConfirmed !== true) {
       throw new IpcValidationError(
         "userConfirmed must be true before creating a dataset snapshot",
       );
     }
+    const extensionApproval = fixedValidationExtensionApproval(
+      value.fixedValidationExtensionApproval,
+    );
     return {
       projectId: uuid(value.projectId, "projectId"),
+      userConfirmed,
+      ...(extensionApproval
+        ? { fixedValidationExtensionApproval: extensionApproval }
+        : {}),
+    };
+  }
+
+  if (
+    channel === IPC_CHANNELS.MODEL_TRAINING_LIST ||
+    channel === IPC_CHANNELS.MODEL_FIXED_VALIDATION_LIST ||
+    channel === IPC_CHANNELS.MODEL_VERSIONS_LIST ||
+    channel === IPC_CHANNELS.MODEL_ITERATIONS_LIST ||
+    channel === IPC_CHANNELS.MODEL_STATE_GET
+  ) {
+    const value = record(payload, ["projectId"]);
+    return { projectId: uuid(value.projectId, "projectId") };
+  }
+
+  if (channel === IPC_CHANNELS.MODEL_TRAINING_START) {
+    const value = record(payload, [
+      "projectId",
+      "datasetVersionId",
+      "idempotencyKey",
+      "userConfirmed",
+      "fixedValidationExtensionApproval",
+    ]);
+    const idempotencyKey = text(
+      value.idempotencyKey,
+      "idempotencyKey",
+      { min: 8, max: 128 },
+    );
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:@-]{7,127}$/.test(idempotencyKey)) {
+      throw new IpcValidationError(
+        "idempotencyKey must be an opaque identifier",
+      );
+    }
+    const userConfirmed = bool(value.userConfirmed, "userConfirmed");
+    if (userConfirmed !== true) {
+      throw new IpcValidationError(
+        "userConfirmed must be true before starting project training",
+      );
+    }
+    const extensionApproval = fixedValidationExtensionApproval(
+      value.fixedValidationExtensionApproval,
+    );
+    return {
+      projectId: uuid(value.projectId, "projectId"),
+      datasetVersionId: uuid(
+        value.datasetVersionId,
+        "datasetVersionId",
+      ),
+      idempotencyKey,
+      userConfirmed,
+      ...(extensionApproval
+        ? { fixedValidationExtensionApproval: extensionApproval }
+        : {}),
+    };
+  }
+
+  if (
+    channel === IPC_CHANNELS.MODEL_TRAINING_RESUME ||
+    channel === IPC_CHANNELS.MODEL_TRAINING_CANCEL
+  ) {
+    const value = record(payload, [
+      "projectId",
+      "trainingJobId",
+      "userConfirmed",
+    ]);
+    const userConfirmed = bool(value.userConfirmed, "userConfirmed");
+    if (userConfirmed !== true) {
+      throw new IpcValidationError(
+        channel === IPC_CHANNELS.MODEL_TRAINING_CANCEL
+          ? "userConfirmed must be true before cancelling project training"
+          : "userConfirmed must be true before resuming project training",
+      );
+    }
+    return {
+      projectId: uuid(value.projectId, "projectId"),
+      trainingJobId: uuid(value.trainingJobId, "trainingJobId"),
+      userConfirmed,
+    };
+  }
+
+  if (
+    channel === IPC_CHANNELS.MODEL_PROMOTE ||
+    channel === IPC_CHANNELS.MODEL_REJECT ||
+    channel === IPC_CHANNELS.MODEL_ROLLBACK
+  ) {
+    const includesTarget = channel !== IPC_CHANNELS.MODEL_ROLLBACK;
+    const value = record(payload, [
+      "projectId",
+      ...(includesTarget ? ["modelVersionId"] : []),
+      "expectedRevision",
+      "idempotencyKey",
+      "userConfirmed",
+    ]);
+    const idempotencyKey = text(
+      value.idempotencyKey,
+      "idempotencyKey",
+      { min: 8, max: 128 },
+    );
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:@-]{7,127}$/.test(idempotencyKey)) {
+      throw new IpcValidationError(
+        "idempotencyKey must be an opaque identifier",
+      );
+    }
+    const userConfirmed = bool(value.userConfirmed, "userConfirmed");
+    if (userConfirmed !== true) {
+      throw new IpcValidationError(
+        "userConfirmed must be true before changing project model state",
+      );
+    }
+    return {
+      projectId: uuid(value.projectId, "projectId"),
+      ...(includesTarget
+        ? {
+            modelVersionId: uuid(
+              value.modelVersionId,
+              "modelVersionId",
+            ),
+          }
+        : {}),
+      expectedRevision: safeCount(
+        value.expectedRevision,
+        "expectedRevision",
+        { minimum: 0, maximum: 1_000_000_000 },
+      ),
+      idempotencyKey,
       userConfirmed,
     };
   }
@@ -1739,6 +2814,146 @@ export function validateIpcPayload(channel, payload) {
       projectId: uuid(value.projectId, "projectId"),
       reportId: uuid(value.reportId, "reportId"),
       operationIds: stringArray(value.operationIds ?? [], "operationIds", { maxItems: 100 }),
+    };
+  }
+
+  if (channel === IPC_CHANNELS.REPORT_EXACT_PREVIEW) {
+    const value = record(payload, [
+      "projectId",
+      "pipelineJobId",
+      "previewId",
+    ]);
+    const previewId = text(value.previewId, "previewId", {
+      min: 24,
+      max: 32,
+    });
+    if (!/^report-preview-attempt-(?:0|[1-9][0-9]?)$/.test(previewId)) {
+      throw new IpcValidationError(
+        "previewId must be an exact pipeline report preview identity",
+      );
+    }
+    return {
+      projectId: uuid(value.projectId, "projectId"),
+      pipelineJobId: uuid(value.pipelineJobId, "pipelineJobId"),
+      previewId,
+    };
+  }
+
+  if (channel === IPC_CHANNELS.REPORT_EXACT_APPLY) {
+    const value = record(payload, [
+      "projectId",
+      "pipelineJobId",
+      "draftId",
+      "approvalToken",
+      "documentEditPlanSha256",
+      "acceptRejectRollbackBindingSha256",
+      "userConfirmed",
+    ]);
+    const draftId = text(value.draftId, "draftId", {
+      min: 47,
+      max: 47,
+    });
+    const approvalToken = text(value.approvalToken, "approvalToken", {
+      min: 64,
+      max: 64,
+    });
+    const documentEditPlanSha256 = text(
+      value.documentEditPlanSha256,
+      "documentEditPlanSha256",
+      { min: 64, max: 64 },
+    );
+    const acceptRejectRollbackBindingSha256 = text(
+      value.acceptRejectRollbackBindingSha256,
+      "acceptRejectRollbackBindingSha256",
+      { min: 64, max: 64 },
+    );
+    if (!/^current-report-[a-f0-9]{32}$/.test(draftId)) {
+      throw new IpcValidationError(
+        "draftId must be an exact current-report identity",
+      );
+    }
+    if (
+      !/^[a-f0-9]{64}$/.test(approvalToken) ||
+      !/^[a-f0-9]{64}$/.test(documentEditPlanSha256) ||
+      !/^[a-f0-9]{64}$/.test(acceptRejectRollbackBindingSha256)
+    ) {
+      throw new IpcValidationError(
+        "exact report hashes and approvalToken must be opaque lowercase values",
+      );
+    }
+    if (value.userConfirmed !== true) {
+      throw new IpcValidationError(
+        "userConfirmed must be explicit for exact COM apply",
+      );
+    }
+    return {
+      projectId: uuid(value.projectId, "projectId"),
+      pipelineJobId: uuid(value.pipelineJobId, "pipelineJobId"),
+      draftId,
+      approvalToken,
+      documentEditPlanSha256,
+      acceptRejectRollbackBindingSha256,
+      userConfirmed: true,
+    };
+  }
+
+  if (
+    channel === IPC_CHANNELS.REPORT_EXACT_ACCEPT ||
+    channel === IPC_CHANNELS.REPORT_EXACT_REJECT ||
+    channel === IPC_CHANNELS.REPORT_EXACT_ROLLBACK
+  ) {
+    const value = record(payload, [
+      "projectId",
+      "pipelineJobId",
+      "applicationId",
+      "documentEditPlanSha256",
+      "acceptRejectRollbackBindingSha256",
+      "userConfirmed",
+    ]);
+    const applicationId = text(
+      value.applicationId,
+      "applicationId",
+      { min: 59, max: 59 },
+    );
+    if (
+      !/^current-report-application-[a-f0-9]{32}$/.test(
+        applicationId,
+      )
+    ) {
+      throw new IpcValidationError(
+        "applicationId must be an exact current-report application identity",
+      );
+    }
+    const documentEditPlanSha256 = text(
+      value.documentEditPlanSha256,
+      "documentEditPlanSha256",
+      { min: 64, max: 64 },
+    );
+    const acceptRejectRollbackBindingSha256 = text(
+      value.acceptRejectRollbackBindingSha256,
+      "acceptRejectRollbackBindingSha256",
+      { min: 64, max: 64 },
+    );
+    if (
+      !/^[a-f0-9]{64}$/.test(documentEditPlanSha256) ||
+      !/^[a-f0-9]{64}$/.test(acceptRejectRollbackBindingSha256)
+    ) {
+      throw new IpcValidationError(
+        "exact report decision hashes must be opaque lowercase values",
+      );
+    }
+    if (value.userConfirmed !== true) {
+      throw new IpcValidationError(
+        "userConfirmed must be explicit for the final report decision",
+      );
+    }
+    return {
+      projectId: uuid(value.projectId, "projectId"),
+      pipelineJobId: uuid(value.pipelineJobId, "pipelineJobId"),
+      applicationId,
+      documentEditPlanSha256,
+      acceptRejectRollbackBindingSha256,
+      userConfirmed: true,
     };
   }
 

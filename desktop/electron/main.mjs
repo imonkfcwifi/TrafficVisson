@@ -5,6 +5,7 @@ import {
   ipcMain,
   Menu,
   net,
+  Notification,
   protocol,
   session,
 } from "electron";
@@ -21,6 +22,7 @@ import {
   LocalDirectorySelectionRegistry,
   LocalDocumentSelectionRegistry,
   LocalGpxSelectionRegistry,
+  ProjectOutputDirectorySelectionRegistry,
   LocalVideoSelectionRegistry,
 } from "./local-selections.mjs";
 import {
@@ -39,6 +41,21 @@ import {
   weakCaseImageBridgePath,
 } from "./security.mjs";
 import { applyProductIdentity } from "./product-identity.mjs";
+import { UserActionNotificationService } from "./user-action-notifications.mjs";
+import {
+  providerVisualPreparationIdentities,
+  sanitizeProviderVisualArtifactResponse,
+  sanitizeProviderVisualPreparation,
+} from "./provider-visual-evidence.mjs";
+import {
+  sanitizeReportDeidentifiedArtifactResponse,
+  sanitizeReportDeidentifiedList,
+  sanitizeReportDeidentifiedPreparation,
+} from "./report-deidentified-evidence.mjs";
+import {
+  sanitizeUserDiscoveredReviewFrameArtifact,
+  sanitizeUserDiscoveredReviewFrameMetadata,
+} from "./user-discovered-review-frame.mjs";
 
 applyProductIdentity(app);
 
@@ -66,10 +83,13 @@ const smokeTestMode =
   !app.isPackaged && process.env.TRAFFICSUPERVISION_SMOKE_TEST === "1";
 const EXPORT_TIMEOUT_MS = 30 * 60 * 1000;
 const AUTO_LABELING_RUN_TIMEOUT_MS = 10 * 60 * 1000;
+const PROJECT_MODEL_TRAINING_TIMEOUT_MS = 30 * 60 * 1000;
+const EXACT_REPORT_APPLY_TIMEOUT_MS = 30 * 60 * 1000;
 // A cold sample index verifies both multi-page HWPX documents and every
 // embedded image hash before it becomes cacheable. Keep that one-time proof
 // inside the automatic question flow instead of surfacing a false timeout.
 const WEAK_CASE_SEARCH_TIMEOUT_MS = 2 * 60 * 1000;
+const WEAK_CASE_STANDARDIZATION_TIMEOUT_MS = 2 * 60 * 1000;
 const nativeWindowChrome =
   process.platform === "win32"
     ? {
@@ -86,10 +106,16 @@ const nativeWindowChrome =
     : {};
 let bridgeShutdownStarted = false;
 let mainWindow = null;
+const userActionNotifications = new UserActionNotificationService({
+  NotificationCtor: Notification,
+  windowResolver: () => mainWindow,
+});
 const videoSelections = new LocalVideoSelectionRegistry();
 const gpxSelections = new LocalGpxSelectionRegistry();
 const documentSelections = new LocalDocumentSelectionRegistry();
 const exportDirectorySelections = new LocalDirectorySelectionRegistry();
+const projectOutputDirectorySelections =
+  new ProjectOutputDirectorySelectionRegistry();
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -118,6 +144,13 @@ const supervisor = new BridgeSupervisor({
   bridgeRoot,
   commandProposalRunnerRoot,
   electronVersion: process.versions.electron,
+  // A first activation hashes the complete external ML runtime and performs a
+  // real CUDA/VRAM import smoke before the bridge may claim it. The minimal
+  // frozen bridge retains its short startup bound when no runtime is selected.
+  startupTimeoutMs: process.env
+    .TRAFFICSUPERVISION_EXTERNAL_MODEL_RUNTIME_PACK
+    ? 5 * 60 * 1000
+    : 15_000,
   pythonExecutable: app.isPackaged
     ? undefined
     : resolvePythonExecutable({
@@ -147,6 +180,11 @@ function registerHandler(channel, callback) {
 }
 
 function registerIpcHandlers() {
+  registerHandler(
+    IPC_CHANNELS.NOTIFICATION_QUESTION_REVIEW_READY,
+    async (payload) =>
+      userActionNotifications.notifyQuestionReviewReady(payload),
+  );
   registerHandler(IPC_CHANNELS.DIALOG_VIDEO_FILES, async (_payload, event) => {
     const parentWindow = BrowserWindow.fromWebContents(event.sender);
     const options = {
@@ -215,6 +253,30 @@ function registerIpcHandlers() {
       return exportDirectorySelections.register(result.filePaths[0]);
     },
   );
+  registerHandler(
+    IPC_CHANNELS.DIALOG_PROJECT_OUTPUT_DIRECTORY,
+    async (_payload, event) => {
+      const parentWindow = BrowserWindow.fromWebContents(event.sender);
+      const options = {
+        title: "프로젝트 분석 결과를 저장할 전용 폴더를 선택하세요",
+        buttonLabel: "결과 폴더 선택",
+        properties: [
+          "openDirectory",
+          "createDirectory",
+          "dontAddToRecent",
+        ],
+      };
+      const result = parentWindow
+        ? await dialog.showOpenDialog(parentWindow, options)
+        : await dialog.showOpenDialog(options);
+      if (result.canceled || result.filePaths.length !== 1) {
+        return { selectionId: null, directory: null };
+      }
+      return projectOutputDirectorySelections.register(
+        result.filePaths[0],
+      );
+    },
+  );
   registerHandler(IPC_CHANNELS.HEALTH, async () => {
     if (supervisor.publicStatus().state !== "ready") return supervisor.publicStatus();
     return supervisor.request("GET", "/health");
@@ -239,6 +301,43 @@ function registerIpcHandlers() {
         ),
         timeoutMs: WEAK_CASE_SEARCH_TIMEOUT_MS,
       },
+    ),
+  );
+  registerHandler(IPC_CHANNELS.WEAK_CASE_STANDARDIZATION_PROPOSE, (payload) =>
+    supervisor.request(
+      "POST",
+      `/projects/${encodeId(payload.projectId)}/reference-cases/standardization-proposals`,
+      {
+        body: toBridgePayload(
+          IPC_CHANNELS.WEAK_CASE_STANDARDIZATION_PROPOSE,
+          payload,
+        ),
+        timeoutMs: WEAK_CASE_STANDARDIZATION_TIMEOUT_MS,
+      },
+    ),
+  );
+  registerHandler(IPC_CHANNELS.WEAK_CASE_STANDARDIZATION_LIST, (payload) =>
+    supervisor.request(
+      "GET",
+      `/projects/${encodeId(payload.projectId)}/reference-cases/standardization-proposals`,
+    ),
+  );
+  registerHandler(IPC_CHANNELS.WEAK_CASE_APPROVE, (payload) =>
+    supervisor.request(
+      "POST",
+      `/projects/${encodeId(payload.projectId)}/reference-cases/approvals`,
+      {
+        body: toBridgePayload(
+          IPC_CHANNELS.WEAK_CASE_APPROVE,
+          payload,
+        ),
+      },
+    ),
+  );
+  registerHandler(IPC_CHANNELS.WEAK_CASE_APPROVED_LIST, (payload) =>
+    supervisor.request(
+      "GET",
+      `/projects/${encodeId(payload.projectId)}/reference-cases/approved`,
     ),
   );
   registerHandler(IPC_CHANNELS.PROJECT_LIST, () => supervisor.request("GET", "/projects"));
@@ -406,6 +505,33 @@ function registerIpcHandlers() {
       `/projects/${encodeId(payload.projectId)}/pipeline/profile`,
     ),
   );
+  registerHandler(
+    IPC_CHANNELS.PROJECT_OUTPUT_LOCATION_REGISTER,
+    async (payload) => {
+      const selectedDirectory =
+        projectOutputDirectorySelections.consumePath(
+          payload.selectionId,
+        );
+      return supervisor.request(
+        "POST",
+        `/projects/${encodeId(payload.projectId)}/output-locations`,
+        {
+          body: {
+            project_id: payload.projectId,
+            selected_directory: selectedDirectory,
+          },
+        },
+      );
+    },
+  );
+  registerHandler(
+    IPC_CHANNELS.PROJECT_OUTPUT_LOCATION_LIST,
+    (payload) =>
+      supervisor.request(
+        "GET",
+        `/projects/${encodeId(payload.projectId)}/output-locations`,
+      ),
+  );
   registerHandler(IPC_CHANNELS.PIPELINE_START, (payload) =>
     supervisor.request(
       "POST",
@@ -418,10 +544,60 @@ function registerIpcHandlers() {
       },
     ),
   );
+  registerHandler(
+    IPC_CHANNELS.PIPELINE_RERUN_CURRENT_PROFILE,
+    (payload) =>
+      supervisor.request(
+        "POST",
+        `/projects/${encodeId(payload.projectId)}/pipeline/jobs/${encodeId(payload.sourceJobId)}/reruns`,
+        {
+          body: toBridgePayload(
+            IPC_CHANNELS.PIPELINE_RERUN_CURRENT_PROFILE,
+            payload,
+          ),
+        },
+      ),
+  );
   registerHandler(IPC_CHANNELS.PIPELINE_LIST, (payload) =>
     supervisor.request(
       "GET",
       `/projects/${encodeId(payload.projectId)}/pipeline/jobs?limit=128`,
+    ),
+  );
+  registerHandler(IPC_CHANNELS.PIPELINE_FOLDER_BATCH_START, (payload) =>
+    supervisor.request(
+      "POST",
+      `/projects/${encodeId(payload.projectId)}/pipeline/folder-batches`,
+      {
+        body: toBridgePayload(
+          IPC_CHANNELS.PIPELINE_FOLDER_BATCH_START,
+          payload,
+        ),
+      },
+    ),
+  );
+  registerHandler(IPC_CHANNELS.PIPELINE_FOLDER_BATCH_LIST, (payload) =>
+    supervisor.request(
+      "GET",
+      `/projects/${encodeId(payload.projectId)}/pipeline/folder-batches?limit=128`,
+    ),
+  );
+  registerHandler(IPC_CHANNELS.PIPELINE_FOLDER_BATCH_GET, (payload) =>
+    supervisor.request(
+      "GET",
+      `/projects/${encodeId(payload.projectId)}/pipeline/folder-batches/${encodeId(payload.batchId)}`,
+    ),
+  );
+  registerHandler(IPC_CHANNELS.PIPELINE_FOLDER_BATCH_RETRY, (payload) =>
+    supervisor.request(
+      "POST",
+      `/projects/${encodeId(payload.projectId)}/pipeline/folder-batches/${encodeId(payload.batchId)}/retry`,
+      {
+        body: toBridgePayload(
+          IPC_CHANNELS.PIPELINE_FOLDER_BATCH_RETRY,
+          payload,
+        ),
+      },
     ),
   );
   registerHandler(IPC_CHANNELS.PIPELINE_GET, (payload) =>
@@ -429,6 +605,191 @@ function registerIpcHandlers() {
       "GET",
       `/projects/${encodeId(payload.projectId)}/pipeline/jobs/${encodeId(payload.jobId)}`,
     ),
+  );
+  registerHandler(
+    IPC_CHANNELS.PROVIDER_VISUAL_EVIDENCE_LIST,
+    async (payload) => {
+      const job = await supervisor.request(
+        "GET",
+        `/projects/${encodeId(payload.projectId)}/pipeline/jobs/${encodeId(payload.jobId)}`,
+      );
+      const identities = providerVisualPreparationIdentities(job, {
+        projectId: payload.projectId,
+        jobId: payload.jobId,
+      });
+      const preparations = [];
+      for (const identity of identities) {
+        const raw = await supervisor.request(
+          "GET",
+          `/projects/${encodeId(payload.projectId)}/pipeline/jobs/${encodeId(payload.jobId)}/provider-visual-evidence/${encodeId(identity.candidateId)}/${encodeId(identity.preparationId)}`,
+        );
+        preparations.push(
+          sanitizeProviderVisualPreparation(raw, {
+            projectId: payload.projectId,
+            jobId: payload.jobId,
+            candidateId: identity.candidateId,
+            preparationId: identity.preparationId,
+          }),
+        );
+      }
+      return Object.freeze({
+        preparations: Object.freeze(preparations),
+      });
+    },
+  );
+  registerHandler(
+    IPC_CHANNELS.PROVIDER_VISUAL_EVIDENCE_GET,
+    async (payload) => {
+      const raw = await supervisor.request(
+        "GET",
+        `/projects/${encodeId(payload.projectId)}/pipeline/jobs/${encodeId(payload.jobId)}/provider-visual-evidence/${encodeId(payload.candidateId)}/${encodeId(payload.preparationId)}`,
+      );
+      return sanitizeProviderVisualPreparation(raw, {
+        projectId: payload.projectId,
+        jobId: payload.jobId,
+        candidateId: payload.candidateId,
+        preparationId: payload.preparationId,
+      });
+    },
+  );
+  registerHandler(
+    IPC_CHANNELS.PROVIDER_VISUAL_EVIDENCE_ARTIFACT,
+    async (payload) => {
+      const response = await supervisor.requestBinary(
+        `/projects/${encodeId(payload.projectId)}/pipeline/jobs/${encodeId(payload.jobId)}/provider-visual-evidence/${encodeId(payload.candidateId)}/${encodeId(payload.preparationId)}/artifacts/${payload.order}`,
+        { maximumBytes: 8 * 1024 * 1024 },
+      );
+      return sanitizeProviderVisualArtifactResponse(response);
+    },
+  );
+  registerHandler(
+    IPC_CHANNELS.PROVIDER_VISUAL_EVIDENCE_PRIVACY_REVIEW,
+    async (payload) => {
+      const body = toBridgePayload(
+        IPC_CHANNELS.PROVIDER_VISUAL_EVIDENCE_PRIVACY_REVIEW,
+        payload,
+      );
+      delete body.project_id;
+      delete body.job_id;
+      const raw = await supervisor.request(
+        "POST",
+        `/projects/${encodeId(payload.projectId)}/pipeline/jobs/${encodeId(payload.jobId)}/provider-visual-evidence/privacy-review`,
+        { body },
+      );
+      if (
+        !raw ||
+        typeof raw !== "object" ||
+        Array.isArray(raw) ||
+        Object.keys(raw).length !== 3 ||
+        !Object.hasOwn(raw, "preparation") ||
+        !Object.hasOwn(raw, "pipeline_resume_requested") ||
+        !Object.hasOwn(raw, "pipeline_job") ||
+        typeof raw.pipeline_resume_requested !== "boolean"
+      ) {
+        throw new TypeError(
+          "provider visual privacy review response is invalid",
+        );
+      }
+      return Object.freeze({
+        preparation: sanitizeProviderVisualPreparation(
+          raw.preparation,
+          {
+            projectId: payload.projectId,
+            jobId: payload.jobId,
+            candidateId: payload.candidateId,
+            preparationId: payload.preparationId,
+          },
+        ),
+        pipeline_resume_requested: raw.pipeline_resume_requested,
+        pipeline_job: raw.pipeline_job,
+      });
+    },
+  );
+  registerHandler(
+    IPC_CHANNELS.REPORT_DEIDENTIFIED_EVIDENCE_PREPARE,
+    async (payload) => {
+      const raw = await supervisor.request(
+        "POST",
+        `/projects/${encodeId(payload.projectId)}/pipeline/jobs/${encodeId(payload.jobId)}/report-deidentified-evidence/prepare`,
+        { body: {} },
+      );
+      return sanitizeReportDeidentifiedList(raw, {
+        projectId: payload.projectId,
+        jobId: payload.jobId,
+      });
+    },
+  );
+  registerHandler(
+    IPC_CHANNELS.REPORT_DEIDENTIFIED_EVIDENCE_LIST,
+    async (payload) => {
+      const raw = await supervisor.request(
+        "GET",
+        `/projects/${encodeId(payload.projectId)}/pipeline/jobs/${encodeId(payload.jobId)}/report-deidentified-evidence`,
+      );
+      return sanitizeReportDeidentifiedList(raw, {
+        projectId: payload.projectId,
+        jobId: payload.jobId,
+      });
+    },
+  );
+  registerHandler(
+    IPC_CHANNELS.REPORT_DEIDENTIFIED_EVIDENCE_ARTIFACT,
+    async (payload) => {
+      const response = await supervisor.requestBinary(
+        `/projects/${encodeId(payload.projectId)}/pipeline/jobs/${encodeId(payload.jobId)}/report-deidentified-evidence/${encodeId(payload.incidentId)}/${encodeId(payload.derivativeId)}/artifact`,
+        { maximumBytes: 16 * 1024 * 1024 },
+      );
+      return sanitizeReportDeidentifiedArtifactResponse(response);
+    },
+  );
+  registerHandler(
+    IPC_CHANNELS.REPORT_DEIDENTIFIED_EVIDENCE_REVIEW,
+    async (payload) => {
+      const body = toBridgePayload(
+        IPC_CHANNELS.REPORT_DEIDENTIFIED_EVIDENCE_REVIEW,
+        payload,
+      );
+      delete body.project_id;
+      delete body.job_id;
+      const raw = await supervisor.request(
+        "POST",
+        `/projects/${encodeId(payload.projectId)}/pipeline/jobs/${encodeId(payload.jobId)}/report-deidentified-evidence/review`,
+        { body },
+      );
+      if (
+        !raw ||
+        typeof raw !== "object" ||
+        Array.isArray(raw) ||
+        Object.keys(raw).length !== 5 ||
+        raw.schema_version !==
+          "trafficvisson.report-deidentified-evidence-review-response.v1" ||
+        typeof raw.all_required_derivatives_verified !== "boolean" ||
+        typeof raw.pipeline_resume_requested !== "boolean" ||
+        !raw.pipeline_job ||
+        typeof raw.pipeline_job !== "object" ||
+        Array.isArray(raw.pipeline_job)
+      ) {
+        throw new TypeError(
+          "report deidentified review response is invalid",
+        );
+      }
+      return Object.freeze({
+        schema_version: raw.schema_version,
+        preparation: sanitizeReportDeidentifiedPreparation(
+          raw.preparation,
+          {
+            projectId: payload.projectId,
+            jobId: payload.jobId,
+            incidentId: payload.incidentId,
+            derivativeId: payload.derivativeId,
+          },
+        ),
+        all_required_derivatives_verified:
+          raw.all_required_derivatives_verified,
+        pipeline_resume_requested: raw.pipeline_resume_requested,
+        pipeline_job: raw.pipeline_job,
+      });
+    },
   );
   registerHandler(IPC_CHANNELS.PIPELINE_CANCEL, (payload) =>
     supervisor.request(
@@ -455,6 +816,52 @@ function registerIpcHandlers() {
         ),
       },
     ),
+  );
+  registerHandler(
+    IPC_CHANNELS.USER_DISCOVERED_REVIEW_FRAME_GET,
+    async (payload) => {
+      const basePath =
+        `/projects/${encodeId(payload.projectId)}` +
+        `/pipeline-jobs/${encodeId(payload.pipelineJobId)}` +
+        `/analysis/${encodeId(payload.analysisJobId)}`;
+      const metadata = sanitizeUserDiscoveredReviewFrameMetadata(
+        await supervisor.request(
+          "GET",
+          `${basePath}/user-discovered-review-frame`,
+          {
+            query: {
+              timestamp_seconds: payload.timestampSeconds,
+            },
+          },
+        ),
+        payload,
+      );
+      const response = await supervisor.requestBinary(
+        `${basePath}/user-discovered-review-frames/${encodeId(metadata.selected_frame_id)}`,
+        { maximumBytes: 32 * 1024 * 1024 },
+      );
+      return sanitizeUserDiscoveredReviewFrameArtifact(
+        response,
+        metadata,
+      );
+    },
+  );
+  registerHandler(
+    IPC_CHANNELS.USER_DISCOVERED_CANDIDATE_CREATE,
+    (payload) => {
+      const body = toBridgePayload(
+        IPC_CHANNELS.USER_DISCOVERED_CANDIDATE_CREATE,
+        payload,
+      );
+      delete body.project_id;
+      delete body.pipeline_job_id;
+      delete body.analysis_job_id;
+      return supervisor.request(
+        "POST",
+        `/projects/${encodeId(payload.projectId)}/pipeline-jobs/${encodeId(payload.pipelineJobId)}/analysis/${encodeId(payload.analysisJobId)}/user-discovered-candidates`,
+        { body },
+      );
+    },
   );
   registerHandler(IPC_CHANNELS.CANDIDATE_QUESTIONS_LIST, (payload) =>
     supervisor.request(
@@ -492,6 +899,20 @@ function registerIpcHandlers() {
       `/projects/${encodeId(payload.projectId)}/analysis/jobs/${encodeId(payload.jobId)}/candidates/${encodeId(payload.candidateId)}/answer`,
       { body: toBridgePayload(IPC_CHANNELS.CANDIDATE_ANSWER, payload) },
     ),
+  );
+  registerHandler(
+    IPC_CHANNELS.CANDIDATE_STRUCTURED_LLM_ASSIST,
+    (payload) =>
+      supervisor.request(
+        "POST",
+        `/projects/${encodeId(payload.projectId)}/analysis/jobs/${encodeId(payload.jobId)}/candidates/${encodeId(payload.candidateId)}/structured-llm-assist`,
+        {
+          body: toBridgePayload(
+            IPC_CHANNELS.CANDIDATE_STRUCTURED_LLM_ASSIST,
+            payload,
+          ),
+        },
+      ),
   );
   registerHandler(IPC_CHANNELS.INCIDENT_LIST, (payload) =>
     supervisor.request(
@@ -570,13 +991,122 @@ function registerIpcHandlers() {
       `/projects/${encodeId(payload.projectId)}/datasets`,
     ),
   );
-  registerHandler(IPC_CHANNELS.DATASET_CREATE, (payload) =>
-    supervisor.request(
+  registerHandler(IPC_CHANNELS.DATASET_CREATE, (payload) => {
+    const bridgePayload = toBridgePayload(
+      IPC_CHANNELS.DATASET_CREATE,
+      payload,
+    );
+    delete bridgePayload.project_id;
+    return supervisor.request(
       "POST",
       `/projects/${encodeId(payload.projectId)}/datasets`,
-      { body: toBridgePayload(IPC_CHANNELS.DATASET_CREATE, payload) },
+      { body: bridgePayload },
+    );
+  });
+  registerHandler(IPC_CHANNELS.MODEL_TRAINING_START, (payload) => {
+    const bridgePayload = toBridgePayload(
+      IPC_CHANNELS.MODEL_TRAINING_START,
+      payload,
+    );
+    delete bridgePayload.project_id;
+    return supervisor.request(
+      "POST",
+      `/projects/${encodeId(payload.projectId)}/model-training-jobs`,
+      {
+        body: bridgePayload,
+        timeoutMs: PROJECT_MODEL_TRAINING_TIMEOUT_MS,
+      },
+    );
+  });
+  registerHandler(IPC_CHANNELS.MODEL_TRAINING_LIST, (payload) =>
+    supervisor.request(
+      "GET",
+      `/projects/${encodeId(payload.projectId)}/model-training-jobs`,
     ),
   );
+  registerHandler(IPC_CHANNELS.MODEL_FIXED_VALIDATION_LIST, (payload) =>
+    supervisor.request(
+      "GET",
+      `/projects/${encodeId(payload.projectId)}/fixed-validation-sets`,
+    ),
+  );
+  registerHandler(IPC_CHANNELS.MODEL_TRAINING_RESUME, (payload) => {
+    const bridgePayload = toBridgePayload(
+      IPC_CHANNELS.MODEL_TRAINING_RESUME,
+      payload,
+    );
+    delete bridgePayload.project_id;
+    delete bridgePayload.training_job_id;
+    return supervisor.request(
+      "POST",
+      `/projects/${encodeId(payload.projectId)}/model-training-jobs/${encodeId(payload.trainingJobId)}/resume`,
+      {
+        body: bridgePayload,
+        timeoutMs: PROJECT_MODEL_TRAINING_TIMEOUT_MS,
+      },
+    );
+  });
+  registerHandler(IPC_CHANNELS.MODEL_TRAINING_CANCEL, (payload) => {
+    const bridgePayload = toBridgePayload(
+      IPC_CHANNELS.MODEL_TRAINING_CANCEL,
+      payload,
+    );
+    delete bridgePayload.project_id;
+    delete bridgePayload.training_job_id;
+    return supervisor.request(
+      "POST",
+      `/projects/${encodeId(payload.projectId)}/model-training-jobs/${encodeId(payload.trainingJobId)}/cancel`,
+      {
+        body: bridgePayload,
+        timeoutMs: PROJECT_MODEL_TRAINING_TIMEOUT_MS,
+      },
+    );
+  });
+  registerHandler(IPC_CHANNELS.MODEL_VERSIONS_LIST, (payload) =>
+    supervisor.request(
+      "GET",
+      `/projects/${encodeId(payload.projectId)}/model-versions`,
+    ),
+  );
+  registerHandler(IPC_CHANNELS.MODEL_ITERATIONS_LIST, (payload) =>
+    supervisor.request(
+      "GET",
+      `/projects/${encodeId(payload.projectId)}/model-iterations`,
+    ),
+  );
+  registerHandler(IPC_CHANNELS.MODEL_STATE_GET, (payload) =>
+    supervisor.request(
+      "GET",
+      `/projects/${encodeId(payload.projectId)}/model-state`,
+    ),
+  );
+  for (const [channel, action] of [
+    [IPC_CHANNELS.MODEL_PROMOTE, "promote"],
+    [IPC_CHANNELS.MODEL_REJECT, "reject"],
+  ]) {
+    registerHandler(channel, (payload) => {
+      const bridgePayload = toBridgePayload(channel, payload);
+      delete bridgePayload.project_id;
+      delete bridgePayload.model_version_id;
+      return supervisor.request(
+        "POST",
+        `/projects/${encodeId(payload.projectId)}/model-versions/${encodeId(payload.modelVersionId)}/${action}`,
+        { body: bridgePayload },
+      );
+    });
+  }
+  registerHandler(IPC_CHANNELS.MODEL_ROLLBACK, (payload) => {
+    const bridgePayload = toBridgePayload(
+      IPC_CHANNELS.MODEL_ROLLBACK,
+      payload,
+    );
+    delete bridgePayload.project_id;
+    return supervisor.request(
+      "POST",
+      `/projects/${encodeId(payload.projectId)}/model-state/rollback`,
+      { body: bridgePayload },
+    );
+  });
   registerHandler(IPC_CHANNELS.QUESTIONS_LIST, (payload) =>
     supervisor.request("GET", `/projects/${encodeId(payload.projectId)}/questions`, {
       query: {
@@ -675,6 +1205,51 @@ function registerIpcHandlers() {
       body: toBridgePayload(IPC_CHANNELS.REPORT_REJECT, payload),
     }),
   );
+  registerHandler(IPC_CHANNELS.REPORT_EXACT_PREVIEW, (payload) => {
+    const body = toBridgePayload(
+      IPC_CHANNELS.REPORT_EXACT_PREVIEW,
+      payload,
+    );
+    return supervisor.request(
+      "POST",
+      `/projects/${encodeId(payload.projectId)}/pipeline-jobs/${encodeId(
+        payload.pipelineJobId,
+      )}/reports/exact-preview`,
+      { body },
+    );
+  });
+  registerHandler(IPC_CHANNELS.REPORT_EXACT_APPLY, (payload) => {
+    const body = toBridgePayload(
+      IPC_CHANNELS.REPORT_EXACT_APPLY,
+      payload,
+    );
+    return supervisor.request(
+      "POST",
+      `/projects/${encodeId(payload.projectId)}/pipeline-jobs/${encodeId(
+        payload.pipelineJobId,
+      )}/reports/exact-apply`,
+      {
+        body,
+        timeoutMs: EXACT_REPORT_APPLY_TIMEOUT_MS,
+      },
+    );
+  });
+  for (const [channel, action] of [
+    [IPC_CHANNELS.REPORT_EXACT_ACCEPT, "exact-accept"],
+    [IPC_CHANNELS.REPORT_EXACT_REJECT, "exact-reject"],
+    [IPC_CHANNELS.REPORT_EXACT_ROLLBACK, "exact-rollback"],
+  ]) {
+    registerHandler(channel, (payload) => {
+      const body = toBridgePayload(channel, payload);
+      return supervisor.request(
+        "POST",
+        `/projects/${encodeId(payload.projectId)}/pipeline-jobs/${encodeId(
+          payload.pipelineJobId,
+        )}/reports/${action}`,
+        { body },
+      );
+    });
+  }
   registerHandler(IPC_CHANNELS.HWP_PREFLIGHT, () =>
     supervisor.request("GET", "/hwp/preflight"),
   );
@@ -956,6 +1531,9 @@ if (!app.requestSingleInstanceLock()) {
         );
       }
       mainWindow = await createMainWindow();
+      mainWindow.on("focus", () => {
+        mainWindow?.flashFrame(false);
+      });
       mainWindow.once("closed", () => {
         mainWindow = null;
       });

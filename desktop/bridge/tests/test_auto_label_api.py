@@ -436,8 +436,12 @@ def test_auto_label_run_generates_and_persists_review_only_sidecars(tmp_path):
     completed_job = {
         "job_id": str(JOB_ID),
         "status": "completed",
+        "source_sha256": "4" * 64,
         "result": {
             "candidate_count": 1,
+            "provenance": {
+                "source_sha256": "4" * 64,
+            },
             "candidates": [
                 {
                     "candidate_id": CANDIDATE_ID,

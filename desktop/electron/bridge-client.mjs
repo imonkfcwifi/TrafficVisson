@@ -220,8 +220,23 @@ export class BridgeClient {
         }
       }
       if (!response.ok) {
-        const safeMessage =
-          data && typeof data.detail === "string" && data.detail.length <= 300
+        const structuredDetail =
+          data &&
+          data.detail &&
+          typeof data.detail === "object" &&
+          !Array.isArray(data.detail) &&
+          typeof data.detail.code === "string" &&
+          /^[a-z][a-z0-9_]{0,127}$/.test(data.detail.code) &&
+          typeof data.detail.message === "string" &&
+          data.detail.message.length >= 1 &&
+          data.detail.message.length <= 300
+            ? data.detail
+            : null;
+        const safeMessage = structuredDetail
+          ? `${structuredDetail.code}: ${structuredDetail.message}`
+          : data &&
+              typeof data.detail === "string" &&
+              data.detail.length <= 300
             ? data.detail
             : "Bridge request was rejected";
         throw new BridgeHttpError(safeMessage, {

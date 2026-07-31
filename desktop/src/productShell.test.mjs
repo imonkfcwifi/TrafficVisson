@@ -43,12 +43,29 @@ test("desktop navigation stays compact while exposing legible screen labels and 
   );
   assert.match(shellSource, /compactLabel:\s*"영상"/);
   assert.match(shellSource, /compactLabel:\s*"질문"/);
-  assert.match(shellSource, /현재 작업 화면: \$\{activeNavigationItem\.label\}/);
+  assert.match(shellSource, /const activeNavigationSection =/);
+  assert.match(shellSource, /const currentTaskLabel =/);
+  assert.match(shellSource, /useReviewHistory\(/);
   assert.match(
     shellSource,
-    /업무 화면 \{activeNavigationIndex \+ 1\} \/ \{NAV_ITEMS\.length\}/,
+    /currentQuestionQueue\.questionCount - reviewedQuestionCount/,
   );
+  assert.match(shellSource, /남은 질문 \$\{remainingQuestionCount\}건 답변/);
+  assert.match(
+    shellSource,
+    /notifications[\s\S]*questionReviewReady[\s\S]*queueRevision:\s*currentQuestionQueue\.queueRevision/,
+  );
+  assert.match(
+    shellSource,
+    /현재 업무 영역: \$\{activeNavigationSection\}, 화면: \$\{activeNavigationItem\.label\}, 지금 할 일: \$\{currentTaskLabel\}/,
+  );
+  assert.doesNotMatch(shellSource, /업무 화면 \{activeNavigationIndex \+ 1\}/);
+  assert.match(shellSource, /<span>\{activeNavigationSection\}<\/span>/);
   assert.match(shellSource, /<strong>\{activeNavigationItem\.label\}<\/strong>/);
+  assert.match(
+    shellSource,
+    /<small title=\{currentTaskLabel\}>\{currentTaskLabel\}<\/small>/,
+  );
   assert.match(shellSource, /sectionLabel:\s*"자동 점검"/);
   assert.match(shellSource, /sectionLabel:\s*"결과 확인"/);
   assert.match(shellSource, /sectionLabel:\s*"관리"/);
@@ -140,17 +157,33 @@ test("the analysis destination presents a durable automatic PipelineJob, not man
     pipelineOverview,
     /startActualAnalysis|startDenseIndex|후보 추출 시작|밀집 프레임 준비/,
   );
+  const routedAnalysis = analysisSource.slice(
+    analysisSource.indexOf("export function AnalysisScreen"),
+    analysisSource.indexOf("export function LegacyAnalysisDiagnosticsScreen"),
+  );
+  assert.match(routedAnalysis, /<PipelineAnalysisOverview/);
+  assert.match(routedAnalysis, /연결된 자동 점검 작업 없음/);
+  assert.match(routedAnalysis, /영상 가져오기로 이동/);
+  assert.match(
+    routedAnalysis,
+    /이 화면에서는 후보 추출·밀집 프레임·검지 단계를 따로 시작하지\s*않습니다/,
+  );
+  assert.doesNotMatch(
+    routedAnalysis,
+    /startActualAnalysis|startDenseIndex|후보 추출 시작|밀집 프레임 준비/,
+  );
+  assert.doesNotMatch(appSource, /LegacyAnalysisDiagnosticsScreen/);
   assert.match(
     polishStyles,
     /\.screen--pipeline-analysis \.pipeline-job-stage-grid\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/s,
   );
   assert.match(
     polishStyles,
-    /\.screen--pipeline-analysis \.pipeline-job-stage__copy strong\s*\{[^}]*font-size:\s*11\.5px;/s,
+    /\.screen--pipeline-analysis \.pipeline-job-stage__copy strong\s*\{[^}]*font-size:\s*12\.5px;/s,
   );
   assert.match(
     polishStyles,
-    /\.screen--pipeline-analysis \.pipeline-job-stage__copy small\s*\{[^}]*font-size:\s*11px;/s,
+    /\.screen--pipeline-analysis \.pipeline-job-stage__copy small\s*\{[^}]*font-size:\s*11\.5px;/s,
   );
 });
 
@@ -231,9 +264,43 @@ test("screen order follows the one-input automatic journey before secondary mana
   );
 });
 
+test("screen announcements use Korean product labels instead of internal route ids", () => {
+  for (const [id, label] of [
+    ["home", "프로젝트 홈"],
+    ["import", "영상 가져오기"],
+    ["analysis", "자동 분석 진행"],
+    ["label", "질문 검토"],
+    ["review", "사건 검토"],
+    ["history", "지도·영상 히스토리"],
+    ["report", "보고서"],
+    ["export", "내보내기"],
+    ["models", "모델 관리"],
+  ]) {
+    assert.match(
+      appSource,
+      new RegExp(`${id}:\\s*"${label}"`),
+    );
+  }
+  assert.match(appSource, /\{SCREEN_LABELS\[screen\]\} 화면/);
+  assert.match(
+    appSource,
+    /document\.title = `\$\{SCREEN_LABELS\[screen\]\} · TrafficSuperVision`/,
+  );
+  assert.doesNotMatch(appSource, /\{screen\} 화면/);
+});
+
 test("active pipeline polling continues through long stages and auto-navigation can observe completion", () => {
   assert.match(shellSource, /const timer = window\.setInterval\(refresh, 800\)/);
   assert.match(shellSource, /let fetching = false/);
+  assert.match(shellSource, /document\.visibilityState === "hidden"/);
+  assert.match(
+    shellSource,
+    /document\.addEventListener\("visibilitychange", resumeVisiblePolling\)/,
+  );
+  assert.match(
+    shellSource,
+    /document\.removeEventListener\("visibilitychange", resumeVisiblePolling\)/,
+  );
   assert.match(shellSource, /window\.clearInterval\(timer\)/);
   assert.doesNotMatch(
     shellSource,
@@ -263,18 +330,43 @@ test("heavy screens are lazy and unused map CSS is not in the initial renderer",
     historySource,
     /const HistoryMap = lazy\(\(\) =>\s*import\("\.\.\/components\/HistoryMap"\)/,
   );
-  assert.match(historySource, /<Suspense[\s\S]*지도 준비 중[\s\S]*<HistoryMap/);
+  assert.match(
+    historySource,
+    /\{gpxTrack \? \(\s*<Suspense[\s\S]*지도 준비 중[\s\S]*<HistoryMap/,
+  );
+  assert.match(
+    historySource,
+    /\) : \(\s*<div[\s\S]*<MapPinOff[\s\S]*GPX 필요[\s\S]*촬영 시작 좌표 한 점으로 경로를 만들지 않습니다/,
+  );
 });
 
-test("lazy screen loaders are shared by idle and navigation-intent prefetch", () => {
+test("lazy screen loaders prefetch only the next workflow screen and navigation intent", () => {
   assert.match(appSource, /function retryableLoader/);
   assert.match(appSource, /const SCREEN_LOADERS:/);
+  assert.match(appSource, /const NEXT_SCREEN_PREFETCH:/);
+  for (const [screen, next] of [
+    ["home", "import"],
+    ["import", "analysis"],
+    ["analysis", "label"],
+    ["label", "review"],
+    ["review", "history"],
+    ["history", "report"],
+    ["report", "export"],
+    ["export", "models"],
+  ]) {
+    assert.match(appSource, new RegExp(`${screen}:\\s*"${next}"`));
+  }
+  assert.match(appSource, /models:\s*null/);
+  assert.match(appSource, /const nextScreen = NEXT_SCREEN_PREFETCH\[screen\]/);
+  assert.match(appSource, /prefetchScreen\(nextScreen\)/);
+  assert.doesNotMatch(appSource, /prefetchAllScreens|PREFETCHABLE_SCREENS/);
   assert.match(appSource, /requestIdleCallback/);
   assert.match(appSource, /cancelIdleCallback/);
   assert.match(appSource, /window\.setTimeout\(runPrefetch, 250\)/);
   assert.match(appSource, /window\.clearTimeout\(fallbackHandle\)/);
   assert.match(appSource, /window\.cancelAnimationFrame\(firstPaintFrame\)/);
   assert.match(appSource, /window\.cancelAnimationFrame\(afterPaintFrame\)/);
+  assert.match(appSource, /}, \[screen\]\);/);
   assert.match(shellSource, /onPointerEnter=\{\(\) => onScreenPrefetch\(item\.id\)\}/);
   assert.match(shellSource, /onFocus=\{\(\) => onScreenPrefetch\(item\.id\)\}/);
 });

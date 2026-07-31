@@ -1,16 +1,17 @@
 # TrafficSuperVision 구현 요구사항 매트릭스
 
-> 감사 기준 시각: 2026-07-29 16:30 KST
+> 감사 기준일: 2026-07-29
 > 감사 범위: 루트 계획서, 업로드 보관본, Electron main/preload, renderer, Python bridge, 모델 실행기, 테스트, Windows 패키지 산출물  
-> 구현 반영: PipelineJob 복구·멱등성·0건 결과, 승인 사례 원장, sample HWPX 의미 검증, Model Pack provenance, 단일 창 IA·라벨링 근거 보강과 대응 회귀를 현재 작업 트리에 반영함.
+> 구현 반영: PipelineJob 복구·멱등성·0건 결과, 승인 사례 원장, sample HWPX 대상·구조 fail-closed 검증, Model Pack provenance, 단일 창 IA·라벨링 높이 예산과 대응 회귀를 현재 작업 트리에 반영함.
+> 최상위 판정 순서: `3·4분기 약한 사례 DB → 승인 reference → 영상 후보 → 사용자 확정 라벨 → DatasetVersion → 프로젝트 모델 학습·고정 검증·승격 → 새 영상 도로 조사 → 지도·CSV·증거 → 최종 HWPX`. HWPX 구현만으로 앞단 AI·학습·조사 완료를 대체하지 않음.
 
 ## 1. 기준 문서와 판정 원칙
 
 업로드 폴더의 계획서는 스스로 `역사적 v2.0 보관본`이며 현재 구현 기준으로 사용하지 않는다고 명시한다
 (`Pretendard와 리퀴드 글래스 디자인/uploads/TRAFFIC_SUPER_VISION_MASTER_PLAN.md:3-6`).
-현재 단일 기준은 루트 v2.14이다
+현재 단일 기준은 루트 v2.17이다
 (`TRAFFIC_SUPER_VISION_MASTER_PLAN.md:3-9`).
-두 문서의 M0~M11 완료 조건과 최종 완료 정의 1~19는 실질적으로 동일하므로, 이 감사는 루트 v2.14의 문구를 판정 기준으로 삼고 업로드본은 요구사항 누락 여부를 대조하는 용도로만 사용했다.
+두 문서의 M0~M11 완료 조건과 최종 완료 정의 1~19는 실질적으로 동일하므로, 이 감사는 루트 v2.17의 문구를 판정 기준으로 삼고 업로드본은 요구사항 누락 여부를 대조하는 용도로만 사용했다.
 
 판정 용어는 다음처럼 엄격하게 사용했다.
 
@@ -52,16 +53,16 @@ M0~M11 중 계획서의 엄격한 완료 조건까지 충족한 마일스톤은 
 - 1600×900 홈의 위쪽 카드만 남고 아래가 비던 회귀는 실제 후보 증거 쇼케이스로 채웠다. `analysisSummary.candidates`의 앞 3건을 실제 evidence URL로 렌더하고 클릭하면 같은 후보의 라벨링 화면으로 이동한다 (`desktop/src/screens/HomeScreen.tsx:60-72,255-308`). 첫 후보를 크게 두는 비대칭 3열과 남은 공간을 채우는 flex/grid가 적용됐다 (`desktop/src/styles-visual-polish.css:172-220,233-272`). postfix 단계의 1600×900 증거 캡처는 `qa/aaa-continuation-20260729/postfix-audit/10-home-1600x900-100.png`이며, 고정 mock 이미지가 아니라 현재 분석 후보 1~3과 검토 대기열을 한 화면에 표시한다. 이 중간 캡처가 아니라 아래 final-suit-p2 재감사의 최종 원본과 측정값으로 alpha.10 UI 통과를 판정했다.
 - SUIT import, 홈 비대칭 계층, 실제 candidate evidence URL, 짧은 화면의 line box·clip 방지 회귀 검사는 renderer 테스트에 포함된다 (`desktop/src/visualPolish.test.mjs:15-49`).
 - **PASSED — v2.13 post-fix UI 재감사:** [`qa/visual-reaudit-20260729`](../visual-reaudit-20260729/)의 Home·Labeling·Report 실화면과 참조 결합본 6개는 P0 0건·P1 0건·P2 0건이다. 1280×720 live pixel, 정밀 심각도 상태, 실제 OCR 카드 상태는 P3 증거 공백이며 제품 전체·현장 수용 완료 판정이 아니다.
-- **PASSED — v2.14 단일 창 IA 실기동 재검증:** [`qa/ia-confusion-20260729`](../ia-confusion-20260729/)에 변경 전 Electron, 실제 1282×721 개발 Electron과 유일한 디자인 참조 결합본을 보존했다. 화면은 `업무 화면 4/9`, 9개 업무 내비게이션 그룹, 영상→자동 분석→질문 검토→결과 자동 갱신, 현재 검토 모드, 일반 질문의 GPS 없음·경로 미생성, AI 심각도 미제안 근거와 사용자 최종값 분리, 3·4분기 유사 4건과 Y/N/U/E를 문서 전체 스크롤 없이 표시한다.
+- **PARTIAL — v2.16 단일 창 IA:** [`qa/ia-confusion-20260729`](../ia-confusion-20260729/)에는 이전 1282×721 개발 Electron과 유일한 디자인 참조 결합본이 있다. 최신 소스는 `화면 n/9`를 업무 영역·현재 화면·남은 질문을 반영한 지금 할 일 breadcrumb로 바꾸고, 새 프로젝트 `1/2 → 2/2` 온보딩과 기존 프로젝트 설정 편집을 분리했으며, 설정 전 홈으로 나갈 수 있게 했다. 프로필 미설정과 로드 실패를 분리하고 프로젝트 전환 시 이전 폼·모달을 즉시 폐기해 오저장을 차단한다. workspace 전체 포커스 액자를 제목 단위 포커스로 축소하고, 내부 liquid-glass 토큰을 복구했으며, 홈·분석 단계를 평면 진행 표면으로 합쳤다. 1280×720 홈 히어로는 강제 높이와 내부 압축을 제거해 문구·진행 단계의 위아래 절단을 막았다. 일반 Analysis의 자동 PipelineJob 전용 경로와 질문 카드의 빠른·정밀·OCR·영역수정 높이 예산은 유지한다. 사용자가 화면 제어를 중지한 뒤 최신 코드를 실제 Electron으로 다시 캡처하지 않았으므로 소스 회귀를 새 시각 수용 증거로 승격하지 않는다.
 - `HistoryScreen` 초기 청크는 22.28kB(gzip 7.60kB)로 분리됐다. 지도를 열 때 lazy-load되는 별도 `HistoryMap` 청크 947.96kB(gzip 249.38kB)가 Vite 500kB 경고를 남기므로 저사양 현장 PC의 첫 지도 진입 시간을 측정할 P3 경계다.
 
 ### 2.4 실제 NAS PipelineJob와 승인 경계
 
-프로젝트 `11111111-1111-4111-8111-111111111111`의 `PipelineJob` `98282642-e5bd-42a2-98b2-04c8c2c81a6d`는 analysis `7571e9f1-09ff-4236-aeb7-4946fca4ac0a`, 원본 `20250905_095953.mp4`(SHA-256 `020ac3d642e1b02ad1d3834a5fd98b6e24ad38de00b74262bce93e4280eb16a4`)에 대해 `awaiting_review` / `question_queue` 92%, 질문 1건이다. 시간대별 GPS·GPX가 없고 사용자 답변·확정 Annotation·확정 Incident는 모두 0건이다.
+프로젝트 `11111111-1111-4111-8111-111111111111`의 `PipelineJob` `98282642-e5bd-42a2-98b2-04c8c2c81a6d`는 analysis `7571e9f1-09ff-4236-aeb7-4946fca4ac0a`, 원본 `20250905_095953.mp4`(SHA-256 `020ac3d642e1b02ad1d3834a5fd98b6e24ad38de00b74262bce93e4280eb16a4`)에 대해 `awaiting_review` / `question_queue`, 질문 1건이다. 원본 sidecar SHA-256 결속을 읽기 전용으로 재검증했다. 시간대별 GPS·GPX가 없고 `answers.jsonl`도 없으며 사용자 답변·확정 Annotation·확정 Incident·학습 membership·파생 산출물은 모두 0건이다.
 
 모든 durable checkpoint를 검사하는 pre-review projection gate가 검토 완료 전 Annotation·Incident 투영을 막는다. 검토 완료 뒤에도 정확히 같은 완료 analysis/source/question provenance만 확정 투영하고 해당 analysis의 CSV·증거를 생성한다.
 
-v2.14는 여기에 source SHA-256·프로젝트 설정이 같은 재입력의 canonical job alias, 재시작 중 `cancelling`의 `cancelled` 마감, 실제 0건만 허용하는 `zero_detections` 결과·빈 산출물 hash를 추가했다. 모델 미설치·분석 실패·거짓 0건을 빈 성공으로 승격하지 않는다.
+v2.15 파이프라인 변경은 source SHA-256·프로젝트 설정이 같은 재입력의 canonical job alias, 재시작 중 `cancelling`의 `cancelled` 마감, 실제 0건만 허용하는 `zero_detections`, Pipeline profile v2의 보고서 전송 동의·sample 구조 맵·Provider 준비 상태, 검토 완료 뒤 CSV·증거 자동 재생성을 추가했다. v2.16은 단일 창 온보딩과 시각 계층을 교정했으며 파이프라인 승인 경계는 바꾸지 않았다. exact sample binder가 없으면 `report_preview_blocked`로 분리하고 Provider·COM을 호출하지 않는다. 모델 미설치·분석 실패·거짓 0건을 빈 성공으로 승격하지 않는다.
 
 ### 2.5 반드시 구분해야 하는 “실제”와 “시뮬레이션”
 
@@ -95,8 +96,8 @@ v2.14는 여기에 source SHA-256·프로젝트 설정이 같은 재입력의 ca
 | **M7 프로젝트 모델 관리** | **부분 구현** | P0 | 최신 답변에서 immutable DatasetVersion을 만들고 프로젝트 경계, analysis-job 단위 train/validation split, 해시·재사용을 보장한다 (`desktop/bridge/app/dataset_versions.py:1-10,437-559`). ModelScreen은 실제 label stats와 dataset API를 읽고 사용자가 버튼을 눌러야 snapshot을 만든다 (`desktop/src/screens/ModelScreen.tsx:30-43,210-259`). | GPU 학습 API, ModelVersion 저장, 유형별 고정 검증 세트, 성능 비교, 후보 승격·거부·롤백이 없다. `새 모델 학습` 버튼은 의도적으로 비활성이다 (`desktop/src/screens/ModelScreen.tsx:278-284,328-336`). 프로젝트별 “모델” 격리는 아직 데이터셋 격리뿐이다. |
 | **M8 GPS 증거 히스토리** | **부분 구현** | P0 | 실제 후보/Incident 목록, 영상 timecode, 타임라인, Review↔History 선택을 프로젝트·작업 범위로 연결했다. GPX가 있으면 MapLibre 전체 경로·재생 진행선·현재 위치·후보 위치를 만들고, 재생 시각 변경 시 source를 갱신하며 지도 후보 클릭도 동일 후보로 이동한다 (`desktop/src/components/HistoryMap.tsx:56-140,215-372`; `desktop/src/screens/HistoryScreen.tsx:637-648,675-721`). GPX가 없거나 gap·범위 밖이면 위치를 만들지 않는다 (`desktop/src/components/HistoryMap.tsx:403-458`; `desktop/src/gpsTracks.test.mjs:88-105`). | 실제 운영 데이터에는 승인 Incident와 시간대별 GPX가 동시에 존재하지 않아 촬영자가 아닌 검토자가 실제 사건을 지도에서 선택하는 수용 종단은 미입증이다. 주소·도로명·진행 방향과 공유용 비식별화 근거도 남아 있어 M8 완료가 아니다 (`TRAFFIC_SUPER_VISION_MASTER_PLAN.md:1644-1653`). |
 | **M9 CSV·비식별화·Trip Package** | **부분 구현** | P0 | 7개 CSV, report payload, manifest, 승인 Incident의 JPEG/MP4를 hash·magic·size 검증 ZIP으로 만드는 실제 export가 있다 (`desktop/bridge/app/artifact_export.py:184-211,872-992`). 선택 분석 작업과 Incident revision/provenance도 제한한다. GPX 연결 시 표시용 최대 8,000점 샘플과 분리해 최대 50,000점의 검증된 전체 route를 export snapshot으로 읽고, `route_points.csv`와 manifest에 track/source/record SHA-256, revision, offset, gap·범위 통계를 기록한다 (`desktop/bridge/app/gpx_tracks.py:700-904`; `desktop/bridge/app/artifact_export.py:445-550`; `desktop/bridge/tests/test_gpx_tracks.py:260-287`; `desktop/bridge/tests/test_analysis_jobs.py:1481-1595`). | 얼굴·번호판 blur 및 공유용 파생본이 없고 Review UI도 `공유본 없음`으로 막혀 있다 (`desktop/src/screens/ReviewScreen.tsx:580-590`). 현재 운영 데이터의 실제 승인 Incident와 GPX가 0건이어서 실제 Trip Package 사용자 종단은 아직 없다. route export 완료를 비식별화 완료로 해석하지 않는다. |
-| **M10 Codex·Claude와 HWP/HWPX** | **부분 구현** | P0 | Codex/Claude 공식 CLI의 allowlisted 상태·로그인 명령을 `shell=False`로 실행한다. 보고서 입력·모델 출력 스키마와 incident/target 참조를 검증하고, 파생 산출물 생성 전 서버가 exact completed analysis/source/question provenance와 review completion을 다시 확인한다. 3·4분기 sample 272개 사진의 정확한 페이지 쌍·좌우 병합 캡션·노선·점검 의견·전체 `■` 셀을 재결속하고 승인 reference와 현재 expected value가 일치하는 의미 계획만 COM 전에 허용하는 validator가 있다. HWP COM은 현재 PC에 등록돼 있으며 전용 STA 경로가 존재한다. | 의미 validator는 아직 실제 report/COM writer 제품 경로와 연결되지 않았다. COM 등록은 실문서 성공 증거가 아니며 sample 양식 실제 적용, 영구 복구 journal, 저장 후 재열기와 48쪽 전체 렌더가 아직 수용되지 않았다. |
-| **M11 설치본·현장 수용** | **부분 구현** | P0 | `package:win`은 테스트, renderer/bridge/runner build, frozen bridge test, NSIS, release manifest를 묶는다. 현재 source gate는 renderer 156/156, Electron 80/80, bridge 640 passed·2 skipped, typecheck/build passed다. release 검증은 model/version/source revision/license/SHA/GPU 계약이 빠진 runtime을 ready로 인정하지 않고 오래된 packaged runner trust manifest를 manifest 생성 전에 거부한다. 실제 1282×721 단일 창 UI 재검증도 통과했다. | 현재 source trust chain으로 새 설치본을 다시 만들지 않았고 alpha.10 역사 설치본은 `NotSigned`, `development_only_not_distribution_ready`다. 별도 `HistoryMap` 947.96kB(gzip 249.38kB)의 첫 지도 진입 성능, clean Windows 설치/업그레이드/rollback/uninstall, 검증된 도로·OCR·SAM2 runtime, sample HWP 48쪽 종단과 Hancom clean-PC gate가 미해결이다. |
+| **M10 Codex·Claude와 HWP/HWPX** | **부분 구현** | P0 | Codex/Claude 공식 CLI의 allowlisted 상태·로그인 명령을 `shell=False`로 실행한다. 보고서 입력·모델 출력 스키마와 incident/target 참조를 검증하고, 파생 산출물 생성 전 서버가 exact completed analysis/source/question provenance와 review completion을 다시 확인한다. exact sample 경로는 suffix/magic/fingerprint/구조, 실제 계획이 참조한 동일 분기 승인 reference, 문서·계획·대상 구조 해시와 프로젝트 범위 일회성 토큰을 fail-closed 검증한다. HWP COM은 현재 PC에 등록돼 있으며 전용 STA 경로가 존재한다. | 현재 결과는 대상·구조 미리보기이며 `approved_incident_bound=false`, `content_provenance_bound=false`, `apply_eligible=false`다. 결정적 current-Incident binder·sample writer·영구 복구 journal·저장 후 재열기와 48쪽 전체 렌더가 없으므로 COM 적용을 차단한다. COM 등록은 실문서 성공 증거가 아니다. |
+| **M11 설치본·현장 수용** | **부분 구현** | P0 | `package:win`은 테스트, renderer/bridge/runner build, frozen bridge test, NSIS, release manifest를 묶는다. 현재 source gate는 renderer 172/172, Electron 80/80, bridge 665 passed·2 skipped, typecheck/build passed다. release 검증은 model/version/source revision/license/SHA/GPU 계약이 빠진 runtime을 ready로 인정하지 않고 오래된 packaged runner trust manifest를 manifest 생성 전에 거부한다. | 현재 source trust chain으로 새 설치본을 다시 만들지 않았고 alpha.10 역사 설치본은 `NotSigned`, `development_only_not_distribution_ready`다. 최신 높이 예산 패치의 실제 Electron 재캡처, 별도 `HistoryMap` 947.96kB(gzip 249.38kB)의 첫 지도 진입 성능, clean Windows 설치/업그레이드/rollback/uninstall, 검증된 도로·OCR·SAM2 runtime, sample HWP 48쪽 종단과 Hancom clean-PC gate가 미해결이다. |
 
 ## 4. 최종 완료 정의 1~19 매트릭스
 
@@ -116,30 +117,31 @@ v2.14는 여기에 source SHA-256·프로젝트 설정이 같은 재입력의 ca
 | 12 | 원시·최종 CSV, 라벨, 증거, Trip Package를 내보낸다 | **부분 구현** | P1 | CSV 7종+JSON+manifest+승인 evidence ZIP은 실제 구현됐다. GPX 연결 시 renderer 8,000점 샘플과 무관하게 최대 50,000점 전체 route를 `route_points.csv`에 넣고 source/record hash·offset·revision provenance를 보존하며 tamper를 거부한다 (`desktop/bridge/app/gpx_tracks.py:700-904`; `desktop/bridge/tests/test_gpx_tracks.py:260-314`; `desktop/bridge/tests/test_analysis_jobs.py:1481-1608`). 다만 실제 승인 Incident가 있는 운영 패키지와 공유 비식별화 파생본 종단은 없다. |
 | 13 | 공유 자료 얼굴·번호판을 비식별화한다 | **미구현** | P0 | 제품 blur/redaction pipeline이 없고 공유 버튼도 비활성이다 (`desktop/src/screens/ReviewScreen.tsx:588-590`). |
 | 14 | Codex·Claude CLI 상태를 확인하고 최소 데이터로 보고서 초안을 만든다 | **부분 구현** | P1 | allowlisted status/login, 명시 동의, bounded redacted payload, structured draft/plan 코드가 있다. 서버는 자동 파생 산출물 전에 review completion과 exact completed analysis/source/question provenance를 재검증한다. 다만 실제 사용자 승인 Incident와 공식 CLI를 사용한 보고서 수용 종단은 아직 없다. |
-| 15 | 편집 계획이 스키마·문서 대상 검사를 통과해야만 한/글에 적용된다 | **부분 구현** | P0 | model output은 supplied incident/target 집합으로 제한되고 COM operation allowlist도 있다 (`desktop/bridge/app/report_generation.py:795-835`; `desktop/bridge/app/main.py:1817-1846`). 그러나 document snapshot/target summary가 실제 선택 문서 hash·HWPML과 서버 측으로 결속되지 않고 preview와 apply 사이의 일회성 승인 token이 없다. |
-| 16 | 기본·사용자 양식에서 미리보기·수락·거절·롤백한다 | **부분 구현** | P0 | 사용자 문서 picker와 HWPML preview, apply, sibling save, in-memory rollback 경로가 있다 (`desktop/bridge/app/main.py:1848-1946`; `desktop/bridge/app/hwp_com.py:476-617`). 기본 양식 파일이 없고, production accept/reject audit와 재시작 후 rollback이 없으며 사진·지도·표가 거부된다. |
+| 15 | 편집 계획이 스키마·문서 대상 검사를 통과해야만 한/글에 적용된다 | **부분 구현** | P0 | model output과 COM operation allowlist에 더해 exact sample은 선택 문서 fingerprint·structure, plan, target summary, 승인 reference 해시를 서버에서 결속하고 프로젝트 범위 일회성 승인 token을 발급한다. 바뀐 sample 유사 파일, 위장 확장자, 분기 혼합 reference와 token 재사용은 COM 전에 거부한다. 다만 현재 Incident 내용·사진·문구 결속이 없어 `approved_incident_bound=false`, `content_provenance_bound=false`, `apply_eligible=false`로 실제 적용을 막는다. |
+| 16 | 기본·사용자 양식에서 미리보기·수락·거절·롤백한다 | **부분 구현** | P0 | 사용자 문서 picker와 legacy HWPML preview/apply/sibling save/session rollback 경로가 있고, exact sample은 안전한 대상·구조 미리보기와 프로젝트 범위 rollback token 계약을 제공한다. exact sample 결정적 writer, production accept/reject audit, 재시작 가능한 rollback journal, 사진·지도·표·네모 실제 쓰기가 없어 현재 적용은 차단된다. |
 | 17 | 최종 HWP/HWPX가 재읽기·전 페이지 렌더 검증을 통과한다 | **미구현** | P0 | 저장 후 reopen/hash/HWPML readback은 있으나 페이지 이미지 렌더, 표 잘림, 겹침, overflow, 사진 누락 판정기는 없다 (`desktop/bridge/app/hwp_com.py:501-565`; `TRAFFIC_SUPER_VISION_MASTER_PLAN.md:1659-1668`). |
 | 18 | Local Model 비활성 슬롯과 확장 가능한 Provider 계약이 있다 | **구현됨** | — | `local` status는 `coming_soon`, 설치 안 됨, capability 없음으로 고정되고 Provider 목록/UI 계약을 공유한다 (`desktop/bridge/app/provider_status.py:238-247`; `desktop/bridge/app/main.py:1564-1604`). |
 | 19 | 실제 영상 E2E와 Windows 설치본 검증을 통과한다 | **부분 구현** | P0 | 로컬 영상→후보→질문→review-only proposal→CSV/ZIP, GPX 제품 경로와 unpacked 실행은 각각 확인됐다. 그러나 하나의 실제 운영 입력에서 사용자 승인 Incident+시간대 GPX+GPU 학습·승격+비식별화+HWP 실문서까지 잇지 못했고, 링크 다운로드·서명·clean-PC 설치도 빠져 있다 (`TRAFFIC_SUPER_VISION_MASTER_PLAN.md:1677-1686`; `desktop/release/release-manifest.json:118-126`). |
 
 ## 5. 테스트 증거
 
-2026-07-29 현재 source gate에서 TypeScript와 Vite production build가 통과했다. 최신 핵심 자동 회귀는 renderer **156/156**, Electron **80/80**, Python bridge **640 passed·2 skipped**다. 아래 domain·release·Sites 및 alpha.10 패키징 수치는 현재 소스 테스트와 역사 패키지 증거를 구분한다.
+2026-07-29 현재 source gate에서 TypeScript와 Vite production build가 통과했다. 최신 핵심 자동 회귀는 renderer **172/172**, Electron **80/80**, Python bridge **665 passed·2 skipped**다. 아래 domain·vision runner·release·Sites 및 alpha.10 패키징 수치는 현재 소스 테스트와 역사 패키지 증거를 구분한다.
 
 | 실행 | 결과 |
 |---|---|
 | `npm run typecheck` | **passed** |
 | `npm run test:domain` | **10 passed** |
-| `npm run test:renderer-state` | **156 passed** |
+| `npm run test:renderer-state` | **172 passed** |
 | `npm run test:electron` | **80 passed** |
-| `npm run test:bridge` | **640 passed, 2 skipped** |
+| `npm run test:bridge` | **665 passed, 2 skipped** |
+| `npm run test:vision-runner` | **20 passed** |
 | `npm run test:release-manifest` | **9 passed** |
 | `npm run test:sites` | **4 passed** |
 | Vite production build | **passed** |
 | frozen bridge smoke | **passed** |
 | alpha.10 NSIS package·manifest | **passed** |
 
-최신 단일 창 IA 재검증은 [`qa/ia-confusion-20260729`](../ia-confusion-20260729/)에서 실제 개발 Electron 1282×721과 참조 결합본으로 통과했다. `HistoryScreen` 초기 청크는 22.28kB(gzip 7.60kB)이며 별도 `HistoryMap` 947.96kB(gzip 249.38kB)의 첫 지도 진입 성능은 P3 경계다. UI 통과를 전체 제품·현장 수용 완료로 승격하지 않는다.
+이전 단일 창 IA 재검증은 [`qa/ia-confusion-20260729`](../ia-confusion-20260729/)의 실제 개발 Electron 1282×721과 참조 결합본이다. 그 뒤 일반 Analysis 수동 경로 제거, 설정 모달 구분, 질문 카드의 빠른·정밀·OCR·영역수정 높이 예산을 고쳤지만 사용자가 화면 제어를 중지해 최신 코드는 재캡처하지 않았다. `HistoryScreen` 초기 청크는 22.36kB(gzip 7.64kB)이며 별도 `HistoryMap` 947.96kB(gzip 249.38kB)의 첫 지도 진입 성능은 P3 경계다. 소스 회귀 통과를 최신 시각 수용이나 전체 제품 완료로 승격하지 않는다.
 
 GPX 회귀는 parser/store의 안전성·durability·offset뿐 아니라 renderer의 project/provenance·gap 보간, MapLibre의 정직한 empty state, Electron opaque handle/IPC, full export와 tamper 거부까지 포함한다 (`desktop/src/gpsTracks.test.mjs:88-123`; `desktop/src/honestyScreens.test.mjs:146-155`; `desktop/electron/tests/gpx-ipc.test.mjs:18-43`; `desktop/bridge/tests/test_gpx_tracks.py:105-176,260-314`; `desktop/bridge/tests/test_analysis_jobs.py:1481-1608`).
 
@@ -168,7 +170,7 @@ GPX 회귀는 parser/store의 안전성·durability·offset뿐 아니라 rendere
 4. **모델 생명주기**: GPU 학습, 자원 preflight, 고정 validation, 비교, 승격 거부, rollback, ModelVersion provenance.
 5. **GPS 운영 수용**: 구현된 GPX 연결·오프셋·MapLibre 진행선·현재 위치·후보 좌표·전체 export를 시간대가 있는 실제 운영 GPX에서 재생·지도 클릭·ZIP 재현까지 수용하고 도로명·진행 방향을 검증.
 6. **비식별화**: 얼굴·번호판 detection/blur, 원본과 파생본 hash·provenance, 공유 패키지에서 원본 제외.
-7. **HWP 무결성**: persistent Incident 조회, 실제 HWP snapshot binding, preview token, 사진·지도·표, 재시작 복구, 전 페이지 렌더/overflow 검사.
+7. **HWP 무결성**: 현재 target/structure hash binding 다음 단계인 exact current-Incident 내용·사진·문구·네모 binder, 결정적 sample writer, 사진·지도·표, 재시작 복구 journal, 저장 후 재열기와 48쪽 전 페이지 렌더/overflow 검사를 연결한다.
 8. **현장 배포**: Authenticode, dependency lock/SBOM/license, clean-PC 설치·업그레이드·제거, Hancom Office 실제 E2E.
 
 ### P1 — 첫 현장 파일럿 전에 닫을 것

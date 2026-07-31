@@ -57,7 +57,47 @@ function membership(index, partition, split) {
   };
 }
 
+function approvedReferenceMember(index) {
+  const digit = String(index);
+  const sourceId = `sample-hwpx-3q-${digit.repeat(16)}`;
+  const caseId = `hwpx-weak-case-${digit.repeat(32)}`;
+  return {
+    schema_version: "trafficvisson.approved-reference.v2",
+    approval_id: `approved-reference-${digit.repeat(24)}`,
+    approval_revision: 1,
+    source_id: sourceId,
+    case_id: caseId,
+    document_sha256: digit.repeat(64),
+    structure_target_summary_sha256: String(index + 1).repeat(64),
+    index_manifest_sha256: String(index + 2).repeat(64),
+    image_sha256: String(index + 3).repeat(64),
+    record_sha256: String(index + 4).repeat(64),
+    sample_layout_binding_schema:
+      "trafficvisson.hwpx-sample-layout.v2",
+    sample_layout_binding_revision: 2,
+    sample_layout_binding_sha256: String(index + 5).repeat(64),
+    semantic_projection_revision:
+      "audited-photo-caption-evidence-group-v2",
+    semantic_attestation_sha256: String(index + 6).repeat(64),
+    photo_slot_id: `sample-photo-slot-${digit.repeat(24)}`,
+    sample_evidence_group_id: `sample-evidence-group-${"a".repeat(24)}`,
+    group_photo_index: index,
+    group_photo_count: 2,
+    duplicate_image_occurrence_count: 1,
+    duplicate_image_review_required: false,
+    duplicate_image_review_confirmed: false,
+    duplicate_image_case_refs: [`${sourceId}/${caseId}`],
+    issue_type: "pothole",
+    maintenance_action: "repair",
+    source_kind: "approved_reference",
+    split: "train",
+    user_confirmed: true,
+  };
+}
+
 function apiVersion(overrides = {}) {
+  const approvedReferenceMembersSha256 =
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945";
   return {
     dataset_version_id: "aaaaaaaa-aaaa-5aaa-8aaa-aaaaaaaaaaaa",
     project_id: PROJECT_A,
@@ -73,7 +113,18 @@ function apiVersion(overrides = {}) {
     manifest: {
       schema_version: "trafficvisson.dataset-version.v1",
       split_strategy: "analysis_job_hash_v1",
+      approved_reference_members: [],
+      approved_reference_members_sha256: approvedReferenceMembersSha256,
+      approved_references_count_toward_training_gate: false,
+      approved_references_count_toward_validation: false,
     },
+    approved_reference_members: [],
+    approved_reference_member_count: 0,
+    approved_reference_training_event_count: 0,
+    approved_reference_members_sha256: approvedReferenceMembersSha256,
+    training_gate_member_count: 2,
+    approved_references_count_toward_training_gate: false,
+    approved_references_count_toward_validation: false,
     created_at: "2026-07-28T06:00:00.000Z",
     reused: false,
     memberships: [
@@ -317,6 +368,29 @@ test("dataset versions validate every member and aggregate", () => {
   );
 });
 
+test("dataset versions preserve a two-photo sample group without gate credit", () => {
+  const members = [approvedReferenceMember(1), approvedReferenceMember(2)];
+  const response = apiVersion({
+    approved_reference_members: members,
+    approved_reference_member_count: 2,
+    approved_reference_training_event_count: 1,
+    approved_reference_members_sha256: "e".repeat(64),
+    training_gate_member_count: 2,
+  });
+  const parsed = registry.parseDatasetVersion(response, PROJECT_A);
+  assert.equal(parsed.approvedReferenceMemberCount, 2);
+  assert.equal(parsed.approvedReferenceTrainingEventCount, 1);
+  assert.equal(parsed.trainingGateMemberCount, 2);
+
+  const stale = clone(response);
+  stale.approved_reference_members[0].schema_version =
+    "trafficvisson.approved-reference.v1";
+  assert.throws(
+    () => registry.parseDatasetVersion(stale, PROJECT_A),
+    /검증/,
+  );
+});
+
 test("dataset version lists reject count drift and cross-project data", () => {
   const parsed = registry.parseDatasetVersionList(
     {
@@ -448,7 +522,7 @@ test("source candidate catalogue is strict and preserves inactive safety gates",
   );
 });
 
-test("model screen uses bridge registry data and keeps training disabled", async () => {
+test("model screen connects explicit project training without automatic promotion", async () => {
   const screenSource = await readFile(
     new URL("./screens/ModelScreen.tsx", import.meta.url),
     "utf8",
@@ -459,7 +533,7 @@ test("model screen uses bridge registry data and keeps training disabled", async
   );
   assert.match(screenSource, /api\.labels\.stats\(request\)/);
   assert.match(screenSource, /api\.datasets\.list\(request\)/);
-  assert.match(screenSource, /api\.datasets\.create\(/);
+  assert.doesNotMatch(screenSource, /api\.datasets\.create\(/);
   assert.match(screenSource, /api\.sources\.candidates\(\)/);
   assert.match(screenSource, /parseSourceCandidateCatalog/);
   assert.match(screenSource, /sourceCatalog\?\.candidates\.map/);
@@ -468,13 +542,25 @@ test("model screen uses bridge registry data and keeps training disabled", async
   assert.match(screenSource, /현재 프로젝트의 활성 모델이 아닙니다/);
   assert.match(screenSource, /검증용 팩도 자동 활성화하지 않습니다/);
   assert.match(screenSource, /stats\.currentAnswerCount > 0/);
-  assert.match(screenSource, /disabled=\{!canCreateSnapshot\}/);
-  assert.match(screenSource, /variant="primary"\s+disabled/);
+  assert.match(screenSource, /disabled=\{!canStartTraining\}/);
+  assert.match(screenSource, /api\.startTraining\(request\)/);
+  assert.match(screenSource, /api\.resumeTraining\(/);
+  assert.match(screenSource, /api\[action\]\(/);
+  assert.match(screenSource, /api\.rollback\(/);
+  assert.match(screenSource, /window\.confirm\(/);
+  assert.match(screenSource, /자동 승격하지 않습니다/);
+  assert.match(screenSource, /사용자 승인 3·4분기 사례는 학습 구성원/);
+  assert.match(screenSource, /검토 완료 후 자동 준비된 DatasetVersion/);
+  assert.match(screenSource, /trainingGateMemberCount/);
   assert.match(screenSource, /프로젝트 데이터 격리/);
   assert.doesNotMatch(screenSource, /useReviewHistory|reviewStorageKey/);
   assert.doesNotMatch(screenSource, /localStorage|projectId\.slice/);
   assert.match(typeSource, /labels:\s*\{\s*stats\(/);
   assert.match(typeSource, /datasets:\s*\{[\s\S]*create\(/);
+  assert.match(typeSource, /projectModels:\s*\{/);
+  assert.match(typeSource, /startTraining\(/);
+  assert.match(typeSource, /promote\(/);
+  assert.match(typeSource, /rollback\(/);
   assert.match(typeSource, /sources:\s*\{\s*candidates\(\)/);
   assert.match(typeSource, /readonly userConfirmed: true/);
   assert.doesNotMatch(screenSource, /api\.sources\.(download|install|activate)/);

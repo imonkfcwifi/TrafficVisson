@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { realpath, stat } from "node:fs/promises";
+import { realpath, stat, statfs } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 
@@ -408,5 +408,57 @@ export class LocalDirectorySelectionRegistry {
 
   clear() {
     this.selections.clear();
+  }
+}
+
+function safeVolumeLabel(directoryPath) {
+  const root = path.parse(directoryPath).root.replace(/[\\/]+$/, "");
+  if (/^[A-Za-z]:$/.test(root)) return root.toUpperCase();
+  if (root.startsWith("\\\\")) return "네트워크 위치";
+  return "로컬 저장소";
+}
+
+async function availableFreeBytes(directoryPath) {
+  const capacity = await statfs(directoryPath, { bigint: true });
+  const free = capacity.bavail * capacity.bsize;
+  const maximum = BigInt(Number.MAX_SAFE_INTEGER);
+  return Number(free > maximum ? maximum : free);
+}
+
+export class ProjectOutputDirectorySelectionRegistry extends LocalDirectorySelectionRegistry {
+  constructor({ capacityResolver = availableFreeBytes, ...options } = {}) {
+    super(options);
+    if (typeof capacityResolver !== "function") {
+      throw new Error("Output directory capacity resolver is invalid");
+    }
+    this.capacityResolver = capacityResolver;
+  }
+
+  async register(directoryPath) {
+    const selection = await super.register(directoryPath);
+    const canonicalPath = this.resolvePath(selection.selectionId);
+    let freeBytes;
+    try {
+      freeBytes = await this.capacityResolver(canonicalPath);
+    } catch {
+      this.selections.delete(selection.selectionId);
+      throw new Error("Selected output directory capacity is unavailable");
+    }
+    if (
+      !Number.isSafeInteger(freeBytes) ||
+      freeBytes < 0
+    ) {
+      this.selections.delete(selection.selectionId);
+      throw new Error("Selected output directory capacity is invalid");
+    }
+    return Object.freeze({
+      selectionId: selection.selectionId,
+      directory: Object.freeze({
+        name: selection.directory.name,
+        volumeLabel: safeVolumeLabel(canonicalPath),
+        availableFreeBytes: freeBytes,
+        pathExposed: false,
+      }),
+    });
   }
 }

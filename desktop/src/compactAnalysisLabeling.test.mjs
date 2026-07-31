@@ -23,6 +23,10 @@ const polishStyles = await readFile(
   new URL("./styles-visual-polish.css", import.meta.url),
   "utf8",
 );
+const responsiveStyles = await readFile(
+  new URL("./styles-responsive-workbench.css", import.meta.url),
+  "utf8",
+);
 
 test("short-desktop overrides are loaded after the shared stylesheet", () => {
   assert.match(
@@ -70,7 +74,7 @@ test("final short-desktop safety copy is readable at the 1280 workbench geometry
   );
 });
 
-test("1280 labeling keeps a 240-260px frame and does not hide proposal or OCR evidence", () => {
+test("1280 labeling keeps the evidence frame and yields duplicate proposal chrome before controls", () => {
   assert.match(
     polishStyles,
     /\.screen--labeling \.evidence-image\s*\{[^}]*height:\s*clamp\(240px,\s*34vh,\s*260px\);[^}]*min-height:\s*240px;[^}]*flex-basis:\s*clamp\(240px,\s*34vh,\s*260px\);/s,
@@ -110,6 +114,19 @@ test("1280 labeling keeps a 240-260px frame and does not hide proposal or OCR ev
   assert.match(
     polishStyles,
     /\.screen--labeling \.question-card:has\(> \.ocr-roi\)\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/s,
+  );
+  assert.match(
+    labelingSource,
+    /className="question-metadata"[\s\S]*question-metadata__type[\s\S]*question\.scoreText/,
+    "type and score remain visible after the redundant model-identity strip yields",
+  );
+  assert.match(
+    responsiveStyles,
+    /\.screen--labeling \.question-card > \.experimental-proposal\s*\{[^}]*display:\s*none/s,
+  );
+  assert.match(
+    responsiveStyles,
+    /\.question-card:has\(> \.ocr-roi\)[\s\S]*> \.ocr-roi\s*\{[^}]*min-height:\s*32px;[^}]*max-height:\s*32px;/s,
   );
 });
 
@@ -186,6 +203,19 @@ test("experimental safety copy reuses spacing without displacing four answers or
   assert.match(
     labelingSource,
     /className="answer-grid"[\s\S]*className="explanation"[\s\S]*onClick=\{\(\) => submit\("skipped"\)\}/,
+  );
+});
+
+test("temporal and proposal warnings share one bounded review surface", () => {
+  assert.equal(
+    labelingSource.match(
+      /className="notice notice--warning proposal-load-warning"/g,
+    )?.length,
+    1,
+  );
+  assert.match(
+    labelingSource,
+    /\{temporalReview\.warning \|\| proposalWarning \? \([\s\S]*temporalReview\.warning \?\? proposalWarning/,
   );
 });
 

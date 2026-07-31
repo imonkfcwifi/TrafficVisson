@@ -1226,6 +1226,7 @@ class LocalVisionInferenceService:
             "PROGRAMFILES(X86)",
             "CUDA_PATH",
             "CUDA_VISIBLE_DEVICES",
+            "TRAFFICSUPERVISION_EXTERNAL_MODEL_RUNTIME_PACK",
         ):
             value = os.environ.get(name)
             if value:

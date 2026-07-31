@@ -8,6 +8,7 @@ import {
   LocalDirectorySelectionRegistry,
   LocalDocumentSelectionRegistry,
   LocalGpxSelectionRegistry,
+  ProjectOutputDirectorySelectionRegistry,
   LocalVideoSelectionRegistry,
 } from "../local-selections.mjs";
 
@@ -168,6 +169,35 @@ test("export directory selections expose only an opaque handle", async (context)
   assert.doesNotMatch(JSON.stringify(selection), /trafficsupervision-export-parent-/);
   assert.equal(registry.resolvePath(SELECTION_ID), await realPath(exportRoot));
   assert.equal(registry.consumePath(SELECTION_ID), await realPath(exportRoot));
+  assert.throws(
+    () => registry.resolvePath(SELECTION_ID),
+    /missing or expired/,
+  );
+});
+
+test("project output selections expose capacity but never a path", async (context) => {
+  const fixtureRoot = await mkdtemp(
+    path.join(os.tmpdir(), "trafficsupervision-output-parent-"),
+  );
+  context.after(() => rm(fixtureRoot, { recursive: true, force: true }));
+  const outputRoot = path.join(fixtureRoot, "분석 결과");
+  await mkdir(outputRoot);
+  const registry = new ProjectOutputDirectorySelectionRegistry({
+    idFactory: () => SELECTION_ID,
+    capacityResolver: async () => 987_654_321,
+  });
+
+  const selection = await registry.register(outputRoot);
+
+  assert.equal(selection.selectionId, SELECTION_ID);
+  assert.equal(selection.directory.name, "분석 결과");
+  assert.equal(selection.directory.availableFreeBytes, 987_654_321);
+  assert.equal(selection.directory.pathExposed, false);
+  assert.doesNotMatch(
+    JSON.stringify(selection),
+    /trafficsupervision-output-parent-/,
+  );
+  assert.equal(registry.consumePath(SELECTION_ID), await realPath(outputRoot));
   assert.throws(
     () => registry.resolvePath(SELECTION_ID),
     /missing or expired/,

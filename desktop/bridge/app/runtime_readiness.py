@@ -23,6 +23,7 @@ import shutil
 import stat
 from typing import Any, Callable, Mapping, Optional, Sequence
 
+from .external_model_runtime import external_model_runtime_status
 from .provider_status import ProviderStatusService
 
 
@@ -120,6 +121,9 @@ class RuntimeReadinessService:
         which: Callable[[str], Optional[str]] = shutil.which,
         python_version: str = platform.python_version(),
         electron_version: Optional[str] = None,
+        model_runtime_status: Callable[
+            [], Mapping[str, Any]
+        ] = external_model_runtime_status,
     ) -> None:
         self._provider_status = provider_status
         self._vision_status = vision_status
@@ -131,6 +135,7 @@ class RuntimeReadinessService:
         self._which = which
         self._python_version = _safe_version(python_version)
         self._electron_version = _safe_version(electron_version)
+        self._model_runtime_status = model_runtime_status
 
     def snapshot(self) -> dict[str, Any]:
         vision, vision_status_failed = self._read_status(self._vision_status)
@@ -145,6 +150,9 @@ class RuntimeReadinessService:
             sam2_status_failed = False
         else:
             sam2, sam2_status_failed = self._read_status(self._sam2_status)
+        model_runtime, model_runtime_status_failed = self._read_status(
+            self._model_runtime_status
+        )
         components = [
             RuntimeComponent(
                 component_id="electron_host",
@@ -179,17 +187,9 @@ class RuntimeReadinessService:
                 message="번들 또는 고정 Python 브리지가 실행 중입니다.",
                 version=self._python_version,
             ),
-            self._python_component(
-                component_id="pytorch_cuda",
-                display_name="PyTorch CUDA",
-                distributions=("torch",),
-                required_for=("training", "sam2", "korean_ocr"),
-                installed_message=(
-                    "PyTorch는 설치되어 있으나 CUDA 장치·VRAM 스모크 "
-                    "검증 전에는 GPU 준비 완료로 표시하지 않습니다."
-                ),
-                missing_message="PyTorch CUDA 런타임이 Model Pack에 없습니다.",
-                installed_state="incomplete",
+            self._pytorch_component(
+                model_runtime,
+                status_failed=model_runtime_status_failed,
             ),
             self._command_model_component(
                 command_model, status_failed=command_status_failed
@@ -197,6 +197,8 @@ class RuntimeReadinessService:
             self._sam2_component(
                 sam2,
                 status_failed=sam2_status_failed,
+                model_runtime=model_runtime,
+                model_runtime_status_failed=model_runtime_status_failed,
             ),
             self._python_component(
                 component_id="opencv",
@@ -216,6 +218,9 @@ class RuntimeReadinessService:
                 fallback_distributions=("easyocr", "paddleocr"),
                 required_for=("guide_sign_identity", "tunnel_identity"),
                 status_failed=vision_status_failed,
+                model_runtime=model_runtime,
+                runtime_capability="korean_ocr",
+                model_runtime_status_failed=model_runtime_status_failed,
             ),
             self._capability_component(
                 component_id="embedding_search",
@@ -225,6 +230,9 @@ class RuntimeReadinessService:
                 fallback_distributions=("transformers", "sentence-transformers"),
                 required_for=("similar_case_search",),
                 status_failed=vision_status_failed,
+                model_runtime=model_runtime,
+                runtime_capability="embedding_search",
+                model_runtime_status_failed=model_runtime_status_failed,
             ),
             self._provider_component("codex", "codex_cli", "Codex CLI"),
             self._provider_component(
@@ -335,6 +343,8 @@ class RuntimeReadinessService:
         status: Mapping[str, Any],
         *,
         status_failed: bool = False,
+        model_runtime: Mapping[str, Any],
+        model_runtime_status_failed: bool,
     ) -> RuntimeComponent:
         if status_failed:
             return RuntimeComponent(
@@ -348,6 +358,16 @@ class RuntimeReadinessService:
             )
         state = status.get("state")
         if state == "ready":
+            runtime_gate = self._model_runtime_gate(
+                model_runtime,
+                "sam2",
+                component_id="sam2",
+                display_name="SAM 2 mask and tracking",
+                required_for=("mask_refinement", "temporal_tracking"),
+                status_failed=model_runtime_status_failed,
+            )
+            if runtime_gate is not None:
+                return runtime_gate
             pack = _verified_model_pack(status.get("model_pack"))
             if pack is not None:
                 return RuntimeComponent(
@@ -422,6 +442,143 @@ class RuntimeReadinessService:
             error_code="runtime_not_installed",
         )
 
+    def _pytorch_component(
+        self,
+        runtime: Mapping[str, Any],
+        *,
+        status_failed: bool,
+    ) -> RuntimeComponent:
+        if status_failed:
+            return RuntimeComponent(
+                component_id="pytorch_cuda",
+                display_name="PyTorch CUDA",
+                state="failed",
+                management="installer_or_model_pack",
+                required_for=("training", "sam2", "korean_ocr"),
+                message="외부 모델 런타임 상태 확인에 실패했습니다.",
+                error_code="model_runtime_status_failed",
+            )
+        runtime_state = runtime.get("state")
+        capabilities = {
+            value
+            for value in (runtime.get("capabilities") or ())
+            if isinstance(value, str)
+        }
+        if runtime_state == "ready" and "pytorch_cuda" in capabilities:
+            version = self._distribution("torch")
+            if (
+                version is not None
+                and runtime.get("cuda_verified") is True
+                and isinstance(
+                    runtime.get("manifest_sha256"), str
+                )
+                and _SHA256.fullmatch(
+                    str(runtime["manifest_sha256"])
+                )
+                is not None
+            ):
+                return RuntimeComponent(
+                    component_id="pytorch_cuda",
+                    display_name="PyTorch CUDA",
+                    state="ready",
+                    management="installer_or_model_pack",
+                    required_for=("training", "sam2", "korean_ocr"),
+                    message=(
+                        "버전·라이선스·artifact 해시가 고정된 외부 "
+                        "런타임에서 CUDA와 최소 VRAM을 확인했습니다."
+                    ),
+                    version=version,
+                )
+            return RuntimeComponent(
+                component_id="pytorch_cuda",
+                display_name="PyTorch CUDA",
+                state="failed",
+                management="installer_or_model_pack",
+                required_for=("training", "sam2", "korean_ocr"),
+                message="외부 모델 런타임의 CUDA 증빙이 완전하지 않습니다.",
+                error_code="model_runtime_provenance_incomplete",
+            )
+        if runtime_state == "failed":
+            return RuntimeComponent(
+                component_id="pytorch_cuda",
+                display_name="PyTorch CUDA",
+                state="failed",
+                management="installer_or_model_pack",
+                required_for=("training", "sam2", "korean_ocr"),
+                message=(
+                    "구성된 외부 모델 런타임이 무결성·ABI·"
+                    "라이선스·CUDA 검증을 통과하지 못했습니다."
+                ),
+                error_code="model_runtime_pack_invalid",
+            )
+        return self._python_component(
+            component_id="pytorch_cuda",
+            display_name="PyTorch CUDA",
+            distributions=("torch",),
+            required_for=("training", "sam2", "korean_ocr"),
+            installed_message=(
+                "PyTorch는 설치되어 있으나 CUDA 장치·VRAM 스모크 "
+                "검증 전에는 GPU 준비 완료로 표시하지 않습니다."
+            ),
+            missing_message="PyTorch CUDA 런타임이 Model Pack에 없습니다.",
+            installed_state="incomplete",
+        )
+
+    @staticmethod
+    def _model_runtime_gate(
+        runtime: Mapping[str, Any],
+        capability: str,
+        *,
+        component_id: str,
+        display_name: str,
+        required_for: tuple[str, ...],
+        status_failed: bool,
+    ) -> Optional[RuntimeComponent]:
+        if status_failed:
+            return RuntimeComponent(
+                component_id=component_id,
+                display_name=display_name,
+                state="failed",
+                management="model_pack",
+                required_for=required_for,
+                message="외부 모델 런타임 상태 확인에 실패했습니다.",
+                error_code="model_runtime_status_failed",
+            )
+        state = runtime.get("state")
+        if state == "failed":
+            return RuntimeComponent(
+                component_id=component_id,
+                display_name=display_name,
+                state="failed",
+                management="model_pack",
+                required_for=required_for,
+                message=(
+                    "선택된 모델은 외부 런타임 무결성·ABI·"
+                    "라이선스·CUDA 검증 실패로 실행할 수 없습니다."
+                ),
+                error_code="model_runtime_pack_invalid",
+            )
+        if state == "ready":
+            capabilities = {
+                value
+                for value in (runtime.get("capabilities") or ())
+                if isinstance(value, str)
+            }
+            if capability not in capabilities:
+                return RuntimeComponent(
+                    component_id=component_id,
+                    display_name=display_name,
+                    state="failed",
+                    management="model_pack",
+                    required_for=required_for,
+                    message=(
+                        "선택된 외부 런타임이 이 모델 기능을 "
+                        "명시적으로 포함하지 않습니다."
+                    ),
+                    error_code="model_runtime_capability_missing",
+                )
+        return None
+
     def _capability_component(
         self,
         *,
@@ -432,6 +589,9 @@ class RuntimeReadinessService:
         fallback_distributions: Sequence[str],
         required_for: tuple[str, ...],
         status_failed: bool = False,
+        model_runtime: Mapping[str, Any],
+        runtime_capability: str,
+        model_runtime_status_failed: bool,
     ) -> RuntimeComponent:
         if status_failed:
             return RuntimeComponent(
@@ -449,6 +609,16 @@ class RuntimeReadinessService:
             if isinstance(value, str)
         }
         if vision.get("enabled") is True and capability in capabilities:
+            runtime_gate = self._model_runtime_gate(
+                model_runtime,
+                runtime_capability,
+                component_id=component_id,
+                display_name=display_name,
+                required_for=required_for,
+                status_failed=model_runtime_status_failed,
+            )
+            if runtime_gate is not None:
+                return runtime_gate
             pack = _verified_model_pack(vision.get("model_pack"))
             if pack is not None:
                 return RuntimeComponent(

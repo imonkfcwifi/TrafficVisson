@@ -11,6 +11,9 @@ export type PipelineReviewCompletionRequest = {
   projectId: string;
   jobId: string;
   reviewCompletionId: string;
+  finalQaChoice?:
+    | "no_miss_complete"
+    | "miss_candidates_reviewed";
 };
 
 export type PipelineReviewCompletionResult =
@@ -26,6 +29,7 @@ export type PipelineReviewCompletionResult =
         | "analysis_not_bound"
         | "question_set_not_server_owned"
         | "answer_ledger_incomplete"
+        | "final_qa_required"
         | "digest_unavailable";
       message: string;
     };
@@ -37,6 +41,9 @@ type BuildReviewCompletionInput = {
   sourceSha256: string | null;
   questionCandidateIds: readonly (string | null)[];
   records: readonly ReviewRecord[];
+  finalQaChoice?:
+    | "no_miss_complete"
+    | "miss_candidates_reviewed";
 };
 
 function unavailable(
@@ -97,18 +104,39 @@ export async function buildPipelineReviewCompletion(
     );
   }
   const candidateIds = input.questionCandidateIds;
-  if (
+  const invalidQuestionSet =
     candidateIds.length !== binding.questionCount ||
-    candidateIds.length < 1 ||
+    (binding.zeroCandidateSurvey
+      ? candidateIds.length !== 0
+      : candidateIds.length < 1) ||
     candidateIds.some(
       (value) =>
         typeof value !== "string" || !CANDIDATE_ID_PATTERN.test(value),
     ) ||
-    new Set(candidateIds).size !== candidateIds.length
-  ) {
+    new Set(candidateIds).size !== candidateIds.length;
+  if (invalidQuestionSet) {
     return unavailable(
       "question_set_not_server_owned",
       "서버가 만든 질문 큐와 현재 화면의 질문 집합이 일치하지 않습니다.",
+    );
+  }
+  if (
+    binding.surveyQaRequired &&
+    (input.finalQaChoice !== "no_miss_complete" &&
+      input.finalQaChoice !== "miss_candidates_reviewed")
+  ) {
+    return unavailable(
+      "final_qa_required",
+      "승격 모델 조사 결과는 전체 2fps 누락 확인을 마쳐야 완료할 수 있습니다.",
+    );
+  }
+  if (
+    binding.zeroCandidateSurvey &&
+    input.finalQaChoice !== "no_miss_complete"
+  ) {
+    return unavailable(
+      "final_qa_required",
+      "후보 0건 조사는 전체 2fps를 확인한 뒤 ‘누락 없음’으로만 완료할 수 있습니다.",
     );
   }
 
@@ -152,12 +180,18 @@ export async function buildPipelineReviewCompletion(
   }
   try {
     const answerLedgerSha256 = await sha256Hex(proofs.sort().join("\n"));
+    const finalQaChoice = binding.surveyQaRequired
+      ? input.finalQaChoice
+      : undefined;
     return {
       ok: true,
       request: {
         projectId,
         jobId: job.jobId,
-        reviewCompletionId: `review:${answerLedgerSha256}`,
+        reviewCompletionId: binding.zeroCandidateSurvey
+          ? `zero-detections:${answerLedgerSha256}`
+          : `review:${answerLedgerSha256}`,
+        ...(finalQaChoice ? { finalQaChoice } : {}),
       },
       answerLedgerSha256,
     };

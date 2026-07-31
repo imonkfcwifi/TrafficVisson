@@ -112,6 +112,37 @@ class CompletedMediaGrant:
     created_time_ns: Optional[int] = None
 
 
+@dataclass(frozen=True)
+class StableMediaSnapshotGrant:
+    """Bridge-private metadata authority for one stable media folder."""
+
+    project_id: UUID
+    snapshot_id: UUID
+    directory: str
+    directory_identity: str
+    digest: str
+    files: Tuple[MediaFileRecord, ...]
+
+
+@dataclass(frozen=True)
+class StableMediaFileGrant:
+    """Bridge-private pre-hash authority for one explicitly selected file.
+
+    This is narrower than ``StableMediaSnapshotGrant``.  A native file picker
+    may select one video from a directory containing many other videos, so
+    restart recovery must revalidate only the authorized file without treating
+    unrelated directory additions as a source mutation.
+    """
+
+    project_id: UUID
+    snapshot_id: UUID
+    directory: str
+    directory_identity: str
+    snapshot_digest: str
+    file_record: MediaFileRecord
+    file_identity_sha256: str
+
+
 class _HashCancelled(Exception):
     pass
 
@@ -213,6 +244,39 @@ def _directory_identity(directory: str) -> str:
     if os.name == "nt":
         return ntpath.normcase(ntpath.normpath(directory))
     return os.path.normcase(os.path.normpath(directory))
+
+
+def _file_identity_sha256(
+    directory_identity: str,
+    name: str,
+    stat_result: os.stat_result,
+) -> str:
+    """Return an opaque, path-free identity for pre-hash restart binding.
+
+    ``st_dev``/``st_ino`` map to the volume and file index on Windows when the
+    filesystem exposes them (including supported SMB servers).  Creation time
+    and bounded metadata remain in the identity as a fail-closed fallback.
+    """
+
+    payload = {
+        "schema_version": "trafficvisson.media-file-identity.v1",
+        "directory_identity": directory_identity,
+        "name": name,
+        "device": int(getattr(stat_result, "st_dev", 0)),
+        "inode": int(getattr(stat_result, "st_ino", 0)),
+        "size_bytes": int(stat_result.st_size),
+        "created_time_ns": _creation_time_ns(stat_result),
+        "modified_time_ns": int(stat_result.st_mtime_ns),
+    }
+    return hashlib.sha256(
+        json.dumps(
+            payload,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
 
 
 def _record_from_stat(name: str, stat_result: os.stat_result) -> MediaFileRecord:
@@ -802,6 +866,320 @@ class MediaIntakeService:
                 created_time_ns=job.file_record.created_time_ns,
             )
 
+    def export_stable_snapshot_grant(
+        self, project_id: UUID, snapshot_id: UUID
+    ) -> StableMediaSnapshotGrant:
+        """Return a private stable-folder identity for durable local storage."""
+        with self._lock:
+            snapshot = self._snapshot(project_id, snapshot_id)
+            if snapshot_id not in self._stable_snapshot_ids:
+                raise HTTPException(
+                    status_code=409,
+                    detail="The media snapshot has not passed the stability check",
+                )
+            return StableMediaSnapshotGrant(
+                project_id=snapshot.project_id,
+                snapshot_id=snapshot.snapshot_id,
+                directory=snapshot.directory,
+                directory_identity=snapshot.directory_identity,
+                digest=snapshot.digest,
+                files=tuple(snapshot.files),
+            )
+
+    def export_stable_file_grant(
+        self,
+        project_id: UUID,
+        snapshot_id: UUID,
+        file_name: str,
+    ) -> StableMediaFileGrant:
+        """Return bounded pre-hash authority for one selected media file."""
+
+        snapshot, file_record, candidate = self._select_stable_file(
+            project_id,
+            snapshot_id,
+            file_name,
+        )
+        try:
+            current_stat = os.stat(candidate, follow_symlinks=False)
+        except (OSError, ValueError) as error:
+            raise HTTPException(
+                status_code=409,
+                detail="The selected media file is no longer available",
+            ) from error
+        if not self._candidate_matches_record(
+            candidate,
+            file_record,
+            current_stat,
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="The selected media file changed before restart binding",
+            )
+        return StableMediaFileGrant(
+            project_id=project_id,
+            snapshot_id=snapshot_id,
+            directory=snapshot.directory,
+            directory_identity=snapshot.directory_identity,
+            snapshot_digest=snapshot.digest,
+            file_record=file_record,
+            file_identity_sha256=_file_identity_sha256(
+                snapshot.directory_identity,
+                file_record.name,
+                current_stat,
+            ),
+        )
+
+    def restore_stable_snapshot_grant(
+        self, grant: StableMediaSnapshotGrant
+    ) -> StableMediaSnapshotGrant:
+        """Revalidate and restore a private folder snapshot after restart.
+
+        This restores metadata authority only. The normal hash stage still
+        performs a complete SHA-256 read before analysis starts.
+        """
+        if (
+            not isinstance(grant, StableMediaSnapshotGrant)
+            or not isinstance(grant.project_id, UUID)
+            or not isinstance(grant.snapshot_id, UUID)
+            or not isinstance(grant.directory, str)
+            or not isinstance(grant.directory_identity, str)
+            or re.fullmatch(r"[a-f0-9]{64}", grant.digest) is None
+            or not isinstance(grant.files, tuple)
+            or not 1 <= len(grant.files) <= MAX_MEDIA_FILES
+            or any(
+                not isinstance(item, MediaFileRecord)
+                or not is_allowlisted_video_name(item.name)
+                for item in grant.files
+            )
+            or tuple(
+                sorted(
+                    grant.files,
+                    key=lambda item: (item.name.casefold(), item.name),
+                )
+            )
+            != grant.files
+            or _metadata_digest(grant.files) != grant.digest
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="The private stable media snapshot is invalid",
+            )
+        try:
+            normalized = validate_explicit_directory_syntax(grant.directory)
+        except ValueError as error:
+            raise HTTPException(
+                status_code=422,
+                detail="The private stable media snapshot is invalid",
+            ) from error
+        directory = Path(normalized)
+        try:
+            directory_stat = directory.lstat()
+        except (OSError, ValueError) as error:
+            raise HTTPException(
+                status_code=409,
+                detail="The stable media directory is no longer available",
+            ) from error
+        if (
+            not directory.is_dir()
+            or directory.is_symlink()
+            or _is_reparse_point(directory_stat)
+            or _directory_identity(normalized) != grant.directory_identity
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="The stable media directory identity changed",
+            )
+
+        observed: List[MediaFileRecord] = []
+        try:
+            with os.scandir(normalized) as entries:
+                for entry in entries:
+                    if not is_allowlisted_video_name(entry.name):
+                        continue
+                    if len(observed) >= MAX_MEDIA_FILES:
+                        raise HTTPException(
+                            status_code=409,
+                            detail="The stable media directory changed",
+                        )
+                    if entry.is_symlink() or not entry.is_file(
+                        follow_symlinks=False
+                    ):
+                        continue
+                    stat_result = entry.stat(follow_symlinks=False)
+                    if _is_reparse_point(stat_result):
+                        continue
+                    observed.append(_record_from_stat(entry.name, stat_result))
+        except HTTPException:
+            raise
+        except OSError as error:
+            raise HTTPException(
+                status_code=409,
+                detail="The stable media directory could not be revalidated",
+            ) from error
+        observed.sort(key=lambda item: (item.name.casefold(), item.name))
+        if (
+            tuple(observed) != grant.files
+            or _metadata_digest(observed) != grant.digest
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="The stable media directory changed after approval",
+            )
+
+        now = datetime.now(timezone.utc)
+        with self._lock:
+            existing = self._snapshots.get(grant.snapshot_id)
+            if existing is not None and (
+                existing.project_id != grant.project_id
+                or existing.directory_identity != grant.directory_identity
+                or existing.digest != grant.digest
+                or existing.files != grant.files
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail="The restored media snapshot identity conflicts",
+                )
+            if existing is None:
+                self._sequence += 1
+                self._snapshots[grant.snapshot_id] = SnapshotRecord(
+                    snapshot_id=grant.snapshot_id,
+                    project_id=grant.project_id,
+                    directory=normalized,
+                    directory_identity=grant.directory_identity,
+                    captured_at=now,
+                    captured_monotonic_ns=time.monotonic_ns(),
+                    sequence=self._sequence,
+                    digest=grant.digest,
+                    files=grant.files,
+                )
+                while len(self._snapshots) > MAX_SNAPSHOT_RECORDS:
+                    evicted_id, _ = self._snapshots.popitem(last=False)
+                    self._stable_snapshot_ids.discard(evicted_id)
+            self._stable_snapshot_ids.add(grant.snapshot_id)
+        return grant
+
+    def restore_stable_file_grant(
+        self,
+        grant: StableMediaFileGrant,
+    ) -> StableMediaFileGrant:
+        """Revalidate one selected file and restore its opaque snapshot.
+
+        Recovery performs only bounded metadata and file-identity checks.  It
+        intentionally does not read the complete video; the normal SHA stage
+        remains responsible for the first unbounded content read after storage
+        preflight has succeeded.
+        """
+
+        file_record = (
+            grant.file_record
+            if isinstance(grant, StableMediaFileGrant)
+            else None
+        )
+        if (
+            not isinstance(grant, StableMediaFileGrant)
+            or not isinstance(grant.project_id, UUID)
+            or not isinstance(grant.snapshot_id, UUID)
+            or not isinstance(grant.directory, str)
+            or not isinstance(grant.directory_identity, str)
+            or not isinstance(grant.snapshot_digest, str)
+            or re.fullmatch(r"[a-f0-9]{64}", grant.snapshot_digest) is None
+            or not isinstance(file_record, MediaFileRecord)
+            or not is_allowlisted_video_name(file_record.name)
+            or file_record.extension
+            != Path(file_record.name).suffix.casefold()
+            or file_record.size_bytes <= 0
+            or file_record.created_time_ns <= 0
+            or file_record.modified_time_ns <= 0
+            or not isinstance(grant.file_identity_sha256, str)
+            or re.fullmatch(
+                r"[a-f0-9]{64}",
+                grant.file_identity_sha256,
+            )
+            is None
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="The private stable media file grant is invalid",
+            )
+        try:
+            normalized = validate_explicit_directory_syntax(
+                grant.directory
+            )
+        except ValueError as error:
+            raise HTTPException(
+                status_code=422,
+                detail="The private stable media file grant is invalid",
+            ) from error
+        directory = Path(normalized)
+        candidate = directory / file_record.name
+        try:
+            directory_stat = directory.lstat()
+            candidate_stat = os.stat(
+                candidate,
+                follow_symlinks=False,
+            )
+        except (OSError, ValueError) as error:
+            raise HTTPException(
+                status_code=409,
+                detail="The authorized media file is no longer available",
+            ) from error
+        if (
+            not directory.is_dir()
+            or directory.is_symlink()
+            or _is_reparse_point(directory_stat)
+            or _directory_identity(normalized)
+            != grant.directory_identity
+            or not self._candidate_matches_record(
+                candidate,
+                file_record,
+                candidate_stat,
+            )
+            or _file_identity_sha256(
+                grant.directory_identity,
+                file_record.name,
+                candidate_stat,
+            )
+            != grant.file_identity_sha256
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="The authorized media file identity changed",
+            )
+
+        now = datetime.now(timezone.utc)
+        with self._lock:
+            existing = self._snapshots.get(grant.snapshot_id)
+            if existing is not None and (
+                existing.project_id != grant.project_id
+                or existing.directory_identity
+                != grant.directory_identity
+                or existing.digest != grant.snapshot_digest
+                or existing.files_by_name.get(file_record.name)
+                != file_record
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail="The restored media file snapshot conflicts",
+                )
+            if existing is None:
+                self._sequence += 1
+                self._snapshots[grant.snapshot_id] = SnapshotRecord(
+                    snapshot_id=grant.snapshot_id,
+                    project_id=grant.project_id,
+                    directory=normalized,
+                    directory_identity=grant.directory_identity,
+                    captured_at=now,
+                    captured_monotonic_ns=time.monotonic_ns(),
+                    sequence=self._sequence,
+                    digest=grant.snapshot_digest,
+                    files=(file_record,),
+                )
+                while len(self._snapshots) > MAX_SNAPSHOT_RECORDS:
+                    evicted_id, _ = self._snapshots.popitem(last=False)
+                    self._stable_snapshot_ids.discard(evicted_id)
+            self._stable_snapshot_ids.add(grant.snapshot_id)
+        return grant
+
     def restore_completed_media_grant(
         self,
         grant: CompletedMediaGrant,
@@ -974,12 +1352,54 @@ class MediaIntakeService:
                 existing_snapshot.project_id != grant.project_id
                 or existing_snapshot.directory_identity
                 != _directory_identity(normalized_directory)
-                or existing_snapshot.files != (file_record,)
             ):
                 raise HTTPException(
                     status_code=409,
                     detail="The restored media snapshot identity conflicts",
                 )
+            if (
+                existing_snapshot is not None
+                and file_record not in existing_snapshot.files
+            ):
+                merged_files = tuple(
+                    sorted(
+                        (*existing_snapshot.files, file_record),
+                        key=lambda item: (
+                            item.name.casefold(),
+                            item.name,
+                        ),
+                    )
+                )
+                if len({item.name for item in merged_files}) != len(
+                    merged_files
+                ):
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            "The restored media snapshot filename conflicts"
+                        ),
+                    )
+                existing_snapshot = SnapshotRecord(
+                    snapshot_id=existing_snapshot.snapshot_id,
+                    project_id=existing_snapshot.project_id,
+                    directory=existing_snapshot.directory,
+                    directory_identity=existing_snapshot.directory_identity,
+                    captured_at=existing_snapshot.captured_at,
+                    captured_monotonic_ns=(
+                        existing_snapshot.captured_monotonic_ns
+                    ),
+                    sequence=existing_snapshot.sequence,
+                    digest=_metadata_digest(merged_files),
+                    files=merged_files,
+                )
+                self._snapshots[grant.snapshot_id] = existing_snapshot
+                for restored_job in self._hash_jobs.values():
+                    if (
+                        restored_job.project_id == grant.project_id
+                        and restored_job.snapshot.snapshot_id
+                        == grant.snapshot_id
+                    ):
+                        restored_job.snapshot = existing_snapshot
             existing_job = self._hash_jobs.get(grant.hash_job_id)
             if existing_job is not None and (
                 existing_job.project_id != grant.project_id

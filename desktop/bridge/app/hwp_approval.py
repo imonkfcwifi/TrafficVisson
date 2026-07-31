@@ -23,6 +23,7 @@ from uuid import UUID
 from .contracts import DocumentEditPlan
 from .hwp_com import HwpDocumentFingerprint, fingerprint_document
 from .hwpx_sample_layout import (
+    SampleLayoutInspection,
     is_protected_sample_document_sha256,
 )
 from .hwpx_sample_plan_validator import (
@@ -32,6 +33,7 @@ from .hwpx_sample_plan_validator import (
 
 
 APPROVAL_TOKEN_PATTERN = re.compile(r"^[a-f0-9]{64}$")
+ROLLBACK_TOKEN_PATTERN = re.compile(r"^[a-f0-9]{32}$")
 DEFAULT_APPROVAL_TTL_SECONDS = 5 * 60
 MAX_APPROVAL_RECORDS = 1_024
 
@@ -61,7 +63,7 @@ class HwpSampleApprovalGrant:
     """Hash-bound preview approval for an exact audited sample.
 
     This is deliberately not a COM apply grant.  The token proves which
-    immutable sample, semantic plan, and project-owned approved-reference set
+    immutable sample, target plan, and project-owned approved-reference set
     the user previewed.  It can be consumed only once by the apply boundary,
     which currently returns an explicit unavailable result before COM.
     """
@@ -127,6 +129,48 @@ def canonical_approved_references_sha256(
         )
     )
     return _canonical_json_sha256(normalized)
+
+
+def select_plan_approved_references(
+    plan: DocumentEditPlan,
+    inspection: SampleLayoutInspection,
+    approved_references: Sequence[Mapping[str, object]],
+) -> Tuple[Mapping[str, object], ...]:
+    """Select only records referenced by this plan and exact sample snapshot."""
+
+    source_refs = {operation.source_ref for operation in plan.operations}
+    referenced = [
+        record
+        for record in approved_references
+        if record.get("approval_id") in source_refs
+    ]
+    for record in referenced:
+        if (
+            record.get("document_sha256")
+            != inspection.snapshot.document_sha256
+            or record.get("structure_target_summary_sha256")
+            != inspection.snapshot.target_summary_sha256
+        ):
+            raise HwpApprovalError(
+                "편집 계획이 참조한 승인 사례가 선택한 표본 양식과 일치하지 않습니다."
+            )
+    selected = tuple(
+        sorted(
+            referenced,
+            key=lambda record: (
+                str(record.get("approval_id", "")),
+                str(record.get("record_sha256", "")),
+            ),
+        )
+    )
+    approval_ids = [
+        str(record.get("approval_id", "")) for record in selected
+    ]
+    if len(approval_ids) != len(set(approval_ids)):
+        raise HwpApprovalError(
+            "편집 계획이 참조한 승인 사례 식별자가 중복되었습니다."
+        )
+    return selected
 
 
 def _validate_approved_reference_scope(
@@ -304,9 +348,9 @@ class HwpApprovalRegistry:
 class HwpSampleApprovalRegistry:
     """One-shot preview/apply binding for exact audited sample HWPX files.
 
-    Both issuance and consumption execute the semantic validator against
-    server-owned approval records.  No method in this registry calls COM or
-    writes a document.
+    Both issuance and consumption execute target/structure validation against
+    server-owned approval records. No method in this registry calls COM,
+    establishes content truth, or writes a document.
     """
 
     def __init__(
@@ -467,7 +511,7 @@ class HwpSampleApprovalRegistry:
             record.validation_sha256,
         ):
             raise HwpApprovalError(
-                "미리보기 이후 표본 의미 검증 결과가 변경되었습니다. 다시 미리보세요."
+                "미리보기 이후 표본 대상·구조 검증 결과가 변경되었습니다. 다시 미리보세요."
             )
         return validation
 
@@ -477,16 +521,58 @@ class HwpSampleApprovalRegistry:
                 self._records.pop(token, None)
 
 
+class HwpRollbackScopeRegistry:
+    """Bind service-owned rollback handles to their creating project."""
+
+    def __init__(self) -> None:
+        self._records: Dict[str, UUID] = {}
+        self._lock = threading.Lock()
+
+    def bind(self, project_id: UUID, rollback_token: str) -> None:
+        if (
+            not isinstance(rollback_token, str)
+            or ROLLBACK_TOKEN_PATTERN.fullmatch(rollback_token) is None
+        ):
+            raise HwpApprovalError("유효한 롤백 식별자가 아닙니다.")
+        with self._lock:
+            existing = self._records.get(rollback_token)
+            if existing is not None and existing != project_id:
+                raise HwpApprovalError(
+                    "롤백 식별자가 다른 프로젝트에 이미 결속되어 있습니다."
+                )
+            self._records[rollback_token] = project_id
+
+    def authorize(self, project_id: UUID, rollback_token: str) -> None:
+        if (
+            not isinstance(rollback_token, str)
+            or ROLLBACK_TOKEN_PATTERN.fullmatch(rollback_token) is None
+        ):
+            raise HwpApprovalError("유효한 롤백 식별자가 아닙니다.")
+        with self._lock:
+            owner = self._records.get(rollback_token)
+        if owner is None:
+            raise HwpApprovalError(
+                "현재 세션에서 사용할 수 있는 롤백 승인이 없습니다."
+            )
+        if owner != project_id:
+            raise HwpApprovalError(
+                "롤백 승인과 현재 프로젝트가 일치하지 않습니다."
+            )
+
+
 __all__ = [
     "APPROVAL_TOKEN_PATTERN",
     "DEFAULT_APPROVAL_TTL_SECONDS",
     "HwpApprovalError",
     "HwpApprovalGrant",
     "HwpApprovalRegistry",
+    "HwpRollbackScopeRegistry",
     "HwpSampleApprovalGrant",
     "HwpSampleApprovalRegistry",
     "HwpTargetSummary",
+    "ROLLBACK_TOKEN_PATTERN",
     "canonical_approved_references_sha256",
     "canonical_plan_sha256",
+    "select_plan_approved_references",
     "summarize_plan_targets",
 ]

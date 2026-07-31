@@ -200,7 +200,7 @@ export function ExportScreen() {
     <div className="screen screen--export">
       <header className="screen-header">
         <div>
-          <p className="eyebrow">TRACEABLE PROJECT PACKAGE</p>
+          <p className="eyebrow">추적 가능한 결과 패키지</p>
           <h1>내보내기</h1>
           <p>AI 원본값과 사용자 최종값을 분리하고 모든 산출물의 SHA-256을 기록합니다.</p>
         </div>
@@ -245,7 +245,7 @@ export function ExportScreen() {
 
       <div className="export-layout">
         <GlassPanel className="package-options">
-          <PanelHeader eyebrow="TRIP PACKAGE" title="포함할 항목" />
+          <PanelHeader eyebrow="주행 결과 패키지" title="포함할 항목" />
           <div className="package-summary">
             <FileArchive size={30} />
             <div>
@@ -312,7 +312,7 @@ export function ExportScreen() {
           }`}
         >
           <PanelHeader
-            eyebrow="SHA-256 PROVENANCE"
+            eyebrow="SHA-256 추적 정보"
             title="산출물"
             action={<Badge tone="neutral">UTF-8 BOM · WGS84 계약</Badge>}
           />

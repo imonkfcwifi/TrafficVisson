@@ -964,12 +964,29 @@ class FixedManifestCommandProposalGenerator:
             / "CommandProposalRunner"
             / "grounding-dino-v1"
         )
-        return cls._from_pinned_root(
+        fixed_runner = cls._from_pinned_root(
             runner_root,
             unavailable_message=(
                 "설치된 로컬 AI 실행기가 없거나 무결성 검증을 통과하지 못했습니다."
             ),
         )
+        # An installed runner is an explicit production boundary. If that
+        # path exists but fails verification, fail closed instead of silently
+        # selecting another implementation. Older installations with no
+        # runner may use the separately pinned review-only evaluation pack.
+        if runner_root.exists() or runner_root.is_symlink():
+            return fixed_runner
+        try:
+            from .grounding_dino_evaluation_pack import (
+                VerifiedGroundingDinoEvaluationPackProposalGenerator,
+            )
+
+            return (
+                VerifiedGroundingDinoEvaluationPackProposalGenerator
+                .from_program_data(program_data=base)
+            )
+        except Exception:
+            return fixed_runner
 
     def _load_verified_runner(
         self,

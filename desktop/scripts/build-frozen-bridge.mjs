@@ -132,13 +132,13 @@ mkdirSync(workRoot, { recursive: true });
 // The developer workstation also contains unrelated game, notebook, Qt and ML
 // stacks.  The default desktop bridge is intentionally the minimal,
 // no-model-pack flavor: road video evidence extraction uses FFmpeg, while a
-// configured optional vision pack fails closed until its selected runtime is
-// explicitly added to a separate reviewed build flavor.  Excluding ambient
-// packages makes the frozen result reproducible and prevents accidental AGPL
-// or multi-Qt collection from the machine-wide Python installation.
+// configured optional model pack fails closed unless a separately installed,
+// hash-verified external runtime pack with the exact frozen CPython ABI is
+// activated at startup. Excluding ambient packages keeps the core bundle
+// reproducible, preserves the small no-pack smoke path, and prevents accidental
+// AGPL or multi-Qt collection from the machine-wide Python installation.
 const excludedAmbientModules = [
   "IPython",
-  "PIL",
   "PyQt5",
   "PyQt6",
   "PySide2",

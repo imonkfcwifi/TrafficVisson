@@ -111,6 +111,47 @@ function abbreviatedOcrText(text: string) {
 export function buildCandidateProposal(
   candidate: AnalysisCandidate,
 ): CandidateProposal {
+  const dense = candidate.denseProposal;
+  if (
+    candidate.candidateKind ===
+      "dense_candidate_evidence_overlay" &&
+    dense &&
+    candidate.evidenceOverlay?.reviewOnly === true &&
+    validProposalScore(dense.score) &&
+    Object.prototype.hasOwnProperty.call(
+      ISSUE_PRESENTATION,
+      dense.issueType,
+    ) &&
+    (dense.normalizedBox === null ||
+      validProposalBox(dense.normalizedBox))
+  ) {
+    const presentation = ISSUE_PRESENTATION[dense.issueType];
+    const sourceSummary = dense.proposalSources.join(", ");
+    const ocrText =
+      typeof dense.ocrText === "string" && dense.ocrText.trim()
+        ? abbreviatedOcrText(dense.ocrText)
+        : null;
+    return {
+      typeCode: presentation.typeCode,
+      displayName: presentation.displayName,
+      prompt: ocrText
+        ? `2fps 전체 영상 분석이 ${presentation.displayName} 후보와 “${ocrText}” OCR을 제안했습니다. 실제 유형과 글자를 확인해 주세요.`
+        : `2fps 전체 영상 분석이 ${presentation.displayName} 후보를 제안했습니다. 실제 유지보수 대상이 맞나요?`,
+      confidence: dense.score,
+      scoreKind: "classification",
+      scoreText: `후보 점수 ${dense.score.toFixed(
+        3,
+      )} · 확률 또는 확정 판정이 아님`,
+      experimental: true,
+      forced:
+        dense.urgentReview ||
+        dense.issueType === "road_debris",
+      rationale: `전체 2fps 인덱스의 검지·프로젝트 모델·승인 사례 신호(${sourceSummary})를 병합한 검토용 제안입니다. 사용자 승인 전에는 Annotation, Incident, 학습 데이터 또는 보고서 사실로 반영되지 않습니다.`,
+      ...(dense.normalizedBox
+        ? { box: percentBox(dense.normalizedBox) }
+        : {}),
+    };
+  }
   const inference = candidate.aiInference;
   const hasModelIdentity =
     inference?.schemaVersion === "trafficvisson.vision-inference.v1" &&

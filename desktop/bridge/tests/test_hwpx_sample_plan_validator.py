@@ -66,15 +66,17 @@ def _approved_reference(
         picture_target_id,
     )
     quarter = inspection.baseline.quarter
+    source_id = (
+        f"sample-hwpx-{quarter}q-"
+        + inspection.snapshot.document_sha256[:16]
+    )
+    case_id = "hwpx-weak-case-" + token * 32
     record = {
-        "schema_version": "trafficvisson.approved-reference.v1",
+        "schema_version": "trafficvisson.approved-reference.v2",
         "approval_id": "approved-reference-" + token * 24,
         "project_id": PROJECT_ID,
-        "source_id": (
-            f"sample-hwpx-{quarter}q-"
-            + inspection.snapshot.document_sha256[:16]
-        ),
-        "case_id": "hwpx-weak-case-" + token * 32,
+        "source_id": source_id,
+        "case_id": case_id,
         "revision": 1,
         "reference_state": "approved_reference",
         "approved_reference": True,
@@ -110,6 +112,27 @@ def _approved_reference(
         "page_hint": binding.photo_page_number,
         "page_hint_source": "audited_three_table_pair_contract",
         "photo_slot_id": binding.photo_slot_id,
+        "sample_layout_binding_schema": (
+            binding.sample_layout_binding_schema
+        ),
+        "sample_layout_binding_revision": (
+            binding.sample_layout_binding_revision
+        ),
+        "semantic_projection_revision": (
+            binding.semantic_projection_revision
+        ),
+        "semantic_attestation_sha256": "e" * 64,
+        "sample_evidence_group_id": (
+            binding.sample_evidence_group_id
+        ),
+        "group_photo_index": binding.group_photo_index,
+        "group_photo_count": binding.group_photo_count,
+        "duplicate_image_occurrence_count": 1,
+        "duplicate_image_review_required": False,
+        "duplicate_image_review_confirmed": False,
+        "duplicate_image_case_refs": [
+            f"{source_id}/{case_id}"
+        ],
         "photo_page_number": binding.photo_page_number,
         "inspection_page_number": binding.inspection_page_number,
         "sample_layout_binding_sha256": binding.binding_sha256,
@@ -249,8 +272,12 @@ def test_exact_3q_semantic_plan_passes_without_com(sample_3q):
         approved_references=[record],
     )
 
-    assert result.state == "semantic_plan_validated_com_not_invoked"
-    assert result.semantic_validation_passed is True
+    assert result.state == (
+        "target_structure_plan_validated_com_not_invoked"
+    )
+    assert result.target_structure_validation_passed is True
+    assert result.approved_incident_bound is False
+    assert result.content_provenance_bound is False
     assert result.com_invocation_performed is False
     assert result.table_growth_allowed is False
     assert result.page_range_preserved_by_structure is True
@@ -297,10 +324,10 @@ def test_exact_4q_last_pair_preserves_audited_48_page_range(
     assert result.com_invocation_performed is False
 
 
-def test_merged_caption_for_left_right_photo_pair_is_written_once(
+def test_multi_photo_evidence_group_caption_is_written_once(
     sample_4q,
 ):
-    photos_by_caption = {}
+    photos_by_group = {}
     for photo in sample_4q.snapshot.pictures:
         if (
             photo.nearest_table_index is None
@@ -311,14 +338,14 @@ def test_merged_caption_for_left_right_photo_pair_is_written_once(
             sample_4q,
             photo.target_id,
         )
-        photos_by_caption.setdefault(
-            binding.photo_caption.cell_target_id,
+        photos_by_group.setdefault(
+            binding.sample_evidence_group_id,
             [],
         ).append(photo)
     left, right = next(
         photos[:2]
-        for photos in photos_by_caption.values()
-        if len(photos) >= 2
+        for photos in photos_by_group.values()
+        if len(photos) == 2
     )
     left_record = _approved_reference(
         sample_4q,
@@ -353,6 +380,18 @@ def test_merged_caption_for_left_right_photo_pair_is_written_once(
     )
 
     assert result.approved_reference_count == 2
+    assert (
+        left_record["sample_evidence_group_id"]
+        == right_record["sample_evidence_group_id"]
+    )
+    assert {
+        left_record["group_photo_index"],
+        right_record["group_photo_index"],
+    } == {1, 2}
+    assert (
+        left_record["photo_slot_id"]
+        != right_record["photo_slot_id"]
+    )
     assert sum(
         binding.semantic_role == "photo_slot_image"
         for binding in result.operation_bindings

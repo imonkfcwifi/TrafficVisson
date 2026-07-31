@@ -69,6 +69,14 @@ test("FFmpeg and local analysis components render bridge-owned states", () => {
 });
 
 test("HWP readiness remains gated by the real read-only COM preflight", () => {
+  assert.match(
+    shellSource,
+    /if \(!diagnosticsOpen\) return;[\s\S]*trafficSuperVision\.providers[\s\S]*trafficSuperVision\.hwp\s*\.preflight\(\)[\s\S]*}, \[diagnosticsOpen\]\);/,
+  );
+  assert.match(
+    shellSource,
+    /setProviderState\(\{ codex: null, claude: null \}\);[\s\S]*setHwpAvailable\(null\);/,
+  );
   assert.match(shellSource, /trafficSuperVision\.hwp\s*\.preflight\(\)/);
   assert.match(
     shellSource,
@@ -93,7 +101,7 @@ test("runtime inventory stays compact inside the bounded diagnostics drawer", ()
   assert.match(stylesSource, /\.diagnostic-runtime-state--failed/);
   assert.match(
     stylesSource,
-    /\.diagnostic-runtime-detail\s*\{[^}]*font-family:\s*inherit[^}]*font-size:\s*10\.5px/s,
+    /\.diagnostic-runtime-detail\s*\{[^}]*font-family:\s*inherit[^}]*font-size:\s*11px/s,
   );
 });
 

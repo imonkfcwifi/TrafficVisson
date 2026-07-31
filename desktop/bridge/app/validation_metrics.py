@@ -31,6 +31,14 @@ VALIDATION_SCHEMA_VERSION = "trafficvisson.validation-metrics.v1"
 PROMOTION_POLICY_VERSION = "trafficvisson.promotion-review-policy.v1"
 DEFAULT_MINIMUM_SAMPLES_PER_TYPE = 30
 DEFAULT_MAX_RECALL_DROP = 0.02
+# A project detector is a human-review aid, but a candidate that misses most
+# known road events or turns most review cards into false alarms is not useful
+# enough to occupy the promotable candidate slot.  These are absolute floors,
+# applied per required issue type in addition to the active-model regression
+# gates below.  Recall is intentionally the stricter floor because a missed
+# road defect cannot be recovered from a review queue that was never created.
+DEFAULT_MINIMUM_CANDIDATE_RECALL = 0.80
+DEFAULT_MINIMUM_CANDIDATE_PRECISION = 0.50
 MAX_TRUTH_RECORDS = 1_000_000
 MAX_PREDICTION_RECORDS = 2_000_000
 MAX_TRUTH_EVENTS_PER_SAMPLE = 256
@@ -217,6 +225,8 @@ class ModelValidationReport(_StrictModel):
 PromotionReasonCode = Literal[
     "insufficient_validation_samples",
     "missing_positive_truth",
+    "candidate_recall_below_absolute_minimum",
+    "candidate_precision_below_absolute_minimum",
     "recall_drop_at_or_above_limit",
     "false_positive_rate_increased",
     "duplicate_burden_increased",
@@ -248,6 +258,8 @@ class PromotionReviewDecision(_StrictModel):
     required_issue_types: Tuple[CanonicalIssueType, ...]
     minimum_samples_per_type: int = Field(ge=1)
     maximum_recall_drop: float = Field(gt=0, le=1)
+    minimum_candidate_recall: float = Field(gt=0, le=1)
+    minimum_candidate_precision: float = Field(gt=0, le=1)
     active_report: ModelValidationReport
     candidate_report: ModelValidationReport
     reasons: Tuple[PromotionReviewReason, ...]
@@ -266,11 +278,15 @@ class PromotionReviewDecision(_StrictModel):
             raise ValueError("digest must be a lowercase SHA-256 hex string")
         return value
 
-    @field_validator("maximum_recall_drop")
+    @field_validator(
+        "maximum_recall_drop",
+        "minimum_candidate_recall",
+        "minimum_candidate_precision",
+    )
     @classmethod
-    def finite_recall_drop(cls, value: float) -> float:
+    def finite_policy_rate(cls, value: float) -> float:
         if not math.isfinite(value):
-            raise ValueError("maximum_recall_drop must be finite")
+            raise ValueError("promotion policy rates must be finite")
         return value
 
 
@@ -585,6 +601,20 @@ def _strict_recall_drop(value: object) -> float:
     return float(value)
 
 
+def _strict_minimum_rate(value: object, label: str) -> float:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(float(value))
+        or float(value) <= 0
+        or float(value) > 1
+    ):
+        raise ValidationMetricsError(
+            f"{label} must be a finite number in (0, 1]"
+        )
+    return float(value)
+
+
 def _ratio_increased(
     *,
     candidate_numerator: int,
@@ -631,6 +661,10 @@ def compare_candidate_to_active(
     required_issue_types: Optional[Iterable[object]] = None,
     minimum_samples_per_type: int = DEFAULT_MINIMUM_SAMPLES_PER_TYPE,
     maximum_recall_drop: float = DEFAULT_MAX_RECALL_DROP,
+    minimum_candidate_recall: float = DEFAULT_MINIMUM_CANDIDATE_RECALL,
+    minimum_candidate_precision: float = (
+        DEFAULT_MINIMUM_CANDIDATE_PRECISION
+    ),
 ) -> PromotionReviewDecision:
     """Apply the fail-closed promotion policy to one fixed validation set.
 
@@ -661,6 +695,14 @@ def compare_candidate_to_active(
         "minimum_samples_per_type",
     )
     recall_limit = _strict_recall_drop(maximum_recall_drop)
+    absolute_recall_floor = _strict_minimum_rate(
+        minimum_candidate_recall,
+        "minimum_candidate_recall",
+    )
+    absolute_precision_floor = _strict_minimum_rate(
+        minimum_candidate_precision,
+        "minimum_candidate_precision",
+    )
 
     # Materialize truth exactly once so generators cannot yield different
     # validation sets to the active and candidate evaluations.
@@ -721,6 +763,40 @@ def compare_candidate_to_active(
                     ),
                     candidate_value=0.0,
                     limit_value=1.0,
+                )
+            )
+
+        if (
+            candidate.truth_event_count > 0
+            and candidate.recall < absolute_recall_floor
+        ):
+            reasons.append(
+                PromotionReviewReason(
+                    code="candidate_recall_below_absolute_minimum",
+                    issue_type=issue_type,
+                    message=(
+                        f"{issue_type}: candidate recall "
+                        f"{candidate.recall:.6f} is below the absolute "
+                        f"survey-detector minimum "
+                        f"{absolute_recall_floor:.6f}"
+                    ),
+                    candidate_value=candidate.recall,
+                    limit_value=absolute_recall_floor,
+                )
+            )
+        if candidate.precision < absolute_precision_floor:
+            reasons.append(
+                PromotionReviewReason(
+                    code="candidate_precision_below_absolute_minimum",
+                    issue_type=issue_type,
+                    message=(
+                        f"{issue_type}: candidate precision "
+                        f"{candidate.precision:.6f} is below the absolute "
+                        f"review-queue minimum "
+                        f"{absolute_precision_floor:.6f}"
+                    ),
+                    candidate_value=candidate.precision,
+                    limit_value=absolute_precision_floor,
                 )
             )
 
@@ -852,6 +928,8 @@ def compare_candidate_to_active(
         required_issue_types=required_types,
         minimum_samples_per_type=minimum_samples,
         maximum_recall_drop=recall_limit,
+        minimum_candidate_recall=absolute_recall_floor,
+        minimum_candidate_precision=absolute_precision_floor,
         active_report=active_report,
         candidate_report=candidate_report,
         reasons=tuple(reasons),
@@ -864,6 +942,8 @@ __all__ = [
     "CANONICAL_ISSUE_TYPES",
     "CanonicalIssueType",
     "DEFAULT_MAX_RECALL_DROP",
+    "DEFAULT_MINIMUM_CANDIDATE_PRECISION",
+    "DEFAULT_MINIMUM_CANDIDATE_RECALL",
     "DEFAULT_MINIMUM_SAMPLES_PER_TYPE",
     "ModelValidationReport",
     "PerTypeValidationMetrics",

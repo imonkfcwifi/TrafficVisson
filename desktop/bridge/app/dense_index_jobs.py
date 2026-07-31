@@ -37,11 +37,13 @@ from .dense_frame_index import (
     DenseFrameIndexLimits,
     DenseFrameIndexOutputLimit,
     DenseFrameIndexResult,
+    DenseFrameIndexStagingUnavailable,
     DenseFrameIndexSourceChanged,
     DenseFrameIndexTimeout,
     FRAME_ID_PATTERN,
     FRAME_INDEX_SCHEMA,
     ReviewOnlyPolicy,
+    initialize_dense_staging_root,
 )
 
 
@@ -266,6 +268,7 @@ class DenseIndexJobService:
         ffmpeg_path: Optional[Union[str, Path]] = None,
         ffprobe_path: Optional[Union[str, Path]] = None,
         dense_limits: Optional[DenseFrameIndexLimits] = None,
+        dense_staging_root: Optional[Union[str, Path]] = None,
         engine_factory: Optional[EngineFactory] = None,
     ) -> None:
         if not callable(source_resolver):
@@ -291,6 +294,16 @@ class DenseIndexJobService:
         self._ffmpeg_path = ffmpeg_path
         self._ffprobe_path = ffprobe_path
         self._base_limits = dense_limits or DenseFrameIndexLimits()
+        self._dense_staging_root: Optional[Path] = None
+        if dense_staging_root is not None:
+            try:
+                self._dense_staging_root = initialize_dense_staging_root(
+                    dense_staging_root
+                )
+            except DenseFrameIndexStagingUnavailable:
+                # Keep the bridge available, but let the bounded engine fail
+                # closed if this job's final path actually requires staging.
+                self._dense_staging_root = None
         self._engine_factory = engine_factory
         self._jobs: "OrderedDict[UUID, DenseIndexJobRecord]" = OrderedDict()
         self._queue: "queue.Queue[Optional[UUID]]" = queue.Queue(
@@ -795,6 +808,8 @@ class DenseIndexJobService:
                     ffmpeg_path=self._ffmpeg_path,
                     ffprobe_path=self._ffprobe_path,
                     limits=limits,
+                    staging_root=self._dense_staging_root,
+                    staging_owner_id=str(job.job_id),
                 )
             else:
                 engine = self._engine_factory(limits)

@@ -72,6 +72,167 @@ function generatedReport() {
   };
 }
 
+function legacyHwpPreview() {
+  return {
+    mode: "preview",
+    operation_count: 1,
+    operation_types: { fill_text: 1 },
+    structure: {
+      observed_characters: 120,
+      truncated: false,
+      paragraph_count: 3,
+      table_count: 1,
+      picture_count: 0,
+      field_names: ["inspection_summary"],
+      bookmark_names: [],
+    },
+    message: "COM 구조 미리보기 완료",
+    approval_token: "a".repeat(64),
+    approval_expires_at: "2026-07-29T12:00:00+09:00",
+    document_sha256: "b".repeat(64),
+    plan_sha256: "c".repeat(64),
+    target_summary: {
+      operation_count: 1,
+      operation_types: { fill_text: 1 },
+      targets: ["bookmark:inspection_summary"],
+    },
+  };
+}
+
+function sampleTargetStructureHwpPreview() {
+  return {
+    schema_version: "trafficvisson.hwpx-sample-target-plan.v1",
+    mode: "sample_target_structure_preview",
+    state: "target_structure_preview_validated_apply_unavailable",
+    document_snapshot_id: `hwpx-sample-3q-${"1".repeat(24)}`,
+    document_sha256: "2".repeat(64),
+    structure_target_summary_sha256: "3".repeat(64),
+    weak_case_index_manifest_sha256: "4".repeat(64),
+    plan_sha256: "5".repeat(64),
+    validation_sha256: "6".repeat(64),
+    approved_references_sha256: "7".repeat(64),
+    approved_reference_count: 1,
+    operation_count: 1,
+    page_pair_indices: [0],
+    touched_pages: [2],
+    expected_rendered_page_count: 48,
+    expected_page_range: [1, 48],
+    page_range_preserved_by_structure: true,
+    table_growth_allowed: false,
+    target_structure_validation_passed: true,
+    approved_incident_bound: false,
+    content_provenance_bound: false,
+    com_invocation_performed: false,
+    operation_bindings: [
+      {
+        operation_id: "88888888-8888-4888-8888-888888888888",
+        approval_id: `approved-reference-${"8".repeat(24)}`,
+        operation_type: "insert_image",
+        target_id: `hwpx-picture-${"9".repeat(24)}`,
+        semantic_role: "photo_slot_image",
+        page_number: 2,
+        table_index: 2,
+        row: 0,
+        column: 0,
+      },
+    ],
+    approval_scope: "sample_target_structure_hash_binding_only",
+    approval_token: "a".repeat(64),
+    approval_expires_at: "2026-07-29T12:00:00+09:00",
+    apply_eligible: false,
+    writer_state: "unavailable",
+    output_render_validation_status: "not_run",
+    blocking_reasons: [
+      "exact_hwpml_target_writer_not_implemented",
+      "output_reopen_and_48_page_render_validation_not_implemented",
+    ],
+    no_com: true,
+    no_document_write: true,
+  };
+}
+
+function insertImageGeneration(value = "deid:incident-1:representative") {
+  return {
+    generation_id: "66666666-6666-4666-8666-666666666666",
+    provider: "codex",
+    state: "generated_preview_required",
+    draft: {
+      title: "도로 점검 보고서",
+      sections: [
+        {
+          heading: "점검 결과",
+          body: "승인 근거를 확인했습니다.",
+          incident_ids: ["77777777-7777-4777-8777-777777777777"],
+        },
+      ],
+    },
+    plan: {
+      schema_version: "1.0",
+      plan_id: "88888888-8888-4888-8888-888888888888",
+      document_snapshot_id: "hwpx-sample-3q-111111111111111111111111",
+      operations: [
+        {
+          operation_id: "99999999-9999-4999-8999-999999999999",
+          type: "insert_image",
+          target: "hwpx-picture-999999999999999999999999",
+          expected_value: "f".repeat(64),
+          value,
+          source_ref: "approved-reference-888888888888888888888888",
+          style_policy: "preserve",
+          preview: "승인 근거 사진을 사진 슬롯에 배치",
+        },
+      ],
+    },
+    transmitted_fields: ["approved_incident_json"],
+  };
+}
+
+test("report renderer parses legacy and exact target previews without enabling blocked apply", () => {
+  const legacy = reportScreen.parseHwpPreviewResult(legacyHwpPreview());
+  assert.equal(legacy.mode, "preview");
+  assert.equal(reportScreen.isHwpPreviewApplyEligible(legacy), true);
+  assert.deepEqual(reportScreen.hwpPreviewBlockerMessages(legacy), []);
+
+  const sample = reportScreen.parseHwpPreviewResult(
+    sampleTargetStructureHwpPreview(),
+  );
+  assert.equal(sample.mode, "sample_target_structure_preview");
+  assert.equal(sample.apply_eligible, false);
+  assert.equal(sample.approved_incident_bound, false);
+  assert.equal(sample.content_provenance_bound, false);
+  assert.equal(reportScreen.isHwpPreviewApplyEligible(sample), false);
+  assert.deepEqual(reportScreen.hwpPreviewBlockerMessages(sample), [
+    "샘플 양식의 정확한 표·사진 슬롯을 쓰는 결정적 HWPML 작성기가 아직 연결되지 않았습니다.",
+    "저장 후 문서를 다시 열어 48쪽 전체를 렌더링·검증하는 단계가 아직 연결되지 않았습니다.",
+  ]);
+
+  const tampered = sampleTargetStructureHwpPreview();
+  tampered.apply_eligible = true;
+  assert.throws(
+    () => reportScreen.parseHwpPreviewResult(tampered),
+    /샘플 양식 대상·구조/,
+  );
+});
+
+test("insert_image plans stay opaque in the renderer and reject local paths", () => {
+  const generation = reportScreen.parseReportGenerationResult(
+    insertImageGeneration(),
+  );
+  const operation = generation.plan.operations[0];
+  assert.equal(operation.type, "insert_image");
+  const display = reportScreen.reportOperationDisplayValue(operation);
+  assert.match(display, /비식별화 근거 이미지/);
+  assert.doesNotMatch(display, /deid:|approved-reference|[A-Za-z]:\\/);
+
+  assert.throws(
+    () =>
+      reportScreen.parseReportGenerationResult(
+        insertImageGeneration(String.raw`C:\Users\operator\incident.jpg`),
+      ),
+    /로컬 파일 경로/,
+  );
+});
+
 test("report workflow survives navigation in memory for the same analysis", () => {
   const scope = "project-1:job-1";
   reportSession.prepareReportSessionScope(scope);
@@ -170,11 +331,36 @@ test("HWP apply forwards only the server preview approval and burns local previe
   );
   assert.match(
     reportScreenSource,
+    /!isHwpPreviewApplyEligible\(previewResult\)/,
+  );
+  assert.match(
+    reportScreenSource,
+    /결정적 HWPML 작성기와 저장 후 48쪽 전체 렌더 검증/,
+  );
+  assert.match(
+    reportScreenSource,
     /\^\[a-f0-9\]\{64\}\$[\s\S]*approval_expires_at[\s\S]*document_sha256[\s\S]*plan_sha256[\s\S]*target_summary/,
   );
   assert.match(
     reportScreenSource,
     /catch \(error\) \{\s*if \(!reportOperationIsCurrent\(request\)\) return;\s*setPreviewedPlan\(null\);\s*setPreviewResult\(null\);\s*setWorkflow\("error"\);[\s\S]*한\/글 문서에 편집 계획을 적용하지 못했습니다/,
+  );
+});
+
+test("report provider guidance uses one prioritized feedback surface", () => {
+  assert.match(
+    reportScreenSource,
+    /const providerFeedback = providerError[\s\S]*: generationMessage[\s\S]*: providerMessage[\s\S]*: selectedProvider\?\.message[\s\S]*: null;/,
+  );
+  assert.equal(
+    (reportScreenSource.match(/className=\{`notice provider-feedback/g) ?? [])
+      .length,
+    1,
+    "provider error, generation, login, and idle status must share one visible feedback surface",
+  );
+  assert.match(
+    reportScreenSource,
+    /\{providerFeedback \? \([\s\S]*role=\{providerFeedback\.role\}[\s\S]*providerFeedback\.title[\s\S]*providerFeedback\.message/,
   );
 });
 

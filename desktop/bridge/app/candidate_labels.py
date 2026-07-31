@@ -33,9 +33,29 @@ from typing import (
 )
 from uuid import UUID, uuid4, uuid5
 
+from .training_geometry import (
+    TrainingGeometryError,
+    canonical_training_geometry,
+)
+from .structured_assist_provenance import (
+    StructuredAssistProvenanceError,
+    canonical_structured_assist_provenance,
+)
+from .training_provenance import (
+    TrainingProvenanceError,
+    build_annotation_provenance_graph,
+    canonical_annotation_provenance_graph,
+)
 
 SCHEMA_VERSION = "1.0"
+RECORD_SCHEMA_VERSION = "1.2"
+PROVENANCE_RECORD_SCHEMA_VERSION = "1.3"
+GEOMETRY_RECORD_SCHEMA_VERSION = "1.1"
+LEGACY_RECORD_SCHEMA_VERSION = "1.0"
 ANSWER_VALUES = frozenset({"yes", "no", "unsure", "edit", "skipped"})
+ANSWERED_BY_VALUES = frozenset(
+    {"local_user", "structured_llm_assisted"}
+)
 CANONICAL_ISSUE_TYPES = (
     "pothole",
     "road_surface_damage",
@@ -81,7 +101,6 @@ TRAINING_BY_ANSWER = {
 }
 
 _CANDIDATE_ID = re.compile(r"^[a-f0-9]{20}$")
-_SAFE_ACTOR = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$")
 _HASH = re.compile(r"^[a-f0-9]{64}$")
 _MAX_TEXT = 500
 _MAX_ACTOR = 128
@@ -89,6 +108,7 @@ _MAX_METADATA_BYTES = 256 * 1024
 _MAX_RECORD_BYTES = 384 * 1024
 _MAX_METADATA_DEPTH = 10
 _MAX_COLLECTION_ITEMS = 2_048
+_RESOLVER_UNSET = object()
 
 
 class CandidateLabelError(ValueError):
@@ -190,6 +210,14 @@ def _canonical_json(value: Any) -> bytes:
 
 def _record_hash(record_without_hash: Mapping[str, Any]) -> str:
     return hashlib.sha256(_canonical_json(record_without_hash)).hexdigest()
+
+
+def _candidate_metadata_hash(metadata: Mapping[str, Any]) -> str:
+    """Hash the resolver-owned candidate before local review binding."""
+
+    candidate = dict(metadata)
+    candidate.pop("review_event_binding", None)
+    return hashlib.sha256(_canonical_json(candidate)).hexdigest()
 
 
 def _write_all(descriptor: int, payload: bytes) -> None:
@@ -352,11 +380,16 @@ class CandidateLabelStore:
         candidate_resolver: CandidateResolver,
         *,
         now_factory: Callable[[], datetime] = _utc_now,
+        audit_provenance: bool = False,
     ) -> None:
         if not callable(candidate_resolver):
             raise CandidateLabelError("candidate_resolver must be callable")
         if not callable(now_factory):
             raise CandidateLabelError("now_factory must be callable")
+        if not isinstance(audit_provenance, bool):
+            raise CandidateLabelError(
+                "audit_provenance must be a boolean"
+            )
         root = Path(data_root)
         if not root.is_absolute():
             raise CandidateLabelError("candidate-label data_root must be absolute")
@@ -378,6 +411,7 @@ class CandidateLabelStore:
             raise CandidateLabelError("candidate-label store escaped its data root")
         self._resolver = candidate_resolver
         self._now = now_factory
+        self._audit_provenance = audit_provenance
         self._thread_lock = threading.RLock()
 
     @staticmethod
@@ -415,6 +449,59 @@ class CandidateLabelStore:
             "ai_original_candidate": metadata,
         }
 
+    def resolve_questions_from_candidates(
+        self,
+        project_id: UUID | str,
+        analysis_job_id: UUID | str,
+        candidate_ids: Sequence[str],
+        resolved_candidates: Sequence[
+            Union[CompletedCandidateMetadata, Mapping[str, Any]]
+        ],
+    ) -> List[Dict[str, Any]]:
+        """Validate and project one already-atomic candidate batch."""
+
+        project_uuid = _coerce_uuid(project_id, "project_id")
+        job_uuid = _coerce_uuid(analysis_job_id, "analysis_job_id")
+        if (
+            isinstance(candidate_ids, (str, bytes))
+            or not isinstance(candidate_ids, Sequence)
+            or isinstance(resolved_candidates, (str, bytes))
+            or not isinstance(resolved_candidates, Sequence)
+            or not 1 <= len(candidate_ids) <= _MAX_COLLECTION_ITEMS
+            or len(candidate_ids) != len(resolved_candidates)
+            or len(candidate_ids) != len(set(candidate_ids))
+        ):
+            raise CandidateResolutionError(
+                "resolved candidate batch is invalid"
+            )
+        questions = []
+        for candidate_id, resolved in zip(
+            candidate_ids,
+            resolved_candidates,
+        ):
+            question_uuid = self.question_id(
+                job_uuid,
+                candidate_id,
+            )
+            metadata, _source_sha256, _metadata_sha256 = (
+                self._resolve_candidate_with_provenance(
+                    project_uuid,
+                    job_uuid,
+                    candidate_id,
+                    resolved_override=resolved,
+                )
+            )
+            questions.append(
+                {
+                    "project_id": str(project_uuid),
+                    "analysis_job_id": str(job_uuid),
+                    "candidate_id": candidate_id,
+                    "question_id": str(question_uuid),
+                    "ai_original_candidate": metadata,
+                }
+            )
+        return questions
+
     def record_answer(
         self,
         project_id: UUID | str,
@@ -428,11 +515,26 @@ class CandidateLabelStore:
         ocr_text: Optional[str] = None,
         normalized_box: Optional[Mapping[str, Any]] = None,
         answered_by: str = "local_user",
+        training_geometry: Optional[Mapping[str, Any]] = None,
+        assist_provenance: Optional[Mapping[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Validate and append one immutable answer revision."""
         project_uuid = _coerce_uuid(project_id, "project_id")
         job_uuid = _coerce_uuid(analysis_job_id, "analysis_job_id")
         question_uuid = self.question_id(job_uuid, candidate_id)
+        geometry: Optional[Dict[str, Any]] = None
+        if training_geometry is not None:
+            try:
+                geometry = canonical_training_geometry(training_geometry)
+            except TrainingGeometryError as error:
+                raise CandidateLabelError(
+                    "training_geometry is invalid"
+                ) from error
+            if (
+                answer in {"yes", "edit"}
+                and normalized_box is None
+            ):
+                normalized_box = geometry.get("normalized_box")
         final_answer = self._validated_answer(
             answer=answer,
             selected_issue_type=selected_issue_type,
@@ -442,8 +544,36 @@ class CandidateLabelStore:
             normalized_box=normalized_box,
             answered_by=answered_by,
         )
-        candidate_metadata = self._resolve_candidate(
-            project_uuid, job_uuid, candidate_id
+        self._validate_training_geometry_for_answer(
+            final_answer=final_answer,
+            training_geometry=geometry,
+        )
+        assist: Optional[Dict[str, Any]] = None
+        if assist_provenance is not None:
+            try:
+                assist = canonical_structured_assist_provenance(
+                    assist_provenance
+                )
+            except StructuredAssistProvenanceError as error:
+                raise CandidateLabelError(
+                    "assist_provenance is invalid"
+                ) from error
+        self._validate_assist_provenance_for_answer(
+            project_id=project_uuid,
+            analysis_job_id=job_uuid,
+            question_id=question_uuid,
+            candidate_id=candidate_id,
+            final_answer=final_answer,
+            assist_provenance=assist,
+        )
+        (
+            candidate_metadata,
+            source_sha256,
+            candidate_metadata_sha256,
+        ) = self._resolve_candidate_with_provenance(
+            project_uuid,
+            job_uuid,
+            candidate_id,
         )
 
         with self._thread_lock:
@@ -457,6 +587,15 @@ class CandidateLabelStore:
                     for record in records
                     if record["question_id"] == str(question_uuid)
                 ]
+                if (
+                    answered_by == "structured_llm_assisted"
+                    and existing
+                    and existing[-1]["final_answer"]["answered_by"]
+                    == "local_user"
+                ):
+                    raise CandidateLabelConflict(
+                        "a structured LLM answer cannot supersede human truth"
+                    )
                 if existing:
                     original = existing[0]["ai_original_candidate"]
                     if _canonical_json(original) != _canonical_json(candidate_metadata):
@@ -467,9 +606,44 @@ class CandidateLabelStore:
                 previous_hash = (
                     records[-1]["record_hash"] if records else None
                 )
+                record_id = str(uuid4())
+                provenance_graph: Optional[Dict[str, Any]] = None
+                if self._audit_provenance:
+                    try:
+                        provenance_graph = (
+                            build_annotation_provenance_graph(
+                                project_id=str(project_uuid),
+                                analysis_job_id=str(job_uuid),
+                                question_id=str(question_uuid),
+                                candidate_id=candidate_id,
+                                answer_record_id=record_id,
+                                answer_revision=revision,
+                                include_in_training=final_answer[
+                                    "include_in_training"
+                                ],
+                                answered_by=answered_by,
+                                candidate_metadata=(
+                                    candidate_metadata
+                                ),
+                                source_sha256=source_sha256,
+                                candidate_metadata_sha256=(
+                                    candidate_metadata_sha256
+                                ),
+                                training_geometry=geometry,
+                                assist_provenance=assist,
+                            )
+                        )
+                    except TrainingProvenanceError as error:
+                        raise CandidateResolutionError(
+                            "candidate training provenance is invalid"
+                        ) from error
                 record_without_hash: Dict[str, Any] = {
-                    "schema_version": SCHEMA_VERSION,
-                    "record_id": str(uuid4()),
+                    "schema_version": (
+                        PROVENANCE_RECORD_SCHEMA_VERSION
+                        if self._audit_provenance
+                        else RECORD_SCHEMA_VERSION
+                    ),
+                    "record_id": record_id,
                     "project_id": str(project_uuid),
                     "analysis_job_id": str(job_uuid),
                     "candidate_id": candidate_id,
@@ -478,15 +652,98 @@ class CandidateLabelStore:
                     "partition": PARTITION_BY_ANSWER[answer],
                     "ai_original_candidate": candidate_metadata,
                     "final_answer": final_answer,
+                    "training_geometry": geometry,
+                    "assist_provenance": assist,
                     "recorded_at": _safe_timestamp(self._now()),
                     "previous_record_hash": previous_hash,
                 }
+                if self._audit_provenance:
+                    record_without_hash["provenance_graph"] = (
+                        provenance_graph
+                    )
                 record = {
                     **record_without_hash,
                     "record_hash": _record_hash(record_without_hash),
                 }
                 self._append_record_unlocked(project_root, record)
                 return json.loads(_canonical_json(record).decode("utf-8"))
+
+    @staticmethod
+    def _validate_training_geometry_for_answer(
+        *,
+        final_answer: Mapping[str, Any],
+        training_geometry: Optional[Mapping[str, Any]],
+    ) -> None:
+        if training_geometry is None:
+            return
+        answer = final_answer["answer"]
+        answered_by = final_answer["answered_by"]
+        source_kind = training_geometry["source_kind"]
+        if training_geometry["approval_authority"] != answered_by:
+            raise CandidateLabelError(
+                "training geometry authority differs from the answer"
+            )
+        if answer in {"unsure", "skipped"}:
+            raise CandidateLabelError(
+                "held or excluded answers cannot carry training geometry"
+            )
+        if answer == "no":
+            if source_kind != "negative_evidence":
+                raise CandidateLabelError(
+                    "negative answer geometry must be negative evidence"
+                )
+            return
+        if source_kind == "negative_evidence":
+            raise CandidateLabelError(
+                "approved answers cannot carry negative geometry"
+            )
+        final_box = final_answer.get("normalized_box")
+        if (
+            final_box is None
+            or final_box != training_geometry.get("normalized_box")
+        ):
+            raise CandidateLabelError(
+                "final answer box differs from training geometry"
+            )
+
+    @staticmethod
+    def _validate_assist_provenance_for_answer(
+        *,
+        project_id: UUID,
+        analysis_job_id: UUID,
+        question_id: UUID,
+        candidate_id: str,
+        final_answer: Mapping[str, Any],
+        assist_provenance: Optional[Mapping[str, Any]],
+    ) -> None:
+        answered_by = final_answer["answered_by"]
+        if answered_by == "local_user":
+            if assist_provenance is not None:
+                raise CandidateLabelError(
+                    "human answers cannot carry structured assist provenance"
+                )
+            return
+        if (
+            answered_by != "structured_llm_assisted"
+            or assist_provenance is None
+        ):
+            raise CandidateLabelError(
+                "structured answers require assist provenance"
+            )
+        if final_answer["include_in_training"] is not True:
+            raise CandidateLabelError(
+                "structured assist is valid only for training labels"
+            )
+        if (
+            assist_provenance["project_id"] != str(project_id)
+            or assist_provenance["analysis_job_id"]
+            != str(analysis_job_id)
+            or assist_provenance["question_id"] != str(question_id)
+            or assist_provenance["candidate_id"] != candidate_id
+        ):
+            raise CandidateLabelError(
+                "structured assist provenance identity differs from the answer"
+            )
 
     def audit_records(
         self,
@@ -648,8 +905,8 @@ class CandidateLabelStore:
         actor = _validate_text(
             answered_by, "answered_by", maximum=_MAX_ACTOR
         )
-        if actor is None or not _SAFE_ACTOR.fullmatch(actor):
-            raise CandidateLabelError("answered_by has an unsupported format")
+        if actor not in ANSWERED_BY_VALUES:
+            raise CandidateLabelError("answered_by is not supported")
 
         if answer in {"yes", "edit"} and selected_issue_type is None:
             raise CandidateLabelError(
@@ -688,22 +945,44 @@ class CandidateLabelStore:
         analysis_job_id: UUID,
         candidate_id: str,
     ) -> Dict[str, Any]:
-        try:
-            resolved = self._resolver(
-                project_id, analysis_job_id, candidate_id
+        metadata, _source_sha256, _metadata_sha256 = (
+            self._resolve_candidate_with_provenance(
+                project_id,
+                analysis_job_id,
+                candidate_id,
             )
-        except CandidateLabelError:
-            raise
-        except Exception as error:
-            raise CandidateResolutionError(
-                "the completed analysis candidate could not be resolved"
-            ) from error
+        )
+        return metadata
+
+    def _resolve_candidate_with_provenance(
+        self,
+        project_id: UUID,
+        analysis_job_id: UUID,
+        candidate_id: str,
+        *,
+        resolved_override: Any = _RESOLVER_UNSET,
+    ) -> tuple[Dict[str, Any], Optional[str], Optional[str]]:
+        if resolved_override is _RESOLVER_UNSET:
+            try:
+                resolved = self._resolver(
+                    project_id, analysis_job_id, candidate_id
+                )
+            except CandidateLabelError:
+                raise
+            except Exception as error:
+                raise CandidateResolutionError(
+                    "the completed analysis candidate could not be resolved"
+                ) from error
+        else:
+            resolved = resolved_override
 
         if isinstance(resolved, CompletedCandidateMetadata):
             resolved_project = resolved.project_id
             resolved_job = resolved.analysis_job_id
             resolved_candidate = resolved.candidate_id
             metadata_value = resolved.metadata
+            source_sha256 = None
+            candidate_metadata_sha256 = None
         elif isinstance(resolved, Mapping):
             if resolved.get("status") != "completed":
                 raise CandidateResolutionError(
@@ -721,6 +1000,10 @@ class CandidateLabelStore:
                 raise CandidateResolutionError(str(error)) from error
             resolved_candidate = resolved.get("candidate_id")
             metadata_value = resolved.get("metadata", resolved.get("candidate"))
+            source_sha256 = resolved.get("source_sha256")
+            candidate_metadata_sha256 = resolved.get(
+                "candidate_metadata_sha256"
+            )
         else:
             raise CandidateResolutionError(
                 "candidate_resolver returned an unsupported result"
@@ -747,8 +1030,34 @@ class CandidateLabelStore:
         encoded = _canonical_json(metadata)
         if len(encoded) > _MAX_METADATA_BYTES:
             raise CandidateResolutionError("candidate metadata is too large")
+        for value, label in (
+            (source_sha256, "source_sha256"),
+            (
+                candidate_metadata_sha256,
+                "candidate_metadata_sha256",
+            ),
+        ):
+            if value is not None and (
+                not isinstance(value, str)
+                or _HASH.fullmatch(value) is None
+            ):
+                raise CandidateResolutionError(
+                    f"resolved candidate {label} is invalid"
+                )
+        if (
+            candidate_metadata_sha256 is not None
+            and candidate_metadata_sha256
+            != _candidate_metadata_hash(metadata)
+        ):
+            raise CandidateResolutionError(
+                "resolved candidate metadata digest does not match"
+            )
         # Reparse a canonical encoding to detach from mutable resolver-owned data.
-        return json.loads(encoded.decode("utf-8"))
+        return (
+            json.loads(encoded.decode("utf-8")),
+            source_sha256,
+            candidate_metadata_sha256,
+        )
 
     def _project_root(self, project_id: UUID) -> Path:
         _ensure_real_directory(
@@ -1059,7 +1368,26 @@ class CandidateLabelStore:
             "previous_record_hash",
             "record_hash",
         }
-        if set(record) != expected_keys or record.get("schema_version") != SCHEMA_VERSION:
+        schema_version = record.get("schema_version")
+        if schema_version == PROVENANCE_RECORD_SCHEMA_VERSION:
+            expected_keys.update(
+                {
+                    "training_geometry",
+                    "assist_provenance",
+                    "provenance_graph",
+                }
+            )
+        elif schema_version == RECORD_SCHEMA_VERSION:
+            expected_keys.update(
+                {"training_geometry", "assist_provenance"}
+            )
+        elif schema_version == GEOMETRY_RECORD_SCHEMA_VERSION:
+            expected_keys.add("training_geometry")
+        elif schema_version != LEGACY_RECORD_SCHEMA_VERSION:
+            raise CandidateLabelCorrupt(
+                f"candidate-label audit line {line_number} has an invalid schema"
+            )
+        if set(record) != expected_keys:
             raise CandidateLabelCorrupt(
                 f"candidate-label audit line {line_number} has an invalid schema"
             )
@@ -1129,6 +1457,129 @@ class CandidateLabelStore:
             raise CandidateLabelCorrupt(
                 "candidate-label final answer is not canonical"
             )
+        training_geometry = (
+            record.get("training_geometry")
+            if schema_version
+            in {
+                PROVENANCE_RECORD_SCHEMA_VERSION,
+                RECORD_SCHEMA_VERSION,
+                GEOMETRY_RECORD_SCHEMA_VERSION,
+            }
+            else None
+        )
+        if training_geometry is not None:
+            try:
+                canonical_geometry = canonical_training_geometry(
+                    training_geometry
+                )
+                self._validate_training_geometry_for_answer(
+                    final_answer=final_answer,
+                    training_geometry=canonical_geometry,
+                )
+            except (TrainingGeometryError, CandidateLabelError) as error:
+                raise CandidateLabelCorrupt(
+                    "candidate-label training geometry is invalid"
+                ) from error
+            if canonical_geometry != training_geometry:
+                raise CandidateLabelCorrupt(
+                    "candidate-label training geometry is not canonical"
+                )
+        assist_provenance = (
+            record.get("assist_provenance")
+            if schema_version
+            in {
+                PROVENANCE_RECORD_SCHEMA_VERSION,
+                RECORD_SCHEMA_VERSION,
+            }
+            else None
+        )
+        if assist_provenance is not None:
+            try:
+                canonical_assist = (
+                    canonical_structured_assist_provenance(
+                        assist_provenance
+                    )
+                )
+            except StructuredAssistProvenanceError as error:
+                raise CandidateLabelCorrupt(
+                    "candidate-label assist provenance is invalid"
+                ) from error
+            if canonical_assist != assist_provenance:
+                raise CandidateLabelCorrupt(
+                    "candidate-label assist provenance is not canonical"
+                )
+        try:
+            self._validate_assist_provenance_for_answer(
+                project_id=project_id,
+                analysis_job_id=job_uuid,
+                question_id=question_uuid,
+                candidate_id=candidate_id,
+                final_answer=final_answer,
+                assist_provenance=assist_provenance,
+            )
+        except CandidateLabelError as error:
+            if schema_version not in {
+                PROVENANCE_RECORD_SCHEMA_VERSION,
+                RECORD_SCHEMA_VERSION,
+            }:
+                # Legacy records remain auditable, but downstream dataset
+                # projection must not authorize legacy structured answers.
+                if (
+                    final_answer["answered_by"]
+                    == "structured_llm_assisted"
+                    and assist_provenance is None
+                ):
+                    pass
+                else:
+                    raise CandidateLabelCorrupt(
+                        "candidate-label assist provenance is inconsistent"
+                    ) from error
+            else:
+                raise CandidateLabelCorrupt(
+                    "candidate-label assist provenance is inconsistent"
+                ) from error
+        provenance_graph = (
+            record.get("provenance_graph")
+            if schema_version == PROVENANCE_RECORD_SCHEMA_VERSION
+            else None
+        )
+        if provenance_graph is not None:
+            try:
+                canonical_provenance = (
+                    canonical_annotation_provenance_graph(
+                        provenance_graph
+                    )
+                )
+            except TrainingProvenanceError as error:
+                raise CandidateLabelCorrupt(
+                    "candidate-label training provenance is invalid"
+                ) from error
+            if (
+                canonical_provenance != provenance_graph
+                or canonical_provenance["project_id"]
+                != str(project_id)
+                or canonical_provenance["analysis_job_id"]
+                != str(job_uuid)
+                or canonical_provenance["question_id"]
+                != str(question_uuid)
+                or canonical_provenance["candidate_id"]
+                != candidate_id
+                or canonical_provenance["answer_record_id"]
+                != record["record_id"]
+                or canonical_provenance["answer_revision"]
+                != revision
+                or canonical_provenance["answer_authority"][
+                    "answered_by"
+                ]
+                != final_answer["answered_by"]
+                or canonical_provenance["answer_authority"][
+                    "include_in_training"
+                ]
+                != final_answer["include_in_training"]
+            ):
+                raise CandidateLabelCorrupt(
+                    "candidate-label training provenance crossed a record boundary"
+                )
         answer = final_answer["answer"]
         if (
             record["partition"] != PARTITION_BY_ANSWER[answer]
@@ -1149,6 +1600,14 @@ class CandidateLabelStore:
         if canonical_metadata != metadata:
             raise CandidateLabelCorrupt(
                 "candidate-label original candidate metadata is not canonical"
+            )
+        if (
+            provenance_graph is not None
+            and provenance_graph["candidate_metadata_sha256"]
+            != _candidate_metadata_hash(metadata)
+        ):
+            raise CandidateLabelCorrupt(
+                "candidate-label candidate lineage digest changed"
             )
         if record["previous_record_hash"] != previous_hash:
             raise CandidateLabelCorrupt("candidate-label audit hash chain is broken")

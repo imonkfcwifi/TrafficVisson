@@ -1,8 +1,8 @@
 :root {
   --focus: rgba(45, 88, 224, 0.52);
   --surface-elevated: #f8faff;
-  --glass-shell: rgba(235, 241, 249, 0.98);
-  --glass-primary: rgba(250, 252, 255, 0.86);
+  --glass-shell: rgba(230, 238, 248, 0.8);
+  --glass-primary: rgba(248, 251, 255, 0.58);
   --glass-control: rgba(255, 255, 255, 0.68);
 }
 
@@ -14,21 +14,30 @@ body {
 }
 
 .ambient--one {
-  background: radial-gradient(circle, rgba(92, 101, 210, 0.12), transparent 68%);
+  background: radial-gradient(circle, rgba(92, 101, 210, 0.2), transparent 68%);
 }
 
 .ambient--two {
-  background: radial-gradient(circle, rgba(48, 161, 211, 0.12), transparent 68%);
+  background: radial-gradient(circle, rgba(48, 161, 211, 0.18), transparent 68%);
 }
 
 .app-shell {
-  background: var(--glass-shell);
-  backdrop-filter: none;
+  background:
+    linear-gradient(145deg, rgba(246, 249, 255, 0.42), rgba(222, 234, 247, 0.34)),
+    var(--glass-shell);
+  backdrop-filter: blur(22px) saturate(116%);
 }
 
 .titlebar {
-  background: rgba(246, 249, 253, 0.96);
-  backdrop-filter: none;
+  border-bottom-color: rgba(52, 67, 112, 0.055);
+  background: rgba(246, 249, 253, 0.44);
+  backdrop-filter: blur(18px) saturate(118%);
+}
+
+.side-nav {
+  border-right-color: rgba(52, 67, 112, 0.055);
+  background: rgba(246, 249, 253, 0.13);
+  backdrop-filter: blur(12px) saturate(110%);
 }
 
 .brand-mark {
@@ -45,7 +54,7 @@ body {
 
 .glass-panel:not(.metric-card--primary) {
   background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.78), rgba(247, 250, 255, 0.58)),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.66), rgba(240, 247, 255, 0.42)),
     var(--glass-primary);
 }
 
@@ -59,6 +68,9 @@ body {
 .statusbar {
   min-height: 28px;
   padding-inline: 14px;
+  border-top-color: rgba(52, 67, 112, 0.05);
+  background: rgba(246, 249, 253, 0.24);
+  backdrop-filter: blur(12px) saturate(110%);
   font-family: var(--font-sans);
   font-size: 11.5px;
 }
@@ -107,22 +119,26 @@ body {
 
 .shell-screen-context {
   min-width: 150px;
-  height: 38px;
+  height: 42px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-rows: auto auto;
+  grid-template-rows: repeat(3, auto);
   align-content: center;
   column-gap: 9px;
-  padding: 4px 10px 4px 12px;
+  padding: 3px 10px 3px 12px;
   border-left: 1px solid rgba(48, 65, 116, 0.12);
 }
 
 .shell-screen-context > span {
+  min-width: 0;
+  overflow: hidden;
   color: var(--text-muted);
   font-size: 11px;
   font-weight: 680;
   line-height: 1.1;
   letter-spacing: 0.035em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .shell-screen-context > strong {
@@ -130,14 +146,25 @@ body {
   overflow: hidden;
   font-size: 13px;
   font-weight: 720;
-  line-height: 1.25;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shell-screen-context > small {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 620;
+  line-height: 1.1;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .shell-screen-context > kbd {
   grid-column: 2;
-  grid-row: 1 / span 2;
+  grid-row: 1 / span 3;
   align-self: center;
   min-width: 23px;
   height: 23px;

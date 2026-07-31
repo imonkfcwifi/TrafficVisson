@@ -78,7 +78,11 @@ function jobMessage(job: AnalysisJobResponse) {
 function pipelineJobTone(
   job: PipelineJob,
 ): "success" | "warning" | "danger" | "accent" | "neutral" {
-  if (job.status === "completed") return "success";
+  if (job.status === "completed") {
+    return job.outcomeCode === "unusable_visual_evidence"
+      ? "warning"
+      : "success";
+  }
   if (job.status === "failed") return "danger";
   if (
     job.status === "blocked" ||
@@ -125,12 +129,16 @@ function pipelineHeadline(job: PipelineJob) {
     return "질문 큐 준비 완료 · 이제 질문만 확인하세요";
   }
   if (job.status === "completed") {
+    if (job.outcomeCode === "unusable_visual_evidence") {
+      return "도로 상태를 판정할 수 없는 영상으로 분리했습니다";
+    }
     return job.outcomeCode === "zero_detections"
       ? "검지 후보 0건으로 정상 완료했습니다"
       : "지도·CSV·증거·보고서 초안까지 자동 갱신했습니다";
   }
   if (job.status === "blocked") {
-    return job.outcomeCode === "partial"
+    return job.outcomeCode === "partial" ||
+      job.outcomeCode === "report_preview_blocked"
       ? "완료된 산출물은 보존하고 보고서 준비 경계에서 멈췄습니다"
       : "필요한 모델팩이 없어 현재 단계에서 안전하게 멈췄습니다";
   }
@@ -154,12 +162,19 @@ function pipelineOutcomeCopy(job: PipelineJob) {
     return "분석 단계는 끝났습니다. 준비된 질문에 답하면 승인 결과가 지도·CSV·증거·보고서 초안에 자동 반영됩니다.";
   }
   if (job.status === "completed") {
+    if (job.outcomeCode === "unusable_visual_evidence") {
+      return "여러 후보 프레임에서 카메라 가림·정보 부족이 지속됐습니다. 검지 0건이나 모델 실패로 저장하지 않았고, 질문·지도·CSV·HWPX 사실을 만들지 않았습니다.";
+    }
     return job.outcomeCode === "zero_detections"
       ? "분석은 정상 실행됐지만 검지 후보가 없었습니다. 모델 미설치나 분석 실패와 구분해 기록했습니다."
       : "검토 결과를 바탕으로 파생 산출물을 같은 PipelineJob provenance에 연결했습니다.";
   }
   if (job.status === "blocked") {
-    return job.outcomeCode === "partial"
+    if (job.errorCode === "exact_sample_plan_binding_unavailable") {
+      return "CSV와 증거는 저장됐습니다. 승인 사례·기존 셀 값·사진 슬롯을 정확히 결속하는 결정적 보고서 편집기가 연결되기 전에는 HWPX 계획을 완료로 표시하지 않습니다.";
+    }
+    return job.outcomeCode === "partial" ||
+      job.outcomeCode === "report_preview_blocked"
       ? "CSV와 증거는 저장됐습니다. 보고서 Provider 또는 양식을 복구하면 같은 단계에서 이어갑니다."
       : "환경 상태에서 필요한 모델팩을 확인한 뒤 영상 가져오기 화면에서 같은 작업을 재개할 수 있습니다.";
   }
@@ -188,11 +203,15 @@ function PipelineAnalysisOverview({
       : job.status === "completed"
         ? {
             label:
-              job.outcomeCode === "zero_detections"
+              job.outcomeCode === "unusable_visual_evidence"
+                ? "다른 영상 넣기"
+                : job.outcomeCode === "zero_detections"
                 ? "프로젝트 홈 보기"
                 : "자동 갱신 결과 보기",
             screen:
-              job.outcomeCode === "zero_detections"
+              job.outcomeCode === "unusable_visual_evidence"
+                ? ("import" as ScreenId)
+                : job.outcomeCode === "zero_detections"
                 ? ("home" as ScreenId)
                 : ("history" as ScreenId),
           }
@@ -204,7 +223,7 @@ function PipelineAnalysisOverview({
     <div className="screen screen--analysis screen--pipeline-analysis">
       <header className="screen-header">
         <div>
-          <p className="eyebrow">PIPELINE JOB {job.jobId.slice(0, 8)}</p>
+          <p className="eyebrow">자동 점검 작업 · {job.jobId.slice(0, 8)}</p>
           <h1>자동 분석 진행</h1>
           <p>
             영상 입력 뒤 하나의 영속 작업이 질문 준비까지 자동으로 이어집니다.
@@ -287,7 +306,7 @@ function PipelineAnalysisOverview({
       <div className="analysis-layout analysis-layout--pipeline">
         <GlassPanel className="pipeline-panel pipeline-job-panel">
           <PanelHeader
-            eyebrow="ONE AUTOMATIC PIPELINE"
+            eyebrow="하나의 자동 파이프라인"
             title="영상부터 결과까지 한 작업"
             action={
               <Badge tone="neutral">
@@ -328,7 +347,7 @@ function PipelineAnalysisOverview({
         </GlassPanel>
 
         <GlassPanel className="resource-panel pipeline-job-evidence">
-          <PanelHeader eyebrow="PROVENANCE" title="현재 작업 기록" />
+          <PanelHeader eyebrow="추적 정보" title="현재 작업 기록" />
           <div className="resource-grid">
             <div>
               <span>현재 단계</span>
@@ -414,7 +433,7 @@ function SavedAnalysisJobs({
   return (
     <GlassPanel className="analysis-records-panel">
       <PanelHeader
-        eyebrow="PERSISTED ANALYSIS"
+        eyebrow="저장된 분석"
         title="저장된 영상 분석"
         action={
           <Badge tone={jobs.length ? "success" : "neutral"}>
@@ -509,6 +528,136 @@ function SavedAnalysisJobs({
 }
 
 export function AnalysisScreen({
+  onNavigate,
+}: {
+  onNavigate: (screen: ScreenId) => void;
+}) {
+  const projectCatalog = useProjectCatalog();
+  const pipeline = usePipelineUi();
+  const currentPipelineJob =
+    pipeline.projectId === projectCatalog.activeProjectId
+      ? pipeline.job
+      : null;
+  const activeProject = projectCatalog.projects.find(
+    ({ id }) => id === projectCatalog.activeProjectId,
+  );
+  const pipelineRecoveryError = activeProject
+    ? projectCatalog.error ??
+      (!window.trafficSuperVision?.pipeline
+        ? "자동 점검 작업 저장소에 연결할 수 없습니다."
+        : pipeline.projectId === activeProject.id
+          ? pipeline.error
+          : null)
+    : null;
+  const pipelineRecoveryPending = Boolean(
+    activeProject &&
+      !pipelineRecoveryError &&
+      (!pipeline.hydrated || pipeline.projectId !== activeProject.id),
+  );
+
+  if (pipelineRecoveryError) {
+    return (
+      <div className="screen screen--analysis">
+        <header className="screen-header">
+          <div>
+            <p className="eyebrow">자동 점검 작업 확인 오류</p>
+            <h1>자동 분석 진행</h1>
+            <p>
+              저장된 PipelineJob을 확인하지 못한 상태를 새 작업 없음으로
+              처리하지 않습니다.
+            </p>
+          </div>
+        </header>
+        <GlassPanel className="analysis-empty" role="alert">
+          <Activity size={40} />
+          <Badge tone="danger">작업 복구 오류 · 새 분석 시작 안 함</Badge>
+          <h2>현재 작업 상태를 다시 확인하세요</h2>
+          <p>{pipelineRecoveryError}</p>
+          <div className="header-actions">
+            <Button variant="primary" onClick={() => window.location.reload()}>
+              <RotateCcw size={17} />
+              상태 다시 확인
+            </Button>
+            <Button variant="ghost" onClick={() => onNavigate("home")}>
+              프로젝트 홈
+            </Button>
+          </div>
+        </GlassPanel>
+      </div>
+    );
+  }
+
+  if (pipelineRecoveryPending) {
+    return (
+      <div className="screen screen--analysis">
+        <header className="screen-header">
+          <div>
+            <p className="eyebrow">자동 점검 작업 복구</p>
+            <h1>자동 분석 진행</h1>
+            <p>
+              마지막 저장 단계와 provenance를 확인하기 전에는 새 영상 입력을
+              안내하지 않습니다.
+            </p>
+          </div>
+        </header>
+        <GlassPanel
+          className="analysis-empty"
+          role="status"
+          aria-live="polite"
+        >
+          <Activity size={40} />
+          <Badge tone="neutral">저장된 작업 확인 중</Badge>
+          <h2>기존 PipelineJob을 복구하고 있습니다</h2>
+          <p>확인이 끝나면 현재 단계와 이어갈 동작을 자동으로 표시합니다.</p>
+        </GlassPanel>
+      </div>
+    );
+  }
+
+  if (currentPipelineJob) {
+    return (
+      <PipelineAnalysisOverview
+        job={currentPipelineJob}
+        onNavigate={onNavigate}
+      />
+    );
+  }
+
+  return (
+    <div className="screen screen--analysis">
+      <header className="screen-header">
+        <div>
+          <p className="eyebrow">자동 점검 작업 필요</p>
+          <h1>자동 분석 진행</h1>
+          <p>
+            분석 단계는 영상 입력에서 생성된 하나의 PipelineJob이 자동으로
+            실행합니다.
+          </p>
+        </div>
+      </header>
+      <GlassPanel className="analysis-empty">
+        <Activity size={40} />
+        <Badge tone="warning">연결된 자동 점검 작업 없음</Badge>
+        <h2>영상 가져오기에서 자동 점검을 시작하세요</h2>
+        <p>
+          이 화면에서는 후보 추출·밀집 프레임·검지 단계를 따로 시작하지
+          않습니다. 권리 확인과 분석 시작을 승인하면 질문 준비까지 같은
+          작업에서 이어집니다.
+        </p>
+        <Button variant="primary" onClick={() => onNavigate("import")}>
+          영상 가져오기로 이동
+        </Button>
+      </GlassPanel>
+    </div>
+  );
+}
+
+/**
+ * @internal Legacy bridge diagnostics retained outside the routed product UI.
+ * App.tsx imports only AnalysisScreen, so operators can never reach these
+ * manual controls from the nine-workflow application.
+ */
+export function LegacyAnalysisDiagnosticsScreen({
   onNavigate,
 }: {
   onNavigate: (screen: ScreenId) => void;

@@ -25,6 +25,23 @@ export type WeakCaseReference = {
   cellRow: number | null;
   cellColumn: number | null;
   pictureIndex: number;
+  sampleLayoutBindingSchema:
+    | "trafficvisson.hwpx-sample-layout.v2"
+    | null;
+  sampleLayoutBindingRevision: 2 | null;
+  semanticProjectionRevision:
+    | "audited-photo-caption-evidence-group-v2"
+    | null;
+  sampleEvidenceGroupId: string | null;
+  groupPhotoIndex: number | null;
+  groupPhotoCount: number | null;
+  photoSlotId: string | null;
+  sampleLayoutBindingSha256: string | null;
+  semanticAttestationSha256: string | null;
+  duplicateImageOccurrenceCount: number;
+  duplicateImageReviewRequired: boolean;
+  duplicateImageRegistryComplete: boolean;
+  duplicateImageCaseRefs: string[];
   caption: string | null;
   route: string | null;
   location: string | null;
@@ -62,17 +79,288 @@ export type WeakCaseSearchResult = {
   trainingEligibleCount: number;
 };
 
+export type WeakCaseApprovalRequest = {
+  projectId: string;
+  sourceId: string;
+  caseId: string;
+  expectedDocumentSha256: string;
+  expectedIndexManifestSha256: string;
+  expectedImageSha256: string;
+  issueType: Exclude<AnalysisVisionIssueType, "other">;
+  maintenanceAction: string;
+  caption?: string;
+  route?: string;
+  location?: string;
+  evaluation?: string;
+  opinion?: string;
+  expectedRevision?: number;
+  duplicateImageReviewConfirmed?: boolean;
+  userConfirmed: true;
+};
+
+export type WeakCaseStandardizationRequest = {
+  projectId: string;
+  sourceId: string;
+  caseId: string;
+  provider: "codex" | "claude";
+  expectedDocumentSha256: string;
+  expectedIndexManifestSha256: string;
+  expectedImageSha256: string;
+  expectedRevision?: number;
+  metadataTransmissionConfirmed: true;
+};
+
+export type WeakCaseStandardizationPhotoProvenance = {
+  sourceId: string;
+  caseId: string;
+  photoSlotId: string;
+  pictureTargetId: string;
+  groupPhotoIndex: number;
+  groupPhotoCount: number;
+  imageSha256: string;
+  sampleLayoutBindingSha256: string;
+  semanticAttestationSha256: string;
+  duplicateImageOccurrenceCount: number;
+  duplicateImageReviewRequired: boolean;
+  duplicateImageCaseRefs: string[];
+};
+
+export type WeakCaseStandardizationProposal = {
+  proposalId: string;
+  projectId: string;
+  revision: number;
+  provider: "codex" | "claude";
+  providerModel: string | null;
+  providerUsage: Record<string, number> | null;
+  sourceSnapshot: {
+    quarter: 3 | 4;
+    caption: string | null;
+    opinion: string | null;
+    route: string | null;
+    documentSha256: string;
+    indexManifestSha256: string;
+  };
+  sampleEvidenceGroupId: string;
+  caseRefs: string[];
+  photoProvenance: WeakCaseStandardizationPhotoProvenance[];
+  suggestion: {
+    issueType: Exclude<AnalysisVisionIssueType, "other">;
+    maintenanceAction: string;
+  };
+  sourceSnapshotSha256: string;
+  photoProvenanceSha256: string;
+  proposalSha256: string;
+  inputSha256: string;
+  recordSha256: string;
+  createdAt: string;
+  updatedAt: string;
+  idempotentReplay: boolean;
+  annotationCount: 0;
+  incidentCount: 0;
+  reportFactCount: 0;
+};
+
+export type WeakCaseStandardizationProposalList = {
+  proposals: WeakCaseStandardizationProposal[];
+  proposalCount: number;
+  evidenceEventCount: number;
+  approvedReferenceCount: 0;
+  trainingEligibleCount: 0;
+  annotationCount: 0;
+  incidentCount: 0;
+  reportFactCount: 0;
+};
+
+export type WeakCaseStandardizationProviderStatus = {
+  provider: "codex" | "claude";
+  displayName: string;
+  availability:
+    | "ready"
+    | "not_installed"
+    | "not_logged_in"
+    | "expired"
+    | "network_unavailable"
+    | "unavailable";
+  diagnosticState:
+    | "not_installed"
+    | "installed"
+    | "not_connected"
+    | "ready"
+    | "expired"
+    | "network_unavailable"
+    | "error"
+    | "coming_soon";
+  installationState: "installed" | "not_installed" | "disabled";
+  authenticationState:
+    | "ready"
+    | "signed_out"
+    | "expired"
+    | "unknown"
+    | "not_applicable";
+  networkState: "not_checked" | "offline" | "unknown" | "not_applicable";
+  version: string | null;
+  message: string;
+  structuredJudgment: boolean;
+};
+
 const SHA_PATTERN = /^[a-f0-9]{64}$/;
 const SOURCE_ID_PATTERN = /^sample-hwpx-[34]q-[a-f0-9]{16}$/;
 const CASE_ID_PATTERN = /^hwpx-weak-case-[a-f0-9]{32}$/;
 const CELL_TARGET_ID_PATTERN = /^hwpx-cell-[a-f0-9]{24}$/;
 const PICTURE_TARGET_ID_PATTERN = /^hwpx-picture-[a-f0-9]{24}$/;
 const APPROVAL_ID_PATTERN = /^approved-reference-[a-f0-9]{24}$/;
+const STANDARDIZATION_PROPOSAL_ID_PATTERN =
+  /^weak-case-standardization-[a-f0-9]{24}$/;
+const PHOTO_SLOT_ID_PATTERN = /^sample-photo-slot-[a-f0-9]{24}$/;
+const EVIDENCE_GROUP_ID_PATTERN =
+  /^sample-evidence-group-[a-f0-9]{24}$/;
+const DUPLICATE_CASE_REF_PATTERN =
+  /^sample-hwpx-[34]q-[a-f0-9]{16}\/hwpx-weak-case-[a-f0-9]{32}$/;
 const SECTION_PATH_PATTERN = /^Contents\/section[0-9]{1,5}\.xml$/;
 const ISSUE_TYPES = new Set<string>([
   ...CANONICAL_ISSUE_TYPES.map(({ apiValue }) => apiValue),
   "other",
 ]);
+const STANDARDIZATION_ISSUE_TYPES = new Set<string>(
+  CANONICAL_ISSUE_TYPES.map(({ apiValue }) => apiValue),
+);
+
+export function buildWeakCaseApprovalRequest({
+  projectId,
+  reference,
+  issueType,
+  maintenanceAction,
+  duplicateImageReviewConfirmed = false,
+}: {
+  projectId: string;
+  reference: WeakCaseReference;
+  issueType: Exclude<AnalysisVisionIssueType, "other">;
+  maintenanceAction: string;
+  duplicateImageReviewConfirmed?: boolean;
+}): WeakCaseApprovalRequest {
+  if (
+    reference.approvedReference ||
+    !reference.reviewRequired ||
+    reference.trainingEligible
+  ) {
+    throw new Error("이미 승인된 3·4분기 사례입니다.");
+  }
+  if (
+    reference.duplicateImageReviewRequired &&
+    !duplicateImageReviewConfirmed
+  ) {
+    throw new Error(
+      "다른 노선·쪽에 재사용된 동일 사진임을 확인해야 승인할 수 있습니다.",
+    );
+  }
+  if (
+    !reference.imageAvailable ||
+    !reference.imageSha256 ||
+    !SHA_PATTERN.test(reference.imageSha256)
+  ) {
+    throw new Error(
+      "사진 SHA-256을 검증할 수 없어 이 사례를 승인할 수 없습니다.",
+    );
+  }
+  if (
+    !CANONICAL_ISSUE_TYPES.some(
+      ({ apiValue }) => apiValue === issueType,
+    )
+  ) {
+    throw new Error("승인할 표준 도로 문제 유형이 필요합니다.");
+  }
+  const action = maintenanceAction.trim();
+  if (!action || action.length > 500 || action.includes("\0")) {
+    throw new Error("승인할 유지보수 조치를 확인해 주세요.");
+  }
+  const optional = (value: string | null) =>
+    value?.trim() ? value.trim() : undefined;
+  return {
+    projectId,
+    sourceId: reference.sourceId,
+    caseId: reference.caseId,
+    expectedDocumentSha256: reference.documentSha256,
+    expectedIndexManifestSha256: reference.indexManifestSha256,
+    expectedImageSha256: reference.imageSha256,
+    issueType,
+    maintenanceAction: action,
+    ...(optional(reference.caption)
+      ? { caption: optional(reference.caption) }
+      : {}),
+    ...(optional(reference.route) ? { route: optional(reference.route) } : {}),
+    ...(optional(reference.location)
+      ? { location: optional(reference.location) }
+      : {}),
+    ...(optional(reference.evaluation)
+      ? { evaluation: optional(reference.evaluation) }
+      : {}),
+    ...(optional(reference.opinion)
+      ? { opinion: optional(reference.opinion) }
+      : {}),
+    duplicateImageReviewConfirmed,
+    userConfirmed: true,
+  };
+}
+
+export function buildWeakCaseStandardizationRequest({
+  projectId,
+  reference,
+  provider,
+  metadataTransmissionConfirmed,
+  expectedRevision,
+}: {
+  projectId: string;
+  reference: WeakCaseReference;
+  provider: "codex" | "claude";
+  metadataTransmissionConfirmed: true;
+  expectedRevision?: number;
+}): WeakCaseStandardizationRequest {
+  if (
+    reference.referenceState !== "weak_unconfirmed" ||
+    reference.approvedReference ||
+    !reference.reviewRequired ||
+    reference.trainingEligible
+  ) {
+    throw new Error(
+      "승인 전 3·4분기 약한 사례만 표준화 제안을 받을 수 있습니다.",
+    );
+  }
+  if (
+    !reference.imageSha256 ||
+    !SHA_PATTERN.test(reference.imageSha256) ||
+    !SHA_PATTERN.test(reference.documentSha256) ||
+    !SHA_PATTERN.test(reference.indexManifestSha256) ||
+    !reference.sampleEvidenceGroupId ||
+    !EVIDENCE_GROUP_ID_PATTERN.test(reference.sampleEvidenceGroupId)
+  ) {
+    throw new Error(
+      "표준화 제안에 필요한 문서·사진·사건 provenance가 없습니다.",
+    );
+  }
+  if (metadataTransmissionConfirmed !== true) {
+    throw new Error(
+      "원문과 구조 메타데이터의 Provider 전송 범위를 확인해 주세요.",
+    );
+  }
+  if (
+    expectedRevision !== undefined &&
+    (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1)
+  ) {
+    throw new Error("표준화 제안 revision이 올바르지 않습니다.");
+  }
+  return {
+    projectId,
+    sourceId: reference.sourceId,
+    caseId: reference.caseId,
+    provider,
+    expectedDocumentSha256: reference.documentSha256,
+    expectedIndexManifestSha256: reference.indexManifestSha256,
+    expectedImageSha256: reference.imageSha256,
+    ...(expectedRevision === undefined ? {} : { expectedRevision }),
+    metadataTransmissionConfirmed: true,
+  };
+}
+
 const KNOWN_SOURCES = Object.freeze({
   "sample-hwpx-3q-24ffb4bc62cd86a6": Object.freeze({
     documentName: "3분기 점검 내용 정리.hwpx",
@@ -152,7 +440,13 @@ const CASE_KEYS = [
   "cell_target_id",
   "document_name",
   "document_sha256",
+  "duplicate_image_case_refs",
+  "duplicate_image_occurrence_count",
+  "duplicate_image_registry_complete",
+  "duplicate_image_review_required",
   "evaluation",
+  "group_photo_count",
+  "group_photo_index",
   "image_available",
   "image_height",
   "image_media_type",
@@ -165,6 +459,7 @@ const CASE_KEYS = [
   "opinion",
   "page_hint",
   "page_hint_source",
+  "photo_slot_id",
   "picture_index",
   "picture_target_id",
   "quarter",
@@ -172,13 +467,118 @@ const CASE_KEYS = [
   "reference_state",
   "review_required",
   "route",
+  "sample_evidence_group_id",
+  "sample_layout_binding_revision",
+  "sample_layout_binding_schema",
+  "sample_layout_binding_sha256",
   "section_index",
   "section_path",
+  "semantic_attestation_sha256",
+  "semantic_projection_revision",
   "similarity_score",
   "source_id",
   "structure_target_summary_sha256",
   "table_index",
   "training_eligible",
+];
+const STANDARDIZATION_PROPOSAL_KEYS = [
+  "annotation_count",
+  "approved_reference",
+  "case_refs",
+  "created_at",
+  "evidence_transport_policy",
+  "idempotent_replay",
+  "incident_count",
+  "input_sha256",
+  "photo_provenance",
+  "photo_provenance_sha256",
+  "project_id",
+  "proposal",
+  "proposal_id",
+  "proposal_sha256",
+  "provider",
+  "provider_model",
+  "provider_usage",
+  "record_sha256",
+  "reference_state",
+  "report_fact_count",
+  "review_required",
+  "revision",
+  "sample_evidence_group_id",
+  "schema_version",
+  "source_snapshot",
+  "source_snapshot_sha256",
+  "status",
+  "training_eligible",
+  "updated_at",
+  "user_confirmed",
+];
+const STANDARDIZATION_SOURCE_SNAPSHOT_KEYS = [
+  "caption",
+  "document_sha256",
+  "index_manifest_sha256",
+  "opinion",
+  "quarter",
+  "route",
+];
+const STANDARDIZATION_PHOTO_KEYS = [
+  "case_id",
+  "duplicate_image_case_refs",
+  "duplicate_image_occurrence_count",
+  "duplicate_image_review_required",
+  "group_photo_count",
+  "group_photo_index",
+  "image_sha256",
+  "photo_slot_id",
+  "picture_target_id",
+  "sample_layout_binding_sha256",
+  "semantic_attestation_sha256",
+  "source_id",
+];
+const STANDARDIZATION_TRANSPORT_KEYS = [
+  "document_bytes_sent",
+  "image_attachments_allowed",
+  "image_pixels_sent",
+  "local_paths_sent",
+  "mode",
+  "raw_video_sent",
+];
+const STANDARDIZATION_SUGGESTION_KEYS = [
+  "issue_type",
+  "maintenance_action",
+];
+const STANDARDIZATION_PROPOSAL_LIST_KEYS = [
+  "annotation_count",
+  "approved_reference_count",
+  "evidence_event_count",
+  "incident_count",
+  "project_id",
+  "proposal_count",
+  "records",
+  "report_fact_count",
+  "schema_version",
+  "training_eligible_count",
+];
+const PROVIDER_LIST_KEYS = ["providers"];
+const PROVIDER_ROW_KEYS = [
+  "authentication_owner",
+  "authentication_state",
+  "capabilities",
+  "diagnostic_state",
+  "display_name",
+  "installation_state",
+  "message",
+  "network_state",
+  "provider",
+  "state",
+  "version",
+];
+const PROVIDER_CAPABILITY_KEYS = [
+  "bulk_frame_detection",
+  "document_edit_plan",
+  "report_draft",
+  "structured_judgment",
+  "usage_information",
 ];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -219,6 +619,493 @@ function boundedInteger(
     Number(value) >= minimum &&
     Number(value) <= maximum
   );
+}
+
+function validTimestamp(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length >= 1 &&
+    value.length <= 64 &&
+    Number.isFinite(Date.parse(value))
+  );
+}
+
+function parseStandardizationPhoto(
+  value: unknown,
+): WeakCaseStandardizationPhotoProvenance | null {
+  if (!isRecord(value) || !hasExactKeys(value, STANDARDIZATION_PHOTO_KEYS)) {
+    return null;
+  }
+  const duplicateRefs = value.duplicate_image_case_refs;
+  if (
+    typeof value.source_id !== "string" ||
+    !SOURCE_ID_PATTERN.test(value.source_id) ||
+    typeof value.case_id !== "string" ||
+    !CASE_ID_PATTERN.test(value.case_id) ||
+    typeof value.photo_slot_id !== "string" ||
+    !PHOTO_SLOT_ID_PATTERN.test(value.photo_slot_id) ||
+    typeof value.picture_target_id !== "string" ||
+    !PICTURE_TARGET_ID_PATTERN.test(value.picture_target_id) ||
+    !boundedInteger(value.group_photo_index, 1, 10_000) ||
+    !boundedInteger(value.group_photo_count, 1, 10_000) ||
+    Number(value.group_photo_index) > Number(value.group_photo_count) ||
+    typeof value.image_sha256 !== "string" ||
+    !SHA_PATTERN.test(value.image_sha256) ||
+    typeof value.sample_layout_binding_sha256 !== "string" ||
+    !SHA_PATTERN.test(value.sample_layout_binding_sha256) ||
+    typeof value.semantic_attestation_sha256 !== "string" ||
+    !SHA_PATTERN.test(value.semantic_attestation_sha256) ||
+    !boundedInteger(value.duplicate_image_occurrence_count, 1, 10_000) ||
+    typeof value.duplicate_image_review_required !== "boolean" ||
+    !Array.isArray(duplicateRefs) ||
+    duplicateRefs.length < 1 ||
+    duplicateRefs.length > 10_000 ||
+    duplicateRefs.some(
+      (caseRef) =>
+        typeof caseRef !== "string" ||
+        !DUPLICATE_CASE_REF_PATTERN.test(caseRef),
+    )
+  ) {
+    return null;
+  }
+  const normalizedDuplicateRefs = duplicateRefs as string[];
+  if (
+    normalizedDuplicateRefs.length !==
+      Number(value.duplicate_image_occurrence_count) ||
+    normalizedDuplicateRefs.join("\0") !==
+      [...new Set(normalizedDuplicateRefs)].sort().join("\0") ||
+    !normalizedDuplicateRefs.includes(`${value.source_id}/${value.case_id}`) ||
+    value.duplicate_image_review_required !==
+      (normalizedDuplicateRefs.length > 1)
+  ) {
+    return null;
+  }
+  return {
+    sourceId: value.source_id,
+    caseId: value.case_id,
+    photoSlotId: value.photo_slot_id,
+    pictureTargetId: value.picture_target_id,
+    groupPhotoIndex: Number(value.group_photo_index),
+    groupPhotoCount: Number(value.group_photo_count),
+    imageSha256: value.image_sha256,
+    sampleLayoutBindingSha256: value.sample_layout_binding_sha256,
+    semanticAttestationSha256: value.semantic_attestation_sha256,
+    duplicateImageOccurrenceCount: Number(
+      value.duplicate_image_occurrence_count,
+    ),
+    duplicateImageReviewRequired:
+      value.duplicate_image_review_required,
+    duplicateImageCaseRefs: normalizedDuplicateRefs,
+  };
+}
+
+function parseProviderUsage(value: unknown): Record<string, number> | null {
+  if (value === null) return null;
+  if (!isRecord(value) || Object.keys(value).length > 16) return null;
+  const entries = Object.entries(value);
+  if (
+    entries.some(
+      ([key, count]) =>
+        !/^[a-z][a-z0-9_]{0,63}$/.test(key) ||
+        !boundedInteger(count, 0, 1_000_000_000),
+    )
+  ) {
+    return null;
+  }
+  return Object.fromEntries(
+    entries.map(([key, count]) => [key, Number(count)]),
+  );
+}
+
+function parseStandardizationProposal(
+  value: unknown,
+  expectedProjectId: string,
+): WeakCaseStandardizationProposal | null {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, STANDARDIZATION_PROPOSAL_KEYS) ||
+    value.schema_version !==
+      "trafficvisson.weak-case-standardization-proposal.v1" ||
+    typeof value.proposal_id !== "string" ||
+    !STANDARDIZATION_PROPOSAL_ID_PATTERN.test(value.proposal_id) ||
+    value.project_id !== expectedProjectId ||
+    !boundedInteger(value.revision, 1, 1_000_000_000) ||
+    value.status !== "proposed" ||
+    value.reference_state !== "weak_unconfirmed" ||
+    value.review_required !== true ||
+    value.approved_reference !== false ||
+    value.training_eligible !== false ||
+    value.annotation_count !== 0 ||
+    value.incident_count !== 0 ||
+    value.report_fact_count !== 0 ||
+    value.user_confirmed !== false ||
+    (value.provider !== "codex" && value.provider !== "claude") ||
+    !(
+      value.provider_model === null ||
+      (typeof value.provider_model === "string" &&
+        /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/.test(value.provider_model))
+    ) ||
+    !isRecord(value.evidence_transport_policy) ||
+    !hasExactKeys(
+      value.evidence_transport_policy,
+      STANDARDIZATION_TRANSPORT_KEYS,
+    ) ||
+    value.evidence_transport_policy.mode !==
+      "text_and_structure_metadata_only" ||
+    value.evidence_transport_policy.image_pixels_sent !== false ||
+    value.evidence_transport_policy.image_attachments_allowed !== false ||
+    value.evidence_transport_policy.local_paths_sent !== false ||
+    value.evidence_transport_policy.raw_video_sent !== false ||
+    value.evidence_transport_policy.document_bytes_sent !== false ||
+    !isRecord(value.source_snapshot) ||
+    !hasExactKeys(
+      value.source_snapshot,
+      STANDARDIZATION_SOURCE_SNAPSHOT_KEYS,
+    ) ||
+    (value.source_snapshot.quarter !== 3 &&
+      value.source_snapshot.quarter !== 4) ||
+    !boundedString(value.source_snapshot.caption, 320, { nullable: true }) ||
+    !boundedString(value.source_snapshot.opinion, 320, { nullable: true }) ||
+    !boundedString(value.source_snapshot.route, 320, { nullable: true }) ||
+    typeof value.source_snapshot.document_sha256 !== "string" ||
+    !SHA_PATTERN.test(value.source_snapshot.document_sha256) ||
+    typeof value.source_snapshot.index_manifest_sha256 !== "string" ||
+    !SHA_PATTERN.test(value.source_snapshot.index_manifest_sha256) ||
+    typeof value.source_snapshot_sha256 !== "string" ||
+    !SHA_PATTERN.test(value.source_snapshot_sha256) ||
+    typeof value.sample_evidence_group_id !== "string" ||
+    !EVIDENCE_GROUP_ID_PATTERN.test(value.sample_evidence_group_id) ||
+    !Array.isArray(value.case_refs) ||
+    value.case_refs.length < 1 ||
+    value.case_refs.length > 10_000 ||
+    value.case_refs.some(
+      (caseRef) =>
+        typeof caseRef !== "string" ||
+        !DUPLICATE_CASE_REF_PATTERN.test(caseRef),
+    ) ||
+    !Array.isArray(value.photo_provenance) ||
+    value.photo_provenance.length !== value.case_refs.length ||
+    typeof value.photo_provenance_sha256 !== "string" ||
+    !SHA_PATTERN.test(value.photo_provenance_sha256) ||
+    !isRecord(value.proposal) ||
+    !hasExactKeys(value.proposal, STANDARDIZATION_SUGGESTION_KEYS) ||
+    typeof value.proposal.issue_type !== "string" ||
+    !STANDARDIZATION_ISSUE_TYPES.has(value.proposal.issue_type) ||
+    !boundedString(value.proposal.maintenance_action, 500) ||
+    typeof value.proposal_sha256 !== "string" ||
+    !SHA_PATTERN.test(value.proposal_sha256) ||
+    typeof value.input_sha256 !== "string" ||
+    !SHA_PATTERN.test(value.input_sha256) ||
+    !validTimestamp(value.created_at) ||
+    !validTimestamp(value.updated_at) ||
+    Date.parse(value.created_at) > Date.parse(value.updated_at) ||
+    typeof value.record_sha256 !== "string" ||
+    !SHA_PATTERN.test(value.record_sha256) ||
+    typeof value.idempotent_replay !== "boolean"
+  ) {
+    return null;
+  }
+  const providerUsage = parseProviderUsage(value.provider_usage);
+  if (value.provider_usage !== null && providerUsage === null) return null;
+  const photoProvenance = value.photo_provenance.map(
+    parseStandardizationPhoto,
+  );
+  if (photoProvenance.some((photo) => photo === null)) return null;
+  const photos =
+    photoProvenance as WeakCaseStandardizationPhotoProvenance[];
+  const caseRefs = value.case_refs as string[];
+  if (
+    caseRefs.join("\0") !==
+      photos
+        .map(({ sourceId, caseId }) => `${sourceId}/${caseId}`)
+        .join("\0") ||
+    caseRefs.length !== new Set(caseRefs).size ||
+    photos.some(
+      (photo, index) =>
+        photo.groupPhotoIndex !== index + 1 ||
+        photo.groupPhotoCount !== photos.length,
+    )
+  ) {
+    return null;
+  }
+  return {
+    proposalId: value.proposal_id,
+    projectId: expectedProjectId,
+    revision: Number(value.revision),
+    provider: value.provider,
+    providerModel: value.provider_model as string | null,
+    providerUsage,
+    sourceSnapshot: {
+      quarter: value.source_snapshot.quarter,
+      caption: value.source_snapshot.caption as string | null,
+      opinion: value.source_snapshot.opinion as string | null,
+      route: value.source_snapshot.route as string | null,
+      documentSha256: value.source_snapshot.document_sha256,
+      indexManifestSha256:
+        value.source_snapshot.index_manifest_sha256,
+    },
+    sampleEvidenceGroupId: value.sample_evidence_group_id,
+    caseRefs,
+    photoProvenance: photos,
+    suggestion: {
+      issueType: value.proposal
+        .issue_type as Exclude<AnalysisVisionIssueType, "other">,
+      maintenanceAction: value.proposal.maintenance_action as string,
+    },
+    sourceSnapshotSha256: value.source_snapshot_sha256,
+    photoProvenanceSha256: value.photo_provenance_sha256,
+    proposalSha256: value.proposal_sha256,
+    inputSha256: value.input_sha256,
+    recordSha256: value.record_sha256,
+    createdAt: value.created_at,
+    updatedAt: value.updated_at,
+    idempotentReplay: value.idempotent_replay,
+    annotationCount: 0,
+    incidentCount: 0,
+    reportFactCount: 0,
+  };
+}
+
+function proposalMatchesReference(
+  proposal: WeakCaseStandardizationProposal,
+  reference: WeakCaseReference,
+) {
+  const expectedRef = `${reference.sourceId}/${reference.caseId}`;
+  const photo = proposal.photoProvenance.find(
+    ({ sourceId, caseId }) =>
+      sourceId === reference.sourceId && caseId === reference.caseId,
+  );
+  return Boolean(
+    reference.referenceState === "weak_unconfirmed" &&
+      !reference.approvedReference &&
+      reference.reviewRequired &&
+      !reference.trainingEligible &&
+      reference.sampleEvidenceGroupId &&
+      reference.photoSlotId &&
+      reference.sampleLayoutBindingSha256 &&
+      reference.semanticAttestationSha256 &&
+      reference.groupPhotoIndex &&
+      reference.groupPhotoCount &&
+      reference.imageSha256 &&
+      proposal.sampleEvidenceGroupId === reference.sampleEvidenceGroupId &&
+      proposal.caseRefs.includes(expectedRef) &&
+      proposal.sourceSnapshot.quarter === reference.quarter &&
+      proposal.sourceSnapshot.caption === reference.caption &&
+      proposal.sourceSnapshot.opinion === reference.opinion &&
+      proposal.sourceSnapshot.route === reference.route &&
+      proposal.sourceSnapshot.documentSha256 === reference.documentSha256 &&
+      proposal.sourceSnapshot.indexManifestSha256 ===
+        reference.indexManifestSha256 &&
+      photo &&
+      photo.photoSlotId === reference.photoSlotId &&
+      photo.pictureTargetId === reference.pictureTargetId &&
+      photo.groupPhotoIndex === reference.groupPhotoIndex &&
+      photo.groupPhotoCount === reference.groupPhotoCount &&
+      photo.imageSha256 === reference.imageSha256 &&
+      photo.sampleLayoutBindingSha256 ===
+        reference.sampleLayoutBindingSha256 &&
+      photo.semanticAttestationSha256 ===
+        reference.semanticAttestationSha256 &&
+      photo.duplicateImageOccurrenceCount ===
+        reference.duplicateImageOccurrenceCount &&
+      photo.duplicateImageReviewRequired ===
+        reference.duplicateImageReviewRequired &&
+      photo.duplicateImageCaseRefs.join("\0") ===
+        reference.duplicateImageCaseRefs.join("\0"),
+  );
+}
+
+export function parseWeakCaseStandardizationProposalResponse(
+  value: unknown,
+  expected: {
+    projectId: string;
+    reference: WeakCaseReference;
+  },
+): WeakCaseStandardizationProposal {
+  const proposal = parseStandardizationProposal(value, expected.projectId);
+  if (!proposal || !proposalMatchesReference(proposal, expected.reference)) {
+    throw new Error(
+      "3·4분기 표준화 제안의 문서·사진 provenance를 검증하지 못했습니다.",
+    );
+  }
+  return proposal;
+}
+
+export function parseWeakCaseStandardizationProposalList(
+  value: unknown,
+  expected: { projectId: string },
+): WeakCaseStandardizationProposalList {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, STANDARDIZATION_PROPOSAL_LIST_KEYS) ||
+    value.schema_version !==
+      "trafficvisson.weak-case-standardization-proposal-list.v1" ||
+    value.project_id !== expected.projectId ||
+    !boundedInteger(value.proposal_count, 0, 10_000) ||
+    !boundedInteger(value.evidence_event_count, 0, 10_000) ||
+    value.approved_reference_count !== 0 ||
+    value.training_eligible_count !== 0 ||
+    value.annotation_count !== 0 ||
+    value.incident_count !== 0 ||
+    value.report_fact_count !== 0 ||
+    !Array.isArray(value.records) ||
+    value.records.length !== value.proposal_count
+  ) {
+    throw new Error("3·4분기 표준화 제안 목록을 검증하지 못했습니다.");
+  }
+  const proposals = value.records.map((record) =>
+    parseStandardizationProposal(record, expected.projectId),
+  );
+  if (
+    proposals.some((proposal) => proposal === null) ||
+    new Set(proposals.map((proposal) => proposal?.proposalId)).size !==
+      proposals.length ||
+    new Set(
+      proposals.map((proposal) => proposal?.sampleEvidenceGroupId),
+    ).size !== value.evidence_event_count
+  ) {
+    throw new Error(
+      "3·4분기 표준화 제안 목록의 provenance가 일치하지 않습니다.",
+    );
+  }
+  return {
+    proposals: proposals as WeakCaseStandardizationProposal[],
+    proposalCount: Number(value.proposal_count),
+    evidenceEventCount: Number(value.evidence_event_count),
+    approvedReferenceCount: 0,
+    trainingEligibleCount: 0,
+    annotationCount: 0,
+    incidentCount: 0,
+    reportFactCount: 0,
+  };
+}
+
+export function findWeakCaseStandardizationProposal(
+  proposals: readonly WeakCaseStandardizationProposal[],
+  reference: WeakCaseReference,
+) {
+  return (
+    proposals.find((proposal) =>
+      proposalMatchesReference(proposal, reference),
+    ) ?? null
+  );
+}
+
+export function parseWeakCaseStandardizationProviderList(
+  value: unknown,
+): WeakCaseStandardizationProviderStatus[] {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, PROVIDER_LIST_KEYS) ||
+    !Array.isArray(value.providers) ||
+    value.providers.length < 2 ||
+    value.providers.length > 3
+  ) {
+    throw new Error("표준화 Provider 상태 응답을 검증하지 못했습니다.");
+  }
+  const providers: WeakCaseStandardizationProviderStatus[] = [];
+  const seen = new Set<string>();
+  for (const raw of value.providers) {
+    if (
+      !isRecord(raw) ||
+      !hasExactKeys(raw, PROVIDER_ROW_KEYS) ||
+      !isRecord(raw.capabilities) ||
+      !hasExactKeys(raw.capabilities, PROVIDER_CAPABILITY_KEYS) ||
+      (raw.provider !== "codex" &&
+        raw.provider !== "claude" &&
+        raw.provider !== "local") ||
+      seen.has(raw.provider) ||
+      !boundedString(raw.display_name, 120) ||
+      (raw.state !== "not_connected" &&
+        raw.state !== "ready" &&
+        raw.state !== "unavailable" &&
+        raw.state !== "coming_soon") ||
+      (raw.authentication_owner !== "official_cli" &&
+        raw.authentication_owner !== "not_applicable") ||
+      typeof raw.capabilities.structured_judgment !== "boolean" ||
+      raw.capabilities.bulk_frame_detection !== false ||
+      typeof raw.capabilities.report_draft !== "boolean" ||
+      typeof raw.capabilities.document_edit_plan !== "boolean" ||
+      typeof raw.capabilities.usage_information !== "boolean" ||
+      !boundedString(raw.message, 1_000) ||
+      ![
+        "not_installed",
+        "installed",
+        "not_connected",
+        "ready",
+        "expired",
+        "network_unavailable",
+        "error",
+        "coming_soon",
+      ].includes(String(raw.diagnostic_state)) ||
+      !["installed", "not_installed", "disabled"].includes(
+        String(raw.installation_state),
+      ) ||
+      !["ready", "signed_out", "expired", "unknown", "not_applicable"].includes(
+        String(raw.authentication_state),
+      ) ||
+      !["not_checked", "offline", "unknown", "not_applicable"].includes(
+        String(raw.network_state),
+      ) ||
+      !(
+        raw.version === null ||
+        (typeof raw.version === "string" &&
+          /^[vV]?[0-9][0-9A-Za-z.+-]{0,63}$/.test(raw.version))
+      ) ||
+      (raw.provider === "local"
+        ? raw.authentication_owner !== "not_applicable"
+        : raw.authentication_owner !== "official_cli")
+    ) {
+      throw new Error(
+        "표준화 Provider 상태 응답을 검증하지 못했습니다.",
+      );
+    }
+    seen.add(raw.provider);
+    if (raw.provider === "local") continue;
+    const availability =
+      raw.installation_state === "not_installed" ||
+      raw.diagnostic_state === "not_installed"
+        ? "not_installed"
+        : raw.authentication_state === "expired" ||
+            raw.diagnostic_state === "expired"
+          ? "expired"
+          : raw.authentication_state === "signed_out" ||
+              raw.diagnostic_state === "not_connected"
+            ? "not_logged_in"
+            : raw.network_state === "offline" ||
+                raw.diagnostic_state === "network_unavailable"
+              ? "network_unavailable"
+              : raw.state === "ready" &&
+                  raw.installation_state === "installed" &&
+                  raw.authentication_state === "ready" &&
+                  raw.capabilities.structured_judgment === true
+                ? "ready"
+                : "unavailable";
+    providers.push({
+      provider: raw.provider,
+      displayName: raw.display_name as string,
+      availability,
+      diagnosticState:
+        raw.diagnostic_state as WeakCaseStandardizationProviderStatus["diagnosticState"],
+      installationState:
+        raw.installation_state as WeakCaseStandardizationProviderStatus["installationState"],
+      authenticationState:
+        raw.authentication_state as WeakCaseStandardizationProviderStatus["authenticationState"],
+      networkState:
+        raw.network_state as WeakCaseStandardizationProviderStatus["networkState"],
+      version: raw.version as string | null,
+      message: raw.message as string,
+      structuredJudgment: raw.capabilities.structured_judgment,
+    });
+  }
+  if (
+    providers.length !== 2 ||
+    !providers.some(({ provider }) => provider === "codex") ||
+    !providers.some(({ provider }) => provider === "claude")
+  ) {
+    throw new Error("공식 표준화 Provider 상태가 불완전합니다.");
+  }
+  return providers;
 }
 
 function knownSource(value: unknown) {
@@ -328,6 +1215,63 @@ function parseCase(value: unknown): WeakCaseReference | null {
     !boundedInteger(value.cell_row, 0, 100_000, { nullable: true }) ||
     !boundedInteger(value.cell_column, 0, 100_000, { nullable: true }) ||
     !boundedInteger(value.picture_index, 0, 100_000) ||
+    !(
+      value.sample_layout_binding_schema === null ||
+      value.sample_layout_binding_schema ===
+        "trafficvisson.hwpx-sample-layout.v2"
+    ) ||
+    !(
+      value.sample_layout_binding_revision === null ||
+      value.sample_layout_binding_revision === 2
+    ) ||
+    !(
+      value.semantic_projection_revision === null ||
+      value.semantic_projection_revision ===
+        "audited-photo-caption-evidence-group-v2"
+    ) ||
+    !(
+      value.sample_evidence_group_id === null ||
+      (typeof value.sample_evidence_group_id === "string" &&
+        EVIDENCE_GROUP_ID_PATTERN.test(
+          value.sample_evidence_group_id,
+        ))
+    ) ||
+    !boundedInteger(value.group_photo_index, 1, 10_000, {
+      nullable: true,
+    }) ||
+    !boundedInteger(value.group_photo_count, 1, 10_000, {
+      nullable: true,
+    }) ||
+    !(
+      value.photo_slot_id === null ||
+      (typeof value.photo_slot_id === "string" &&
+        PHOTO_SLOT_ID_PATTERN.test(value.photo_slot_id))
+    ) ||
+    !(
+      value.sample_layout_binding_sha256 === null ||
+      (typeof value.sample_layout_binding_sha256 === "string" &&
+        SHA_PATTERN.test(value.sample_layout_binding_sha256))
+    ) ||
+    !(
+      value.semantic_attestation_sha256 === null ||
+      (typeof value.semantic_attestation_sha256 === "string" &&
+        SHA_PATTERN.test(value.semantic_attestation_sha256))
+    ) ||
+    !boundedInteger(
+      value.duplicate_image_occurrence_count,
+      1,
+      10_000,
+    ) ||
+    typeof value.duplicate_image_review_required !== "boolean" ||
+    typeof value.duplicate_image_registry_complete !== "boolean" ||
+    !Array.isArray(value.duplicate_image_case_refs) ||
+    value.duplicate_image_case_refs.length < 1 ||
+    value.duplicate_image_case_refs.length > 10_000 ||
+    value.duplicate_image_case_refs.some(
+      (caseRef) =>
+        typeof caseRef !== "string" ||
+        !DUPLICATE_CASE_REF_PATTERN.test(caseRef),
+    ) ||
     !boundedString(value.caption, 320, { nullable: true }) ||
     !boundedString(value.route, 320, { nullable: true }) ||
     !boundedString(value.location, 320, { nullable: true }) ||
@@ -355,6 +1299,38 @@ function parseCase(value: unknown): WeakCaseReference | null {
       value.image_media_type === null ||
       value.image_width === null ||
       value.image_height === null)
+  ) {
+    return null;
+  }
+  const layoutFields = [
+    value.sample_layout_binding_schema,
+    value.sample_layout_binding_revision,
+    value.semantic_projection_revision,
+    value.sample_evidence_group_id,
+    value.group_photo_index,
+    value.group_photo_count,
+    value.photo_slot_id,
+    value.sample_layout_binding_sha256,
+    value.semantic_attestation_sha256,
+  ];
+  const duplicateRefs = value.duplicate_image_case_refs as string[];
+  if (
+    (layoutFields.some((field) => field !== null) &&
+      layoutFields.some((field) => field === null)) ||
+    (value.group_photo_index !== null &&
+      value.group_photo_count !== null &&
+      Number(value.group_photo_index) >
+        Number(value.group_photo_count)) ||
+    Number(value.duplicate_image_occurrence_count) !==
+      duplicateRefs.length ||
+    duplicateRefs.join("\0") !==
+      [...new Set(duplicateRefs)].sort().join("\0") ||
+    !duplicateRefs.includes(
+      `${String(value.source_id)}/${String(value.case_id)}`,
+    ) ||
+    value.duplicate_image_review_required !==
+      (Number(value.duplicate_image_occurrence_count) > 1 ||
+        !value.duplicate_image_registry_complete)
   ) {
     return null;
   }
@@ -414,6 +1390,33 @@ function parseCase(value: unknown): WeakCaseReference | null {
     cellRow: value.cell_row as number | null,
     cellColumn: value.cell_column as number | null,
     pictureIndex: Number(value.picture_index),
+    sampleLayoutBindingSchema:
+      value.sample_layout_binding_schema as
+        | "trafficvisson.hwpx-sample-layout.v2"
+        | null,
+    sampleLayoutBindingRevision:
+      value.sample_layout_binding_revision as 2 | null,
+    semanticProjectionRevision:
+      value.semantic_projection_revision as
+        | "audited-photo-caption-evidence-group-v2"
+        | null,
+    sampleEvidenceGroupId:
+      value.sample_evidence_group_id as string | null,
+    groupPhotoIndex: value.group_photo_index as number | null,
+    groupPhotoCount: value.group_photo_count as number | null,
+    photoSlotId: value.photo_slot_id as string | null,
+    sampleLayoutBindingSha256:
+      value.sample_layout_binding_sha256 as string | null,
+    semanticAttestationSha256:
+      value.semantic_attestation_sha256 as string | null,
+    duplicateImageOccurrenceCount: Number(
+      value.duplicate_image_occurrence_count,
+    ),
+    duplicateImageReviewRequired:
+      value.duplicate_image_review_required,
+    duplicateImageRegistryComplete:
+      value.duplicate_image_registry_complete,
+    duplicateImageCaseRefs: duplicateRefs,
     caption: value.caption as string | null,
     route: value.route as string | null,
     location: value.location as string | null,
@@ -441,7 +1444,7 @@ export function parseWeakCaseSearchResponse(
   if (
     !isRecord(value) ||
     !hasExactKeys(value, RESPONSE_KEYS) ||
-    value.schema_version !== "trafficvisson.weak-case-search.v1" ||
+    value.schema_version !== "trafficvisson.weak-case-search.v2" ||
     value.search_mode !== "bounded_text_and_structure_metadata" ||
     value.semantic_image_embedding_used !== false ||
     (value.capability_state !== "approved_reference_available" &&

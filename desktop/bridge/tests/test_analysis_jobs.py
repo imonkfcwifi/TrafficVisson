@@ -377,6 +377,36 @@ def _complete_analysis_for_project(client, source, project_id):
     return terminal
 
 
+def _materialize_verified_survey_incident_for_export_test(client, job_id):
+    """Emulate the already-verified survey projection boundary.
+
+    Ordinary answer API calls are training Annotation-only. The evidence
+    integrity tests below intentionally exercise the later export boundary, so
+    they opt into the catalog's explicit Incident materialization seam after
+    review, matching the durable PipelineJob projection used by the promoted
+    model survey contract tests.
+    """
+
+    analysis_job_id = UUID(str(job_id))
+    audit = client.app.state.candidate_labels.audit_records(
+        DEMO_PROJECT_ID,
+        analysis_job_id=analysis_job_id,
+    )
+    assert audit
+    client.app.state.store.project_label_records(
+        DEMO_PROJECT_ID,
+        audit,
+        materialize_analysis_job_ids=[analysis_job_id],
+        incident_analysis_job_ids=[analysis_job_id],
+    )
+    incidents = client.app.state.store.list_incidents(
+        DEMO_PROJECT_ID,
+        analysis_job_id=analysis_job_id,
+    )
+    assert len(incidents) == 1
+    return incidents[0]
+
+
 def _electron_candidate_answer_payload(renderer_payload):
     node = shutil.which("node")
     if not node:
@@ -654,6 +684,12 @@ def test_tiny_video_analysis_returns_real_artifact_metadata_and_provenance(
         assert terminal["status"] == "completed", terminal
         assert terminal["progress_percent"] == 100
         result = terminal["result"]
+        live_result = client.app.state.analysis_jobs.get(
+            DEMO_PROJECT_ID,
+            UUID(started.json()["job_id"]),
+        )["result"]
+        assert isinstance(live_result["artifact_set_id"], str)
+        assert live_result["artifact_set_id"] == started.json()["job_id"]
         assert result["candidate_count"] >= 1
         assert result["artifact_count"] == result["candidate_count"] * 2
         assert result["total_artifact_bytes"] > 0
@@ -1160,30 +1196,20 @@ def test_candidate_label_api_isolated_validated_and_hash_chain_persistent(
             headers=_auth(),
             json={"user_confirmed": True},
         )
-        assert snapshot.status_code == 201, snapshot.text
-        snapshot_payload = snapshot.json()
-        assert snapshot_payload["source_answer_count"] == 1
-        assert snapshot_payload["training_member_count"] == 1
-        assert snapshot_payload["train_count"] == 1
-        assert snapshot_payload["validation_count"] == 0
-        assert snapshot_payload["excluded_count"] == 0
-        assert snapshot_payload["reused"] is False
-        repeated_snapshot = client.post(
-            f"/projects/{DEMO_PROJECT_ID}/datasets",
-            headers=_auth(),
-            json={"user_confirmed": True},
+        # A direct legacy AnalysisJob answer remains in the immutable audit
+        # chain, but it has not crossed the PipelineJob review-completion
+        # boundary.  It must not become a production Annotation or
+        # DatasetVersion merely because one candidate was answered.
+        assert snapshot.status_code == 409, snapshot.text
+        assert snapshot.json()["detail"] == (
+            "At least one reviewed label is required"
         )
-        assert repeated_snapshot.status_code == 201
-        assert repeated_snapshot.json()["dataset_hash"] == snapshot_payload[
-            "dataset_hash"
-        ]
-        assert repeated_snapshot.json()["reused"] is True
         versions = client.get(
             f"/projects/{DEMO_PROJECT_ID}/datasets",
             headers=_auth(),
         )
         assert versions.status_code == 200
-        assert versions.json()["count"] == 1
+        assert versions.json()["count"] == 0
 
         created = client.post(
             "/projects",
@@ -1431,13 +1457,10 @@ def test_production_export_contains_latest_reviewed_candidate_records(
         assert exported.status_code == 200, exported.text
         response_payload = exported.json()
         assert response_payload["status"] == "completed"
-        assert response_payload["artifact_count"] == 12
-        assert response_payload["evidence_incident_count"] == 1
-        assert response_payload["evidence_file_count"] == 2
-        assert response_payload["evidence_size_bytes"] == (
-            candidate["representative_image"]["size_bytes"]
-            + candidate["preview_clip"]["size_bytes"]
-        )
+        assert response_payload["artifact_count"] == 10
+        assert response_payload["evidence_incident_count"] == 0
+        assert response_payload["evidence_file_count"] == 0
+        assert response_payload["evidence_size_bytes"] == 0
         assert str(export_root) not in exported.text
         assert str(source.parent) not in exported.text
 
@@ -1520,28 +1543,13 @@ def test_production_export_contains_latest_reviewed_candidate_records(
             "y": 0.1,
         }
 
-        assert len(incidents) == 1
-        incident = incidents[0]
-        assert incident["incident_id"] == approved_payload["question_id"]
-        assert incident["event_type"] == "sign_vegetation_occlusion"
-        assert incident["severity"] == "urgent"
-        assert incident["recommended_action"] == "이정표 전면 수목 제거"
-        assert incident["ocr_text"] == "논산 18km"
-        assert json.loads(incident["detection_ids"]) == [candidate_id]
-        image_member = (
-            f"evidence/{approved_payload['question_id']}/representative.jpg"
-        )
-        clip_member = (
-            f"evidence/{approved_payload['question_id']}/preview.mp4"
-        )
-        assert incident["evidence_image_ref"] == image_member
-        assert incident["preview_clip_ref"] == clip_member
-        assert len(ocr_rows) == 1
-        assert ocr_rows[0]["raw_text"] == "논산 18km"
-        assert ocr_rows[0]["verified"] == "true"
-        assert len(actions) == 1
-        assert actions[0]["description"] == "이정표 전면 수목 제거"
-        assert actions[0]["priority"] == "urgent"
+        # An initial-video local-user answer is training truth only. Its OCR,
+        # action, and geometry remain on the Annotation, but it cannot create
+        # maintenance Incident/report/evidence truth before an independent
+        # promoted-model survey is reviewed.
+        assert incidents == []
+        assert ocr_rows == []
+        assert actions == []
         assert route_points == []
 
         report_payload = json.loads(
@@ -1549,24 +1557,19 @@ def test_production_export_contains_latest_reviewed_candidate_records(
         )
         assert report_payload["trip"]["analysis_job_id"] == job_id
         assert report_payload["report"]["reviewed_count"] == 1
-        assert report_payload["report"]["approved_incident_count"] == 1
-        assert (
-            report_payload["report"]["approved_incidents"][0][
-                "incident_id"
-            ]
-            == approved_payload["question_id"]
-        )
+        assert report_payload["report"]["approved_incident_count"] == 0
+        assert report_payload["report"]["approved_incidents"] == []
         manifest = json.loads(
             (output / "manifest.json").read_text(encoding="utf-8")
         )
         assert manifest["record_counts"] == {
             "detections": terminal["result"]["candidate_count"],
-            "incidents": 1,
+            "incidents": 0,
             "label_questions": terminal["result"]["candidate_count"],
             "annotations": 1,
-            "ocr_observations": 1,
+            "ocr_observations": 0,
             "route_points": 0,
-            "maintenance_actions": 1,
+            "maintenance_actions": 0,
         }
         assert manifest["provenance"]["analysis_job_id"] == job_id
         assert manifest["provenance"]["source_sha256"] == terminal[
@@ -1610,35 +1613,18 @@ def test_production_export_contains_latest_reviewed_candidate_records(
             incident_projection["selection"]
             == "active_exact_analysis_job"
         )
-        assert incident_projection["active_incident_count"] == 1
-        assert incident_projection["incidents"] == [
-            {
-                "incident_id": approved_payload["question_id"],
-                "answer_revision": approved_payload["answer_revision"],
-                "source_answer_record_id": approved_payload["record_id"],
-                "source_record_hash": approved_payload["record_hash"],
-            }
-        ]
-        assert manifest["evidence"]["incident_count"] == 1
-        assert manifest["evidence"]["file_count"] == 2
-        assert [
-            item["name"] for item in manifest["evidence"]["members"]
-        ] == [image_member, clip_member]
+        assert incident_projection["active_incident_count"] == 0
+        assert incident_projection["incidents"] == []
+        assert manifest["evidence"] == {
+            "file_count": 0,
+            "incident_count": 0,
+            "members": [],
+            "total_size_bytes": 0,
+        }
         with zipfile.ZipFile(output / "trafficsupervision-export.zip") as archive:
-            assert image_member in archive.namelist()
-            assert clip_member in archive.namelist()
-            image_bytes = archive.read(image_member)
-            clip_bytes = archive.read(clip_member)
-        assert len(image_bytes) == candidate["representative_image"][
-            "size_bytes"
-        ]
-        assert hashlib.sha256(image_bytes).hexdigest() == candidate[
-            "representative_image"
-        ]["sha256"]
-        assert len(clip_bytes) == candidate["preview_clip"]["size_bytes"]
-        assert hashlib.sha256(clip_bytes).hexdigest() == candidate[
-            "preview_clip"
-        ]["sha256"]
+            assert not any(
+                name.startswith("evidence/") for name in archive.namelist()
+            )
         assert str(tmp_path) not in json.dumps(
             manifest, ensure_ascii=False
         )
@@ -1970,8 +1956,8 @@ def test_production_export_uses_the_explicit_selected_analysis_job(tmp_path):
             },
         )
         assert exported.status_code == 200, exported.text
-        assert exported.json()["evidence_incident_count"] == 1
-        assert exported.json()["evidence_file_count"] == 2
+        assert exported.json()["evidence_incident_count"] == 0
+        assert exported.json()["evidence_file_count"] == 0
 
     output = next(export_root.glob("trafficsupervision-export-*"))
     manifest = json.loads(
@@ -1979,16 +1965,19 @@ def test_production_export_uses_the_explicit_selected_analysis_job(tmp_path):
     )
     assert manifest["provenance"]["analysis_job_id"] == selected["job_id"]
     assert manifest["provenance"]["analysis_job_id"] != newer["job_id"]
-    selected_prefix = f"evidence/{approved[0]['question_id']}/"
-    newer_prefix = f"evidence/{approved[1]['question_id']}/"
+    with (output / "annotations.csv").open(
+        "r", encoding="utf-8-sig", newline=""
+    ) as handle:
+        annotations = list(csv.DictReader(handle))
+    assert len(annotations) == 1
+    assert annotations[0]["annotation_id"] == approved[0]["record_id"]
+    assert annotations[0]["annotation_id"] != approved[1]["record_id"]
     with zipfile.ZipFile(output / "trafficsupervision-export.zip") as archive:
         evidence_names = [
             name for name in archive.namelist()
             if name.startswith("evidence/")
         ]
-    assert len(evidence_names) == 2
-    assert all(name.startswith(selected_prefix) for name in evidence_names)
-    assert not any(name.startswith(newer_prefix) for name in evidence_names)
+    assert evidence_names == []
 
 
 def test_production_export_excludes_superseded_incident_evidence(tmp_path):
@@ -2113,6 +2102,10 @@ def test_production_export_rejects_tampered_approved_evidence_without_paths(
             },
         )
         assert approved.status_code == 201, approved.text
+        _materialize_verified_survey_incident_for_export_test(
+            client,
+            job_id,
+        )
         relative_name = candidate["representative_image"]["relative_path"]
         evidence_paths = list((tmp_path / "p").rglob(relative_name))
         assert len(evidence_paths) == 1
@@ -2176,6 +2169,10 @@ def test_production_export_rejects_tampered_incident_projection(
             },
         )
         assert approved.status_code == 201, approved.text
+        _materialize_verified_survey_incident_for_export_test(
+            client,
+            job_id,
+        )
 
         with sqlite3.connect(
             str(tmp_path / "p" / "catalog.sqlite3")
@@ -2278,6 +2275,10 @@ def test_production_export_rejects_evidence_bounds_before_resolving_files(
             },
         )
         assert approved.status_code == 201, approved.text
+        _materialize_verified_survey_incident_for_export_test(
+            client,
+            job_id,
+        )
 
         resolver_calls = {"count": 0}
         original_resolver = client.app.state.analysis_jobs.resolve_artifact

@@ -472,6 +472,24 @@ def _resolve_executable(
     return str(resolved)
 
 
+def _media_tool_path(path: Path) -> str:
+    """Return a Windows long-path-safe argument for FFmpeg/FFprobe 4.x.
+
+    Python can operate on long-path-enabled absolute paths that the older
+    Windows builds of FFmpeg still hand to legacy Win32 APIs without the
+    extended-length prefix.  Keep ordinary paths byte-for-byte unchanged for
+    command provenance and add the prefix only when the path can exceed the
+    Win32 directory limit.
+    """
+
+    rendered = str(path)
+    if os.name != "nt" or len(rendered) < 248 or rendered.startswith("\\\\?\\"):
+        return rendered
+    if rendered.startswith("\\\\"):
+        return "\\\\?\\UNC\\" + rendered[2:]
+    return "\\\\?\\" + rendered
+
+
 def _validated_source(path_value: Union[str, Path]) -> Tuple[Path, _SourceIdentity]:
     path = Path(path_value)
     if (
@@ -689,6 +707,41 @@ def _finite_score(value: str) -> Optional[float]:
     if not math.isfinite(parsed):
         return None
     return parsed
+
+
+def _effective_bootstrap_cadence(
+    *,
+    duration_seconds: float,
+    configured_cadence_seconds: float,
+    minimum_gap_seconds: float,
+) -> float:
+    """Keep at least three internal intervals for a short video."""
+
+    values = (
+        duration_seconds,
+        configured_cadence_seconds,
+        minimum_gap_seconds,
+    )
+    if any(
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(float(value))
+        or float(value) <= 0
+        for value in values
+    ):
+        raise CandidateExtractionError(
+            "bootstrap cadence inputs are invalid"
+        )
+    short_clip_cadence = max(
+        0.25, float(duration_seconds) / 3.0
+    )
+    return max(
+        float(minimum_gap_seconds),
+        min(
+            float(configured_cadence_seconds),
+            short_clip_cadence,
+        ),
+    )
 
 
 def _parse_observations(
@@ -986,7 +1039,7 @@ class CandidateExtractionEngine:
                 ),
                 "-of",
                 "json",
-                str(source_path),
+                _media_tool_path(source_path),
             ]
             probe = _parse_probe(
                 _decode_json(
@@ -1009,8 +1062,18 @@ class CandidateExtractionEngine:
 
             denominator = max(1, self._limits.max_sample_frames - 1)
             minimum_gap = max(0.25, probe.duration_seconds / denominator)
-            effective_cadence = max(
-                self._limits.cadence_seconds, minimum_gap
+            # Preserve the configured 15-second bootstrap cadence for normal
+            # trips, but do not let a short clip contribute only its t=0
+            # frame. Three bounded intervals provide at least three internal
+            # temporal samples even when the final endpoint is not emitted by
+            # FFmpeg. This is still a non-classifying recall seed; the full
+            # immutable discovery source remains the 2 FPS dense index.
+            effective_cadence = _effective_bootstrap_cadence(
+                duration_seconds=probe.duration_seconds,
+                configured_cadence_seconds=(
+                    self._limits.cadence_seconds
+                ),
+                minimum_gap_seconds=minimum_gap,
             )
             escaped_select = (
                 "select='if(isnan(prev_selected_t)\\,1\\,"
@@ -1033,7 +1096,7 @@ class CandidateExtractionEngine:
                 "-v",
                 "error",
                 "-i",
-                str(source_path),
+                _media_tool_path(source_path),
                 "-map",
                 f"0:{probe.stream_index}",
                 "-an",
@@ -1151,7 +1214,7 @@ class CandidateExtractionEngine:
                     "-ss",
                     f"{representative.timestamp_seconds:.6f}",
                     "-i",
-                    str(source_path),
+                    _media_tool_path(source_path),
                     "-map",
                     f"0:{probe.stream_index}",
                     "-frames:v",
@@ -1166,7 +1229,7 @@ class CandidateExtractionEngine:
                     "-fs",
                     str(image_budget_bytes),
                     "-n",
-                    str(image_path),
+                    _media_tool_path(image_path),
                 ]
                 image_output = self._run(
                     image_argv,
@@ -1220,7 +1283,7 @@ class CandidateExtractionEngine:
                     "-ss",
                     f"{preview_start:.6f}",
                     "-i",
-                    str(source_path),
+                    _media_tool_path(source_path),
                     "-t",
                     f"{actual_preview_duration:.6f}",
                     "-map",
@@ -1247,7 +1310,7 @@ class CandidateExtractionEngine:
                     "-fs",
                     str(clip_budget_bytes),
                     "-n",
-                    str(clip_path),
+                    _media_tool_path(clip_path),
                 ]
                 clip_output = self._run(
                     clip_argv,

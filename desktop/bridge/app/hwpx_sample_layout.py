@@ -37,10 +37,14 @@ from .hwpx_structure import (
 )
 
 
-HWPX_SAMPLE_LAYOUT_SCHEMA = "trafficvisson.hwpx-sample-layout.v1"
+HWPX_SAMPLE_LAYOUT_SCHEMA = "trafficvisson.hwpx-sample-layout.v2"
 HWPX_SAMPLE_LAYOUT_PREVIEW_SCHEMA = (
     "trafficvisson.hwpx-sample-layout-preview.v1"
 )
+SAMPLE_REFERENCE_BINDING_REVISION = (
+    "audited-photo-caption-evidence-group-v2"
+)
+SAMPLE_LAYOUT_BINDING_REVISION = 2
 EXPECTED_RENDERED_PAGE_COUNT = 48
 EXPECTED_PAGE_PAIR_COUNT = 24
 EXPECTED_TABLE_COUNT = 72
@@ -190,6 +194,9 @@ class SampleSemanticCellBinding:
 
 @dataclass(frozen=True)
 class SampleReferenceCaseBinding:
+    sample_layout_binding_schema: str
+    sample_layout_binding_revision: int
+    semantic_projection_revision: str
     picture_target_id: str
     picture_index: int
     page_pair_index: int
@@ -200,6 +207,9 @@ class SampleReferenceCaseBinding:
     photo_cell_row: int
     photo_cell_column: int
     photo_slot_id: str
+    sample_evidence_group_id: str
+    group_photo_index: int
+    group_photo_count: int
     photo_caption: SampleSemanticCellBinding
     inspection_route: SampleSemanticCellBinding
     inspection_opinion_label: SampleSemanticCellBinding
@@ -503,7 +513,78 @@ def bind_sample_reference_case(
         )
         for cell in marker_cells
     )
+    group_pictures = tuple(
+        sorted(
+            (
+                candidate
+                for candidate in inspection.snapshot.pictures
+                if (
+                    candidate.section_path == picture.section_path
+                    and candidate.section_index == picture.section_index
+                    and candidate.nearest_table_index
+                    == picture.nearest_table_index
+                    and candidate.nearest_cell_target_id
+                    == picture.nearest_cell_target_id
+                    and candidate.nearest_cell_row
+                    == picture.nearest_cell_row
+                    and candidate.nearest_cell_column
+                    == picture.nearest_cell_column
+                )
+            ),
+            key=lambda candidate: (
+                candidate.picture_index,
+                candidate.target_id,
+            ),
+        )
+    )
+    try:
+        group_photo_index = (
+            next(
+                index
+                for index, candidate in enumerate(
+                    group_pictures,
+                    start=1,
+                )
+                if candidate.target_id == picture.target_id
+            )
+        )
+    except StopIteration as error:
+        raise HwpxSampleLayoutError(
+            "sample_evidence_group_mapping_invalid",
+            "표본 사진을 같은 캡션 셀의 근거 묶음에 결속하지 못했습니다.",
+        ) from error
+    group_photo_count = len(group_pictures)
+    group_payload: Mapping[str, object] = {
+        "sample_layout_binding_schema": HWPX_SAMPLE_LAYOUT_SCHEMA,
+        "sample_layout_binding_revision": (
+            SAMPLE_LAYOUT_BINDING_REVISION
+        ),
+        "semantic_projection_revision": (
+            SAMPLE_REFERENCE_BINDING_REVISION
+        ),
+        "document_sha256": inspection.snapshot.document_sha256,
+        "section_path": picture.section_path,
+        "section_index": picture.section_index,
+        "photo_table_id": photo_table.table_id,
+        "photo_table_index": picture.nearest_table_index,
+        "photo_cell_target_id": picture.nearest_cell_target_id,
+        "photo_cell_row": picture.nearest_cell_row,
+        "photo_cell_column": picture.nearest_cell_column,
+        "caption_cell_target_id": photo_caption.cell_target_id,
+        "caption_text_sha256": photo_caption.text_sha256,
+    }
+    sample_evidence_group_id = (
+        "sample-evidence-group-"
+        + _canonical_sha256(group_payload)[:24]
+    )
     slot_payload: Mapping[str, object] = {
+        "sample_layout_binding_schema": HWPX_SAMPLE_LAYOUT_SCHEMA,
+        "sample_layout_binding_revision": (
+            SAMPLE_LAYOUT_BINDING_REVISION
+        ),
+        "semantic_projection_revision": (
+            SAMPLE_REFERENCE_BINDING_REVISION
+        ),
         "document_sha256": inspection.snapshot.document_sha256,
         "picture_target_id": picture.target_id,
         "photo_table_index": picture.nearest_table_index,
@@ -518,6 +599,9 @@ def bind_sample_reference_case(
         "inspection_opinion_body": asdict(
             inspection_opinion_body
         ),
+        "sample_evidence_group_id": sample_evidence_group_id,
+        "group_photo_index": group_photo_index,
+        "group_photo_count": group_photo_count,
     }
     photo_slot_id = (
         "sample-photo-slot-" + _canonical_sha256(slot_payload)[:24]
@@ -533,6 +617,13 @@ def bind_sample_reference_case(
         ],
     }
     return SampleReferenceCaseBinding(
+        sample_layout_binding_schema=HWPX_SAMPLE_LAYOUT_SCHEMA,
+        sample_layout_binding_revision=(
+            SAMPLE_LAYOUT_BINDING_REVISION
+        ),
+        semantic_projection_revision=(
+            SAMPLE_REFERENCE_BINDING_REVISION
+        ),
         picture_target_id=picture.target_id,
         picture_index=picture.picture_index,
         page_pair_index=page_pair_index,
@@ -543,6 +634,9 @@ def bind_sample_reference_case(
         photo_cell_row=picture.nearest_cell_row,
         photo_cell_column=picture.nearest_cell_column,
         photo_slot_id=photo_slot_id,
+        sample_evidence_group_id=sample_evidence_group_id,
+        group_photo_index=group_photo_index,
+        group_photo_count=group_photo_count,
         photo_caption=photo_caption,
         inspection_route=inspection_route,
         inspection_opinion_label=inspection_opinion_label,
@@ -839,6 +933,8 @@ __all__ = [
     "HWPX_SAMPLE_LAYOUT_PREVIEW_SCHEMA",
     "HWPX_SAMPLE_LAYOUT_SCHEMA",
     "HwpxSampleLayoutError",
+    "SAMPLE_REFERENCE_BINDING_REVISION",
+    "SAMPLE_LAYOUT_BINDING_REVISION",
     "SAMPLE_LAYOUT_BASELINES",
     "SampleLayoutInspection",
     "SampleLayoutPlanPreview",

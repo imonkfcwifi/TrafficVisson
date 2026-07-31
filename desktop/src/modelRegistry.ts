@@ -36,12 +36,45 @@ export type DatasetMembership = {
   annotationHash: string;
 };
 
+export type DatasetApprovedReferenceMember = {
+  schemaVersion: "trafficvisson.approved-reference.v2";
+  approvalId: string;
+  approvalRevision: number;
+  sourceId: string;
+  caseId: string;
+  documentSha256: string;
+  structureTargetSummarySha256: string;
+  indexManifestSha256: string;
+  imageSha256: string;
+  recordSha256: string;
+  sampleLayoutBindingSchema: "trafficvisson.hwpx-sample-layout.v2";
+  sampleLayoutBindingRevision: 2;
+  sampleLayoutBindingSha256: string;
+  semanticProjectionRevision: "audited-photo-caption-evidence-group-v2";
+  semanticAttestationSha256: string;
+  photoSlotId: string;
+  sampleEvidenceGroupId: string;
+  groupPhotoIndex: number;
+  groupPhotoCount: number;
+  duplicateImageOccurrenceCount: number;
+  duplicateImageReviewRequired: boolean;
+  duplicateImageReviewConfirmed: boolean;
+  duplicateImageCaseRefs: readonly string[];
+  issueType: string;
+  maintenanceAction: string;
+  sourceKind: "approved_reference";
+  split: "train";
+  userConfirmed: true;
+};
+
 export type DatasetVersion = {
   datasetVersionId: string;
   projectId: string;
   schemaVersion: "trafficvisson.dataset-version.v1";
   datasetHash: string;
-  splitStrategy: "analysis_job_hash_v1";
+  splitStrategy:
+    | "analysis_job_hash_v1"
+    | "project_fixed_analysis_job_v1";
   validationFraction: number;
   sourceAnswerCount: number;
   trainingMemberCount: number;
@@ -49,6 +82,13 @@ export type DatasetVersion = {
   validationCount: number;
   excludedCount: number;
   manifest: Record<string, unknown>;
+  approvedReferenceMembers: DatasetApprovedReferenceMember[];
+  approvedReferenceMemberCount: number;
+  approvedReferenceTrainingEventCount: number;
+  approvedReferenceMembersSha256: string;
+  trainingGateMemberCount: number;
+  approvedReferencesCountTowardTrainingGate: false;
+  approvedReferencesCountTowardValidation: false;
   createdAt: string;
   reused: boolean;
   memberships: DatasetMembership[];
@@ -315,6 +355,152 @@ function parseDatasetMembership(value: unknown): DatasetMembership {
   };
 }
 
+function parseDatasetApprovedReferenceMember(
+  value: unknown,
+): DatasetApprovedReferenceMember {
+  const keys = [
+    "schema_version",
+    "approval_id",
+    "approval_revision",
+    "source_id",
+    "case_id",
+    "document_sha256",
+    "structure_target_summary_sha256",
+    "index_manifest_sha256",
+    "image_sha256",
+    "record_sha256",
+    "sample_layout_binding_schema",
+    "sample_layout_binding_revision",
+    "sample_layout_binding_sha256",
+    "semantic_projection_revision",
+    "semantic_attestation_sha256",
+    "photo_slot_id",
+    "sample_evidence_group_id",
+    "group_photo_index",
+    "group_photo_count",
+    "duplicate_image_occurrence_count",
+    "duplicate_image_review_required",
+    "duplicate_image_review_confirmed",
+    "duplicate_image_case_refs",
+    "issue_type",
+    "maintenance_action",
+    "source_kind",
+    "split",
+    "user_confirmed",
+  ] as const;
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, keys) ||
+    value.schema_version !== "trafficvisson.approved-reference.v2" ||
+    typeof value.approval_id !== "string" ||
+    !/^approved-reference-[a-f0-9]{24}$/.test(value.approval_id) ||
+    !isPositiveCount(value.approval_revision) ||
+    typeof value.source_id !== "string" ||
+    !/^sample-hwpx-[34]q-[a-f0-9]{16}$/.test(value.source_id) ||
+    typeof value.case_id !== "string" ||
+    !/^hwpx-weak-case-[a-f0-9]{32}$/.test(value.case_id) ||
+    typeof value.document_sha256 !== "string" ||
+    !SHA256_PATTERN.test(value.document_sha256) ||
+    typeof value.structure_target_summary_sha256 !== "string" ||
+    !SHA256_PATTERN.test(value.structure_target_summary_sha256) ||
+    typeof value.index_manifest_sha256 !== "string" ||
+    !SHA256_PATTERN.test(value.index_manifest_sha256) ||
+    typeof value.image_sha256 !== "string" ||
+    !SHA256_PATTERN.test(value.image_sha256) ||
+    typeof value.record_sha256 !== "string" ||
+    !SHA256_PATTERN.test(value.record_sha256) ||
+    value.sample_layout_binding_schema !==
+      "trafficvisson.hwpx-sample-layout.v2" ||
+    value.sample_layout_binding_revision !== 2 ||
+    typeof value.sample_layout_binding_sha256 !== "string" ||
+    !SHA256_PATTERN.test(value.sample_layout_binding_sha256) ||
+    value.semantic_projection_revision !==
+      "audited-photo-caption-evidence-group-v2" ||
+    typeof value.semantic_attestation_sha256 !== "string" ||
+    !SHA256_PATTERN.test(value.semantic_attestation_sha256) ||
+    typeof value.photo_slot_id !== "string" ||
+    !/^sample-photo-slot-[a-f0-9]{24}$/.test(value.photo_slot_id) ||
+    typeof value.sample_evidence_group_id !== "string" ||
+    !/^sample-evidence-group-[a-f0-9]{24}$/.test(
+      value.sample_evidence_group_id,
+    ) ||
+    !isPositiveCount(value.group_photo_index) ||
+    !isPositiveCount(value.group_photo_count) ||
+    value.group_photo_index > value.group_photo_count ||
+    !isPositiveCount(value.duplicate_image_occurrence_count) ||
+    typeof value.duplicate_image_review_required !== "boolean" ||
+    typeof value.duplicate_image_review_confirmed !== "boolean" ||
+    !Array.isArray(value.duplicate_image_case_refs) ||
+    value.duplicate_image_case_refs.length !==
+      value.duplicate_image_occurrence_count ||
+    !isBoundedText(value.issue_type, 128) ||
+    !isBoundedText(value.maintenance_action, 500) ||
+    value.source_kind !== "approved_reference" ||
+    value.split !== "train" ||
+    value.user_confirmed !== true
+  ) {
+    throw new Error("승인 사례 데이터셋 구성원을 검증하지 못했습니다.");
+  }
+  const duplicateImageCaseRefs = value.duplicate_image_case_refs.map(
+    (reference) => {
+      if (
+        typeof reference !== "string" ||
+        !/^sample-hwpx-[34]q-[a-f0-9]{16}\/hwpx-weak-case-[a-f0-9]{32}$/.test(
+          reference,
+        )
+      ) {
+        throw new Error("승인 사례 중복 사진 근거를 검증하지 못했습니다.");
+      }
+      return reference;
+    },
+  );
+  if (
+    duplicateImageCaseRefs.join("\u0000") !==
+      [...new Set(duplicateImageCaseRefs)].sort().join("\u0000") ||
+    value.duplicate_image_review_required !==
+      (value.duplicate_image_occurrence_count > 1) ||
+    (value.duplicate_image_review_required &&
+      !value.duplicate_image_review_confirmed) ||
+    !duplicateImageCaseRefs.includes(`${value.source_id}/${value.case_id}`)
+  ) {
+    throw new Error("승인 사례 중복 사진 검토 상태가 올바르지 않습니다.");
+  }
+  return {
+    schemaVersion: "trafficvisson.approved-reference.v2",
+    approvalId: value.approval_id,
+    approvalRevision: value.approval_revision,
+    sourceId: value.source_id,
+    caseId: value.case_id,
+    documentSha256: value.document_sha256,
+    structureTargetSummarySha256: value.structure_target_summary_sha256,
+    indexManifestSha256: value.index_manifest_sha256,
+    imageSha256: value.image_sha256,
+    recordSha256: value.record_sha256,
+    sampleLayoutBindingSchema: "trafficvisson.hwpx-sample-layout.v2",
+    sampleLayoutBindingRevision: 2,
+    sampleLayoutBindingSha256: value.sample_layout_binding_sha256,
+    semanticProjectionRevision:
+      "audited-photo-caption-evidence-group-v2",
+    semanticAttestationSha256: value.semantic_attestation_sha256,
+    photoSlotId: value.photo_slot_id,
+    sampleEvidenceGroupId: value.sample_evidence_group_id,
+    groupPhotoIndex: value.group_photo_index,
+    groupPhotoCount: value.group_photo_count,
+    duplicateImageOccurrenceCount:
+      value.duplicate_image_occurrence_count,
+    duplicateImageReviewRequired:
+      value.duplicate_image_review_required,
+    duplicateImageReviewConfirmed:
+      value.duplicate_image_review_confirmed,
+    duplicateImageCaseRefs: Object.freeze(duplicateImageCaseRefs),
+    issueType: value.issue_type,
+    maintenanceAction: value.maintenance_action,
+    sourceKind: "approved_reference",
+    split: "train",
+    userConfirmed: true,
+  };
+}
+
 export function buildProjectScopeRequest(projectId: string) {
   requireUuid(projectId, "프로젝트");
   return { projectId };
@@ -415,6 +601,13 @@ export function parseDatasetVersion(
     "validation_count",
     "excluded_count",
     "manifest",
+    "approved_reference_members",
+    "approved_reference_member_count",
+    "approved_reference_training_event_count",
+    "approved_reference_members_sha256",
+    "training_gate_member_count",
+    "approved_references_count_toward_training_gate",
+    "approved_references_count_toward_validation",
     "created_at",
     "reused",
     "memberships",
@@ -429,7 +622,8 @@ export function parseDatasetVersion(
     value.schema_version !== "trafficvisson.dataset-version.v1" ||
     typeof value.dataset_hash !== "string" ||
     !SHA256_PATTERN.test(value.dataset_hash) ||
-    value.split_strategy !== "analysis_job_hash_v1" ||
+    (value.split_strategy !== "analysis_job_hash_v1" &&
+      value.split_strategy !== "project_fixed_analysis_job_v1") ||
     typeof value.validation_fraction !== "number" ||
     !Number.isFinite(value.validation_fraction) ||
     value.validation_fraction <= 0 ||
@@ -440,6 +634,14 @@ export function parseDatasetVersion(
     !isCount(value.validation_count) ||
     !isCount(value.excluded_count) ||
     !isRecord(value.manifest) ||
+    !Array.isArray(value.approved_reference_members) ||
+    !isCount(value.approved_reference_member_count) ||
+    !isCount(value.approved_reference_training_event_count) ||
+    typeof value.approved_reference_members_sha256 !== "string" ||
+    !SHA256_PATTERN.test(value.approved_reference_members_sha256) ||
+    !isCount(value.training_gate_member_count) ||
+    value.approved_references_count_toward_training_gate !== false ||
+    value.approved_references_count_toward_validation !== false ||
     !isTimestamp(value.created_at) ||
     typeof value.reused !== "boolean" ||
     !Array.isArray(value.memberships)
@@ -449,6 +651,9 @@ export function parseDatasetVersion(
   requireExpectedProject(value.project_id, expectedProjectId);
 
   const memberships = value.memberships.map(parseDatasetMembership);
+  const approvedReferenceMembers = value.approved_reference_members.map(
+    parseDatasetApprovedReferenceMember,
+  );
   const trainCount = memberships.filter((row) => row.split === "train").length;
   const validationCount = memberships.filter(
     (row) => row.split === "validation",
@@ -459,8 +664,16 @@ export function parseDatasetVersion(
   const trainingMemberCount = memberships.filter(
     (row) => row.includeInTraining,
   ).length;
+  const approvedReferenceTrainingEventCount = new Set(
+    approvedReferenceMembers.map((row) => row.sampleEvidenceGroupId),
+  ).size;
   if (
     value.source_answer_count !== memberships.length ||
+    value.approved_reference_member_count !==
+      approvedReferenceMembers.length ||
+    value.approved_reference_training_event_count !==
+      approvedReferenceTrainingEventCount ||
+    value.training_gate_member_count !== value.training_member_count ||
     value.training_member_count !== trainingMemberCount ||
     value.train_count !== trainCount ||
     value.validation_count !== validationCount ||
@@ -474,9 +687,27 @@ export function parseDatasetVersion(
 
   const annotationIds = new Set(memberships.map((row) => row.annotationId));
   const questionIds = new Set(memberships.map((row) => row.questionId));
+  const approvalIds = new Set(
+    approvedReferenceMembers.map((row) => row.approvalId),
+  );
+  const referenceCases = new Set(
+    approvedReferenceMembers.map((row) => `${row.sourceId}\u0000${row.caseId}`),
+  );
+  const referenceImages = new Set(
+    approvedReferenceMembers.map((row) => row.imageSha256),
+  );
+  const referenceGroupPhotoIndexes = new Set(
+    approvedReferenceMembers.map(
+      (row) => `${row.sampleEvidenceGroupId}\u0000${row.groupPhotoIndex}`,
+    ),
+  );
   if (
     annotationIds.size !== memberships.length ||
-    questionIds.size !== memberships.length
+    questionIds.size !== memberships.length ||
+    approvalIds.size !== approvedReferenceMembers.length ||
+    referenceCases.size !== approvedReferenceMembers.length ||
+    referenceImages.size !== approvedReferenceMembers.length ||
+    referenceGroupPhotoIndexes.size !== approvedReferenceMembers.length
   ) {
     throw new Error("데이터셋 버전에 중복 라벨이 포함되어 있습니다.");
   }
@@ -494,6 +725,15 @@ export function parseDatasetVersion(
     validationCount: value.validation_count,
     excludedCount: value.excluded_count,
     manifest: value.manifest,
+    approvedReferenceMembers,
+    approvedReferenceMemberCount: value.approved_reference_member_count,
+    approvedReferenceTrainingEventCount:
+      value.approved_reference_training_event_count,
+    approvedReferenceMembersSha256:
+      value.approved_reference_members_sha256,
+    trainingGateMemberCount: value.training_gate_member_count,
+    approvedReferencesCountTowardTrainingGate: false,
+    approvedReferencesCountTowardValidation: false,
     createdAt: value.created_at,
     reused: value.reused,
     memberships,

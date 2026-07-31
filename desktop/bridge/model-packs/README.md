@@ -149,3 +149,82 @@ Codex CLI and Claude Code are structured-judgment/report providers only. They
 do not receive bulk video frames and are never advertised as detector, OCR,
 segmentation or tracking runtimes. Their official CLIs own authentication;
 TrafficSuperVision neither reads nor exports their credential files.
+
+## Project-specific detector training pack
+
+`app/local_object_detector_trainer.py` defines the opt-in
+`trafficvisson.local-object-detector-training-pack.v1` contract for a local
+D-FINE-small or RT-DETR-v2-R18 checkpoint. This is separate from the common
+proposal pack and from the CLIP centroid helper.
+
+The pack must be a closed local directory: its immutable source revision,
+model/version identity, runtime and weight SPDX identifiers, explicit
+commercial-use decision, CUDA/minimum-VRAM requirements, label head, notice,
+and every byte-sized artifact SHA-256 are verified before the trainer can
+become `ready`. Python/plug-in/executable artifacts, links/reparse points,
+unlisted files, path traversal, remote code and Hub downloads are rejected.
+
+The production adapter is not the lifecycle default. It must be explicitly
+injected only after this pack and the server-owned candidate-artifact resolver
+are ready. It counts only approved current-video box geometry and
+`negative_evidence`; classification-only labels and historical sample
+references provide no detector gate credit. Missing packs, invalid packs,
+CPU fallback, insufficient VRAM, or incomplete fixed-validation geometry are
+failure/unavailable states rather than empty training success.
+
+The repository installer `desktop/scripts/install-local-detector-training-pack.py`
+pins the official Apache-2.0 `ustc-community/dfine-small-coco` revision
+`f79e65b5fbb33ceb9d3ebba042955d7410c608f8`, copies only the allowlisted
+README/config/preprocessor/safetensors files, generates the closed artifact
+inventory, and validates it with the production loader before atomic publish.
+The packaged bridge prefers this verified local detector trainer over the CLIP
+centroid helper. The official COCO head is not treated as TrafficSuperVision
+truth: the backbone is verified and the 12-class project head is reinitialized
+only after the explicit training approval and 100/30 geometry gates.
+
+## Frozen bridge external ML runtime
+
+The installed Electron application keeps the core PyInstaller bridge small and
+usable without ML packages. Optional PyTorch/CUDA, Transformers Grounding DINO,
+SAM2, EasyOCR, CLIP, OpenCV, ONNX, and detector training/inference dependencies
+must be installed as a separate
+`trafficvisson.external-model-runtime-pack.v1` runtime pack. Large weights still
+belong to their independent model packs and are never copied into this runtime.
+
+`app/external_model_runtime.py` verifies the runtime before adding its
+`site-packages` directory to the frozen interpreter:
+
+- exact frozen CPython cache tag and major/minor version;
+- Windows architecture;
+- immutable HTTPS source revision;
+- runtime/package SPDX and inventoried licence notices;
+- commercial-use confirmation and redistribution decision;
+- a closed inventory with size and SHA-256 for every file;
+- no symlink, junction, reparse point, unlisted file, `.pth`, or shell startup
+  script;
+- exact installed distribution names and versions;
+- capability-specific dependency coverage;
+- real PyTorch CUDA availability, minimum CUDA version, and minimum VRAM with
+  no CPU fallback for the production Torch capabilities.
+
+Set
+`TRAFFICSUPERVISION_EXTERNAL_MODEL_RUNTIME_PACK` to the absolute verified
+manifest path before Electron starts. The Electron supervisor allowlists only
+that path value; credentials and unrelated parent environment values do not
+cross into the bridge. The same path is explicitly forwarded to the frozen
+vision and Grounding DINO workers so child processes repeat verification
+instead of inheriting an ambient Python installation.
+
+`scripts/install-external-model-runtime-pack.py` performs no network access. It
+copies an already reviewed, locked-wheelhouse `site-packages` tree into a
+versioned ProgramData pack, writes the complete artifact inventory, validates
+it with the production loader, and publishes it atomically. Its build
+descriptor must provide source, licence, hardware, capability, package-version,
+package-SPDX, package-notice, and DLL-directory declarations; the installer
+does not infer or invent those facts.
+
+An absent runtime remains `unavailable`, a configured pack that fails
+integrity/ABI/licence/CUDA verification is `failed`, and a successfully invoked
+model returning no findings is still the separate PipelineJob
+`zero_detections` outcome. Runtime activation grants no labeling, training,
+promotion, Incident, or report authority.

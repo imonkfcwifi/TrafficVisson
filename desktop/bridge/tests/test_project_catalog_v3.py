@@ -18,6 +18,7 @@ from test_project_catalog_v2 import (
     _rows,
     _write_completed_analysis,
 )
+from structured_assist_fixtures import assist_provenance
 
 
 PARTITION = {
@@ -82,6 +83,8 @@ def _answer_record(
     previous_hash=None,
     record_id=None,
     recorded_offset=0,
+    answered_by="local_user",
+    assist_provenance_value=None,
 ):
     candidate_id = candidate["candidate_id"]
     if answer in {"yes", "edit"}:
@@ -103,10 +106,12 @@ def _answer_record(
         "ocr_text": None,
         "normalized_box": box,
         "include_in_training": TRAINING[answer],
-        "answered_by": "local_user",
+        "answered_by": answered_by,
     }
     record_without_hash = {
-        "schema_version": "1.0",
+        "schema_version": (
+            "1.2" if assist_provenance_value is not None else "1.0"
+        ),
         "record_id": str(record_id or uuid4()),
         "project_id": str(project_id),
         "analysis_job_id": str(job_id),
@@ -124,6 +129,11 @@ def _answer_record(
         .replace("+00:00", "Z"),
         "previous_record_hash": previous_hash,
     }
+    if assist_provenance_value is not None:
+        record_without_hash["training_geometry"] = None
+        record_without_hash["assist_provenance"] = (
+            assist_provenance_value
+        )
     return {
         **record_without_hash,
         "record_hash": hashlib.sha256(
@@ -303,6 +313,69 @@ def test_jsonl_projection_is_idempotent_partitioned_and_restart_safe(tmp_path):
     ) == 5
 
 
+def test_pipeline_question_registration_is_idempotent_and_unanswered(
+    tmp_path,
+):
+    project_id = uuid4()
+    catalog, fixtures = _catalog_with_jobs(
+        tmp_path,
+        project_id=project_id,
+        job_candidate_counts=[2],
+    )
+    fixture = fixtures[0]
+    job_id = fixture["job_id"]
+    candidates = fixture["payload"]["result"]["candidates"]
+    questions = [
+        {
+            "question_id": str(
+                uuid5(UUID(str(job_id)), candidate["candidate_id"])
+            ),
+            "candidate_id": candidate["candidate_id"],
+            "ai_original_candidate": candidate,
+        }
+        for candidate in candidates
+    ]
+
+    first = catalog.register_label_questions(
+        project_id, job_id, fixture["source_sha256"], questions
+    )
+    replay = catalog.register_label_questions(
+        project_id, job_id, fixture["source_sha256"], questions
+    )
+
+    assert first["question_count"] == 2
+    assert first["created_count"] == 2
+    assert replay["question_count"] == 2
+    assert replay["created_count"] == 0
+    assert replay["question_set_sha256"] == first[
+        "question_set_sha256"
+    ]
+    assert catalog.current_label_stats(project_id) == {
+        "project_id": str(project_id),
+        "question_count": 2,
+        "answer_revision_count": 0,
+        "current_answer_count": 0,
+        "training_included_count": 0,
+        "source_analysis_job_count": 0,
+        "partitions": {
+            "approved": 0,
+            "negative": 0,
+            "held": 0,
+            "excluded": 0,
+        },
+    }
+    assert len(
+        catalog.list_label_questions(
+            project_id, analysis_job_id=job_id
+        )
+    ) == 2
+    assert catalog.list_label_answers(project_id) == []
+    assert catalog.list_current_annotations(project_id) == []
+    assert catalog.list_incidents(
+        project_id, analysis_job_id=job_id
+    ) == []
+
+
 def test_dataset_hash_reuse_revision_change_and_job_grain_split(tmp_path):
     project_id = uuid4()
     catalog, fixtures = _catalog_with_jobs(
@@ -385,6 +458,178 @@ def test_dataset_hash_reuse_revision_change_and_job_grain_split(tmp_path):
     after_restart = restarted.create_dataset_version(project_id)
     assert after_restart["reused"] is True
     assert after_restart["dataset_hash"] == second["dataset_hash"]
+
+
+def test_structured_llm_jobs_are_training_only_not_fixed_validation(tmp_path):
+    project_id = uuid4()
+    catalog, fixtures = _catalog_with_jobs(
+        tmp_path,
+        project_id=project_id,
+        job_candidate_counts=[1, 1, 1],
+    )
+    records = []
+    previous = None
+    for index, fixture in enumerate(fixtures):
+        record = _answer_record(
+            project_id=project_id,
+            job_id=fixture["job_id"],
+            candidate=fixture["payload"]["result"]["candidates"][0],
+            answer="yes",
+            previous_hash=previous,
+            recorded_offset=index,
+            answered_by=(
+                "structured_llm_assisted"
+                if index == 0
+                else "local_user"
+            ),
+            assist_provenance_value=(
+                assist_provenance(
+                    project_id,
+                    fixture["job_id"],
+                    fixture["payload"]["result"]["candidates"][0][
+                        "candidate_id"
+                    ],
+                )
+                if index == 0
+                else None
+            ),
+        )
+        records.append(record)
+        previous = record["record_hash"]
+    catalog.project_label_records(project_id, records)
+
+    dataset = catalog.create_dataset_version(project_id)
+    splits = {
+        member["analysis_job_id"]: member["split"]
+        for member in dataset["memberships"]
+    }
+
+    assert splits[str(fixtures[0]["job_id"])] == "train"
+    assert set(splits.values()) == {"train", "validation"}
+    assert dataset["training_member_count"] == 3
+    assert dataset["training_gate_member_count"] == 2
+    assert (
+        dataset["approved_references_count_toward_training_gate"]
+        is False
+    )
+
+
+def test_next_dataset_keeps_promoted_fixed_validation_and_trains_survey_feedback(
+    tmp_path,
+):
+    """FP/FN survey feedback must not silently re-split held-out trips."""
+
+    project_id = uuid4()
+    catalog, fixtures = _catalog_with_jobs(
+        tmp_path,
+        project_id=project_id,
+        job_candidate_counts=[1, 1, 1, 1],
+    )
+    initial_records = _chain_records(
+        project_id,
+        fixtures[:3],
+        [
+            (fixtures[0], 0, "yes"),
+            (fixtures[1], 0, "no"),
+            (fixtures[2], 0, "yes"),
+        ],
+    )
+    catalog.project_label_records(project_id, initial_records)
+    initial = catalog.create_dataset_version(project_id)
+    fixed_job_ids = sorted(
+        {
+            member["analysis_job_id"]
+            for member in initial["memberships"]
+            if member["split"] == "validation"
+        }
+    )
+    assert fixed_job_ids
+
+    survey_record = _answer_record(
+        project_id=project_id,
+        job_id=fixtures[3]["job_id"],
+        candidate=fixtures[3]["payload"]["result"]["candidates"][0],
+        answer="no",
+        previous_hash=initial_records[-1]["record_hash"],
+        recorded_offset=20,
+    )
+    catalog.project_label_record(project_id, survey_record)
+    next_dataset = catalog.create_dataset_version(
+        project_id,
+        fixed_validation_analysis_job_ids=fixed_job_ids,
+    )
+
+    assert next_dataset["dataset_version_id"] != (
+        initial["dataset_version_id"]
+    )
+    assert next_dataset["split_strategy"] == (
+        "project_fixed_analysis_job_v1"
+    )
+    assert {
+        member["analysis_job_id"]
+        for member in next_dataset["memberships"]
+        if member["split"] == "validation"
+    } == set(fixed_job_ids)
+    survey_members = [
+        member
+        for member in next_dataset["memberships"]
+        if member["analysis_job_id"]
+        == str(fixtures[3]["job_id"])
+    ]
+    assert len(survey_members) == 1
+    assert survey_members[0]["partition"] == "negative"
+    assert survey_members[0]["split"] == "train"
+    assert survey_members[0]["include_in_training"] is True
+
+
+def test_next_dataset_fails_closed_when_fixed_validation_truth_changed(
+    tmp_path,
+):
+    project_id = uuid4()
+    catalog, fixtures = _catalog_with_jobs(
+        tmp_path,
+        project_id=project_id,
+        job_candidate_counts=[1, 1],
+    )
+    initial_records = _chain_records(
+        project_id,
+        fixtures,
+        [
+            (fixtures[0], 0, "yes"),
+            (fixtures[1], 0, "no"),
+        ],
+    )
+    catalog.project_label_records(project_id, initial_records)
+    initial = catalog.create_dataset_version(project_id)
+    fixed_job_id = next(
+        member["analysis_job_id"]
+        for member in initial["memberships"]
+        if member["split"] == "validation"
+    )
+    fixed_fixture = next(
+        fixture
+        for fixture in fixtures
+        if str(fixture["job_id"]) == fixed_job_id
+    )
+    changed = _answer_record(
+        project_id=project_id,
+        job_id=fixed_fixture["job_id"],
+        candidate=fixed_fixture["payload"]["result"]["candidates"][0],
+        answer="unsure",
+        revision=2,
+        previous_hash=initial_records[-1]["record_hash"],
+        recorded_offset=30,
+    )
+    catalog.project_label_record(project_id, changed)
+
+    with pytest.raises(
+        DatasetVersionError,
+        match="fixed validation evidence is unavailable or changed",
+    ):
+        catalog.create_dataset_version(
+            project_id,
+            fixed_validation_analysis_job_ids=[fixed_job_id],
+        )
 
 
 def test_project_mixing_and_foreign_key_crossing_are_rejected(tmp_path):
@@ -477,3 +722,413 @@ def test_dataset_requires_current_labels_and_rejects_chain_gaps(tmp_path):
     )
     with pytest.raises(LabelProjectionError, match="revision must be 1"):
         catalog.project_label_record(project_id, revision_two)
+
+
+def _approved_reference_record(
+    project_id,
+    *,
+    seed="one",
+    revision=1,
+    image_sha256=None,
+    group_seed=None,
+    group_photo_index=1,
+    group_photo_count=1,
+):
+    digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()
+    group_digest = hashlib.sha256(
+        (group_seed or seed).encode("utf-8")
+    ).hexdigest()
+    source_id = f"sample-hwpx-3q-{digest[:16]}"
+    case_id = f"hwpx-weak-case-{digest[:32]}"
+    table_id = f"hwpx-table-{digest[:24]}"
+    photo_cell_id = f"hwpx-cell-{digest[:24]}"
+    semantic_cells = [
+        {
+            "role": role,
+            "cell_target_id": (
+                "hwpx-cell-"
+                + hashlib.sha256(
+                    f"{seed}:{role}".encode("utf-8")
+                ).hexdigest()[:24]
+            ),
+            "table_id": table_id,
+            "table_index": 1,
+            "page_number": 2 if role == "photo_caption" else 1,
+            "row": index,
+            "column": 0,
+            "row_span": 1,
+            "column_span": 1,
+            "text_excerpt": role,
+            "text_sha256": hashlib.sha256(
+                role.encode("utf-8")
+            ).hexdigest(),
+        }
+        for index, role in enumerate(
+            (
+                "photo_caption",
+                "inspection_route",
+                "inspection_opinion_label",
+                "inspection_opinion_body",
+            )
+        )
+    ]
+    square_markers = [
+        {
+            "cell_target_id": (
+                "hwpx-cell-"
+                + hashlib.sha256(
+                    f"{seed}:marker".encode("utf-8")
+                ).hexdigest()[:24]
+            ),
+            "table_id": table_id,
+            "table_index": 1,
+            "page_number": 1,
+            "row": 4,
+            "column": 0,
+            "marker": "■",
+            "text_sha256": hashlib.sha256(
+                f"{seed}:marker-text".encode("utf-8")
+            ).hexdigest(),
+        }
+    ]
+    value = {
+        "schema_version": "trafficvisson.approved-reference.v2",
+        "approval_id": f"approved-reference-{digest[:24]}",
+        "project_id": str(project_id),
+        "source_id": source_id,
+        "case_id": case_id,
+        "revision": revision,
+        "reference_state": "approved_reference",
+        "approved_reference": True,
+        "training_eligible": True,
+        "training_scope": "approved_reference_only",
+        "annotation_created": False,
+        "incident_created": False,
+        "document_sha256": hashlib.sha256(
+            f"document:{seed}".encode("utf-8")
+        ).hexdigest(),
+        "document_name": "3분기 점검 내용 정리.hwpx",
+        "structure_target_summary_sha256": hashlib.sha256(
+            f"structure:{seed}".encode("utf-8")
+        ).hexdigest(),
+        "index_manifest_sha256": hashlib.sha256(
+            f"index:{seed}".encode("utf-8")
+        ).hexdigest(),
+        "image_sha256": (
+            image_sha256
+            or hashlib.sha256(
+                f"image:{seed}".encode("utf-8")
+            ).hexdigest()
+        ),
+        "image_media_type": "image/jpeg",
+        "image_width": 1920,
+        "image_height": 1080,
+        "quarter": 3,
+        "section_path": "Contents/section0.xml",
+        "section_index": 0,
+        "picture_target_id": f"hwpx-picture-{digest[:24]}",
+        "picture_index": 1,
+        "picture_xml_id": "1",
+        "table_id": table_id,
+        "table_index": 1,
+        "cell_target_id": photo_cell_id,
+        "cell_row": 0,
+        "cell_column": 0,
+        "page_hint": 2,
+        "page_hint_source": "fixture",
+        "photo_page_number": 2,
+        "inspection_page_number": 1,
+        "sample_layout_binding_schema": (
+            "trafficvisson.hwpx-sample-layout.v2"
+        ),
+        "sample_layout_binding_revision": 2,
+        "sample_layout_binding_sha256": hashlib.sha256(
+            f"binding:{seed}".encode("utf-8")
+        ).hexdigest(),
+        "semantic_projection_revision": (
+            "audited-photo-caption-evidence-group-v2"
+        ),
+        "semantic_attestation_sha256": hashlib.sha256(
+            f"semantic:{seed}".encode("utf-8")
+        ).hexdigest(),
+        "photo_slot_id": f"sample-photo-slot-{digest[:24]}",
+        "sample_evidence_group_id": (
+            f"sample-evidence-group-{group_digest[:24]}"
+        ),
+        "group_photo_index": group_photo_index,
+        "group_photo_count": group_photo_count,
+        "duplicate_image_occurrence_count": 1,
+        "duplicate_image_review_required": False,
+        "duplicate_image_review_confirmed": False,
+        "duplicate_image_case_refs": [f"{source_id}/{case_id}"],
+        "square_markers": square_markers,
+        "semantic_cells": semantic_cells,
+        "weak_candidates": {
+            "caption": "포트홀",
+            "route": "테스트 노선",
+            "location": None,
+            "evaluation": "포트홀",
+            "opinion": "보수 필요",
+        },
+        "issue_type": "pothole",
+        "maintenance_action": "repair",
+        "caption": "포트홀",
+        "route": "테스트 노선",
+        "location": None,
+        "evaluation": "포트홀",
+        "opinion": "보수 필요",
+        "user_confirmed": True,
+    }
+    return {
+        **value,
+        "record_sha256": hashlib.sha256(
+            canonical_json_bytes(value)
+        ).hexdigest(),
+    }
+
+
+def test_dataset_freezes_approved_reference_training_members(tmp_path):
+    project_id = uuid4()
+    catalog, fixtures = _catalog_with_jobs(
+        tmp_path,
+        project_id=project_id,
+        job_candidate_counts=[1],
+    )
+    record = _chain_records(
+        project_id,
+        fixtures,
+        [(fixtures[0], 0, "yes")],
+    )[0]
+    catalog.project_label_record(project_id, record)
+    reference = _approved_reference_record(project_id)
+
+    first = catalog.create_dataset_version(
+        project_id,
+        approved_reference_records=[reference],
+    )
+    replay = catalog.create_dataset_version(
+        project_id,
+        approved_reference_records=[reference],
+    )
+
+    assert replay["dataset_version_id"] == first["dataset_version_id"]
+    assert replay["reused"] is True
+    assert first["approved_reference_member_count"] == 1
+    assert first["training_member_count"] == 1
+    assert first["training_gate_member_count"] == 1
+    assert first[
+        "approved_references_count_toward_training_gate"
+    ] is False
+    assert first[
+        "approved_references_count_toward_validation"
+    ] is False
+    frozen = first["approved_reference_members"][0]
+    assert frozen["approval_id"] == reference["approval_id"]
+    assert frozen["approval_revision"] == 1
+    assert frozen["document_name"] == reference["document_name"]
+    assert frozen["document_sha256"] == reference["document_sha256"]
+    assert frozen["structure_target_summary_sha256"] == reference[
+        "structure_target_summary_sha256"
+    ]
+    assert frozen["index_manifest_sha256"] == reference[
+        "index_manifest_sha256"
+    ]
+    assert frozen["image_sha256"] == reference["image_sha256"]
+    assert frozen["image_media_type"] == reference["image_media_type"]
+    assert frozen["image_width"] == reference["image_width"]
+    assert frozen["image_height"] == reference["image_height"]
+    assert frozen["quarter"] == 3
+    assert frozen["section_path"] == "Contents/section0.xml"
+    assert frozen["section_index"] == reference["section_index"]
+    assert frozen["table_id"] == reference["table_id"]
+    assert frozen["table_index"] == reference["table_index"]
+    assert frozen["cell_target_id"] == reference["cell_target_id"]
+    assert frozen["cell_row"] == reference["cell_row"]
+    assert frozen["cell_column"] == reference["cell_column"]
+    assert frozen["photo_page_number"] == 2
+    assert frozen["inspection_page_number"] == 1
+    assert frozen["picture_target_id"] == reference[
+        "picture_target_id"
+    ]
+    assert frozen["photo_slot_id"] == reference["photo_slot_id"]
+    assert frozen["caption"] == reference["caption"]
+    assert frozen["route"] == reference["route"]
+    assert frozen["opinion"] == reference["opinion"]
+    assert frozen["weak_candidates"] == reference["weak_candidates"]
+    assert frozen["square_markers"] == reference["square_markers"]
+    assert frozen["semantic_cells"] == sorted(
+        reference["semantic_cells"],
+        key=lambda item: item["role"],
+    )
+    assert frozen["square_marker_target_ids"] == [
+        marker["cell_target_id"]
+        for marker in frozen["square_markers"]
+    ]
+    assert frozen["evaluation_marker_target_ids"] == (
+        frozen["square_marker_target_ids"]
+    )
+    member_hash = frozen["approved_reference_member_sha256"]
+    assert member_hash == hashlib.sha256(
+        canonical_json_bytes(
+            {
+                key: value
+                for key, value in frozen.items()
+                if key != "approved_reference_member_sha256"
+            }
+        )
+    ).hexdigest()
+    assert len(frozen["source_address_sha256"]) == 64
+    assert first["approved_reference_training_event_count"] == 1
+    assert first["manifest"]["counts"]["training_gate_members"] == 1
+    assert first["manifest"]["counts"]["validation"] == 0
+    assert first["manifest"][
+        "approved_references_count_toward_training_gate"
+    ] is False
+    assert first["manifest"][
+        "approved_references_count_toward_validation"
+    ] is False
+
+    changed_value = {
+        **reference,
+        "revision": 2,
+        "maintenance_action": "resurface",
+    }
+    changed_value.pop("record_sha256")
+    changed = {
+        **changed_value,
+        "record_sha256": hashlib.sha256(
+            canonical_json_bytes(changed_value)
+        ).hexdigest(),
+    }
+    second = catalog.create_dataset_version(
+        project_id,
+        approved_reference_records=[changed],
+    )
+    assert second["dataset_version_id"] != first["dataset_version_id"]
+    assert second["dataset_hash"] != first["dataset_hash"]
+    assert first["approved_reference_members"][0][
+        "approval_revision"
+    ] == 1
+    assert second["approved_reference_members"][0][
+        "approval_revision"
+    ] == 2
+
+
+def test_dataset_rejects_duplicate_approved_reference_evidence(tmp_path):
+    project_id = uuid4()
+    catalog, fixtures = _catalog_with_jobs(
+        tmp_path,
+        project_id=project_id,
+        job_candidate_counts=[1],
+    )
+    catalog.project_label_record(
+        project_id,
+        _chain_records(
+            project_id,
+            fixtures,
+            [(fixtures[0], 0, "no")],
+        )[0],
+    )
+    shared_image = hashlib.sha256(b"shared-image").hexdigest()
+    with pytest.raises(
+        DatasetVersionError,
+        match="duplicate evidence",
+    ):
+        catalog.create_dataset_version(
+            project_id,
+            approved_reference_records=[
+                _approved_reference_record(
+                    project_id,
+                    seed="a",
+                    image_sha256=shared_image,
+                ),
+                _approved_reference_record(
+                    project_id,
+                    seed="b",
+                    image_sha256=shared_image,
+                ),
+            ],
+        )
+
+
+def test_dataset_rejects_stale_reference_without_corrected_layout_binding(
+    tmp_path,
+):
+    project_id = uuid4()
+    catalog, fixtures = _catalog_with_jobs(
+        tmp_path,
+        project_id=project_id,
+        job_candidate_counts=[1],
+    )
+    catalog.project_label_record(
+        project_id,
+        _chain_records(
+            project_id,
+            fixtures,
+            [(fixtures[0], 0, "yes")],
+        )[0],
+    )
+    current = _approved_reference_record(project_id)
+    stale = {
+        **current,
+        "schema_version": "trafficvisson.approved-reference.v1",
+    }
+    stale.pop("record_sha256")
+    stale["record_sha256"] = hashlib.sha256(
+        canonical_json_bytes(stale)
+    ).hexdigest()
+
+    with pytest.raises(
+        DatasetVersionError,
+        match="identity or training label",
+    ):
+        catalog.create_dataset_version(
+            project_id,
+            approved_reference_records=[stale],
+        )
+
+
+def test_dataset_weights_two_reference_photos_as_one_evidence_event(
+    tmp_path,
+):
+    project_id = uuid4()
+    catalog, fixtures = _catalog_with_jobs(
+        tmp_path,
+        project_id=project_id,
+        job_candidate_counts=[1],
+    )
+    catalog.project_label_record(
+        project_id,
+        _chain_records(
+            project_id,
+            fixtures,
+            [(fixtures[0], 0, "yes")],
+        )[0],
+    )
+    first = _approved_reference_record(
+        project_id,
+        seed="group-photo-one",
+        group_seed="same-evidence-event",
+        group_photo_index=1,
+        group_photo_count=2,
+    )
+    second = _approved_reference_record(
+        project_id,
+        seed="group-photo-two",
+        group_seed="same-evidence-event",
+        group_photo_index=2,
+        group_photo_count=2,
+    )
+
+    dataset = catalog.create_dataset_version(
+        project_id,
+        approved_reference_records=[first, second],
+    )
+
+    assert dataset["approved_reference_member_count"] == 2
+    assert dataset["approved_reference_training_event_count"] == 1
+    assert dataset["training_member_count"] == 1
+    assert dataset["training_gate_member_count"] == 1
+    assert dataset["manifest"]["counts"][
+        "approved_reference_training_events"
+    ] == 1

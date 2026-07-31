@@ -138,7 +138,11 @@ def test_snapshot_is_authenticated_allowlisted_repeatable_and_path_private(
     assert [item["name"] for item in first["files"]] == ["A.MP4", "b.mov"]
     assert [item["extension"] for item in first["files"]] == [".mp4", ".mov"]
     assert all(item["created_time_ns"] > 0 for item in first["files"])
-    assert all(item["modified_time_ns"] > 0 for item in first["files"])
+    assert all(
+        item["modified_time_ns"].isdigit()
+        and int(item["modified_time_ns"]) > 0
+        for item in first["files"]
+    )
     assert str(media_directory) not in json.dumps(first, ensure_ascii=False)
     assert "directory" not in first
     assert "content_hash" not in first

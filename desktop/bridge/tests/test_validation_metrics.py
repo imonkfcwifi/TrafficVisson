@@ -277,6 +277,57 @@ def test_eligible_still_requires_explicit_user_promotion():
     )
 
 
+def test_zero_recall_candidate_is_rejected_by_absolute_quality_floors():
+    truth = _truth(sample_count=30)
+    decision = compare_candidate_to_active(
+        active_model_version="active-v1",
+        candidate_model_version="candidate-v2",
+        truth_records=truth,
+        active_prediction_records=[],
+        candidate_prediction_records=[],
+        required_issue_types=["pothole"],
+    )
+
+    assert decision.decision == "rejected"
+    assert decision.minimum_candidate_recall == 0.80
+    assert decision.minimum_candidate_precision == 0.50
+    assert {
+        reason.code for reason in decision.reasons
+    } == {
+        "candidate_recall_below_absolute_minimum",
+        "candidate_precision_below_absolute_minimum",
+    }
+    assert decision.candidate_report.per_type[0].truth_event_count == 30
+    assert decision.candidate_report.per_type[0].prediction_event_count == 0
+
+
+def test_candidate_below_absolute_precision_floor_is_rejected():
+    truth = _truth(sample_count=30)
+    predictions = _matched_predictions(30)
+    predictions.extend(
+        {
+            "prediction_event_id": f"unmatched-{index:03d}",
+            "sample_id": f"sample-{index % 30:03d}",
+            "issue_type": "pothole",
+            "matched_truth_event_id": None,
+        }
+        for index in range(31)
+    )
+    decision = compare_candidate_to_active(
+        active_model_version="active-v1",
+        candidate_model_version="candidate-v2",
+        truth_records=truth,
+        active_prediction_records=predictions,
+        candidate_prediction_records=predictions,
+        required_issue_types=["pothole"],
+    )
+
+    assert decision.decision == "rejected"
+    assert {
+        reason.code for reason in decision.reasons
+    } == {"candidate_precision_below_absolute_minimum"}
+
+
 @pytest.mark.parametrize(
     "truth_records,prediction_records,message",
     [

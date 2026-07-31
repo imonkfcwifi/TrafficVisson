@@ -46,6 +46,10 @@ const reportSource = await readFile(
   new URL("./screens/ReportScreen.tsx", import.meta.url),
   "utf8",
 );
+const modelSource = await readFile(
+  new URL("./screens/ModelScreen.tsx", import.meta.url),
+  "utf8",
+);
 
 test("ImportScreen renders every discovered file without browser verification fixtures", () => {
   assert.doesNotMatch(importSource, /candidates\.slice\(/);
@@ -84,6 +88,15 @@ test("AnalysisScreen contains no fabricated pipeline, GPU, or checkpoint claims"
   );
 });
 
+test("ModelScreen does not claim a common detector artifact before one exists", () => {
+  assert.match(modelSource, /전용 모델 없음 · 후보 수집 단계/);
+  assert.match(modelSource, /activeModel \? "ACTIVE" : "미학습"/);
+  assert.match(modelSource, /전용 객체 검출기/);
+  assert.match(modelSource, /보조 의미 분류 헤드/);
+  assert.doesNotMatch(modelSource, /센트로이드 검출기/);
+  assert.doesNotMatch(modelSource, /공통 초기 모델/);
+});
+
 test("ImportScreen uses user-facing copy for the renderer security boundary", () => {
   assert.match(importSource, /선택 파일을 안전한 미디어 입력으로 등록하는 중/);
   assert.doesNotMatch(importSource, /renderer 파일 권한 없음/);
@@ -103,13 +116,16 @@ test("ReviewScreen is read-only over real candidates and delegates writes to lab
   assert.match(reviewSource, /persistentIssueLabel\(incident\.issueType\)/);
   assert.match(reviewSource, /incident\?\.maintenanceAction/);
   assert.match(reviewSource, /incident\?\.ocrText/);
-  assert.match(reviewSource, /질문형 라벨링에서 검토/);
+  assert.match(reviewSource, /질문 검토에서 확인/);
+  assert.doesNotMatch(reviewSource, /질문형 라벨링/);
+  assert.match(reportSource, /질문 검토에서 사건을 한 건 이상 승인하세요/);
+  assert.doesNotMatch(reportSource, /질문형 라벨링/);
   assert.doesNotMatch(reviewSource, /import\s*\{\s*incidents\s*\}/);
   assert.doesNotMatch(reviewSource, /trafficvisson\.review-decisions/);
   assert.doesNotMatch(reviewSource, /후보 승인.*onClick|후보 반려.*onClick/s);
   assert.match(
     reviewSource,
-    /if \(!summary \|\| !candidate\)[\s\S]*CANDIDATE REVIEW[\s\S]*사건 검토/,
+    /if \(!summary \|\| !candidate\)[\s\S]*판정 결과 비교[\s\S]*사건 검토/,
   );
 });
 
@@ -129,7 +145,7 @@ test("HistoryScreen uses evidence clips and candidate timestamps without a synth
   assert.doesNotMatch(historySource, /import\s*\{\s*incidents/);
   assert.match(
     historySource,
-    /if \(!summary \|\| !selectedCandidate\)[\s\S]*screen--history[\s\S]*SYNCHRONIZED EVIDENCE/,
+    /if \(!summary \|\| !selectedCandidate\)[\s\S]*screen--history[\s\S]*지도·영상 동기화/,
   );
 });
 
@@ -207,7 +223,12 @@ test("LabelingScreen can switch among every completed project video without mixi
   assert.match(labelingSource, /더 이전 영상/);
   assert.match(labelingSource, /다음 AI 제안 영상/);
   assert.match(labelingSource, /제안 영상 \$\{proposalJobCount\}[\s\S]*영상별 기록/);
-  assert.match(labelingSource, /\{jobSwitcher\}\s*<GlassPanel className="label-empty-state">/);
+  assert.match(
+    labelingSource,
+    /\{jobSwitcher\}[\s\S]*className="analysis-empty"/,
+  );
+  assert.doesNotMatch(labelingSource, /realTunnelEvidenceImage/);
+  assert.doesNotMatch(labelingSource, /참고 이미지 · 라벨 큐 아님/);
 });
 
 test("ReportScreen does not offer login when an official CLI is unavailable", () => {

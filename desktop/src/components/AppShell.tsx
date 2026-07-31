@@ -44,10 +44,12 @@ import {
   resetPipelineUiState,
   usePipelineUi,
 } from "../pipelineJobs";
+import { isProviderVisualPrivacyReviewInterruption } from "../providerVisualEvidence";
 import {
   reviewRecordsFromQuestionList,
   reviewStorageKey,
   saveReviewHistory,
+  useReviewHistory,
 } from "../reviewRecords";
 import {
   clearRuntime,
@@ -346,7 +348,7 @@ const NAV_ITEMS: Array<{
   },
   {
     id: "label",
-    label: "질문 라벨링",
+    label: "질문 검토",
     compactLabel: "질문",
     shortcut: "4",
     icon: Tags,
@@ -361,7 +363,7 @@ const NAV_ITEMS: Array<{
   },
   {
     id: "history",
-    label: "GPS 히스토리",
+    label: "지도·영상 히스토리",
     compactLabel: "지도",
     shortcut: "6",
     icon: History,
@@ -499,7 +501,13 @@ export function AppShell({
     let active = true;
     let fetching = false;
     const refresh = () => {
-      if (!active || fetching) return;
+      if (
+        !active ||
+        fetching ||
+        document.visibilityState === "hidden"
+      ) {
+        return;
+      }
       fetching = true;
       void window.trafficSuperVision!.pipeline
         .get({ projectId, jobId: job.jobId })
@@ -520,10 +528,15 @@ export function AppShell({
           fetching = false;
         });
     };
+    const resumeVisiblePolling = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
     const timer = window.setInterval(refresh, 800);
+    document.addEventListener("visibilitychange", resumeVisiblePolling);
     return () => {
       active = false;
       window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", resumeVisiblePolling);
     };
   }, [
     pipeline.job?.jobId,
@@ -585,6 +598,24 @@ export function AppShell({
     pipeline.job?.snapshotId,
     pipeline.job?.status,
     pipeline.job?.updatedAt,
+    pipeline.projectId,
+    projectCatalog.activeProjectId,
+  ]);
+
+  useEffect(() => {
+    const job =
+      pipeline.projectId === projectCatalog.activeProjectId
+        ? pipeline.job
+        : null;
+    if (!isProviderVisualPrivacyReviewInterruption(job)) return;
+    const navigationKey = `privacy:${job.jobId}:${job.updatedAt}`;
+    if (pipelineAutoNavigationRef.current === navigationKey) return;
+    pipelineAutoNavigationRef.current = navigationKey;
+    if (activeScreen !== "label") onScreenChange("label");
+  }, [
+    activeScreen,
+    onScreenChange,
+    pipeline.job,
     pipeline.projectId,
     projectCatalog.activeProjectId,
   ]);
@@ -790,8 +821,14 @@ export function AppShell({
   ]);
 
   useEffect(() => {
+    if (!diagnosticsOpen) return;
     let active = true;
-    if (!window.trafficSuperVision) return;
+    setProviderState({ codex: null, claude: null });
+    setHwpAvailable(null);
+    if (!window.trafficSuperVision) {
+      setHwpAvailable(false);
+      return;
+    }
     void window.trafficSuperVision.providers
       .list()
       .then((response) => {
@@ -860,7 +897,7 @@ export function AppShell({
     return () => {
       active = false;
     };
-  }, []);
+  }, [diagnosticsOpen]);
 
   useEffect(() => {
     if (!diagnosticsOpen) return;
@@ -988,7 +1025,8 @@ export function AppShell({
       : null;
   const analysisBadge = currentPipeline
     ? currentPipeline.status === "blocked"
-      ? currentPipeline.outcomeCode === "partial"
+      ? currentPipeline.outcomeCode === "partial" ||
+        currentPipeline.outcomeCode === "report_preview_blocked"
         ? "산출"
         : "모델"
       : currentPipeline.status === "failed"
@@ -1069,6 +1107,80 @@ export function AppShell({
     0,
     NAV_ITEMS.findIndex((item) => item.id === activeNavigationItem.id),
   );
+  const activeNavigationSection =
+    [...NAV_ITEMS.slice(0, activeNavigationIndex + 1)]
+      .reverse()
+      .find((item) => item.sectionLabel)?.sectionLabel ?? "자동 점검";
+  const currentQuestionQueue = currentPipeline
+    ? pipelineQuestionQueueBinding(currentPipeline)
+    : null;
+  const currentQuestionReviewKey =
+    currentQuestionQueue && activeProject
+      ? reviewStorageKey(
+          activeProject.id,
+          currentQuestionQueue.analysisJobId,
+        )
+      : "trafficvisson:review:inactive";
+  const currentQuestionReviews = useReviewHistory(
+    currentQuestionReviewKey,
+  );
+  const reviewedQuestionCount = new Set(
+    currentQuestionReviews.map((record) => record.questionId),
+  ).size;
+  const remainingQuestionCount = currentQuestionQueue
+    ? Math.max(
+        0,
+        currentQuestionQueue.questionCount - reviewedQuestionCount,
+      )
+    : 0;
+  useEffect(() => {
+    if (
+      !window.trafficSuperVision ||
+      !activeProject ||
+      !currentPipeline ||
+      !currentQuestionQueue
+    ) {
+      return;
+    }
+    void window.trafficSuperVision.notifications
+      .questionReviewReady({
+        projectId: activeProject.id,
+        pipelineJobId: currentPipeline.jobId,
+        queueRevision: currentQuestionQueue.queueRevision,
+        questionCount: currentQuestionQueue.questionCount,
+      })
+      .catch(() => {
+        // The in-app "질문 검토 대기" state remains the authoritative
+        // fallback when the OS notification service is unavailable.
+      });
+  }, [
+    activeProject?.id,
+    currentPipeline?.jobId,
+    currentQuestionQueue?.queueRevision,
+    currentQuestionQueue?.questionCount,
+  ]);
+  const currentTaskLabel = currentPipeline
+    ? currentPipeline.status === "awaiting_review"
+      ? currentQuestionQueue
+        ? remainingQuestionCount > 0
+          ? `남은 질문 ${remainingQuestionCount}건 답변`
+          : "답변 완료 처리 중"
+        : "준비된 질문 답변"
+      : currentPipeline.status === "queued"
+        ? "자동 분석 대기"
+        : currentPipeline.status === "running" ||
+            currentPipeline.status === "cancelling"
+          ? `자동 분석 ${currentPipeline.progressPercent}%`
+          : currentPipeline.status === "completed"
+            ? "결과 확인"
+            : currentPipeline.status === "blocked"
+              ? "환경 확인 후 재개"
+              : currentPipeline.status === "failed"
+                ? "오류 확인"
+                : "새 영상 선택"
+    : runtime.activeImport
+      ? "현재 입력 확인"
+      : "영상 선택";
   const activeProjectSecondaryStatus = currentPipeline
     ? `${pipelineStatusLabel(currentPipeline)} · ${currentPipeline.progressPercent}%`
     : runtime.activeImport
@@ -1149,12 +1261,11 @@ export function AppShell({
 
           <div
             className="shell-screen-context"
-            aria-label={`현재 작업 화면: ${activeNavigationItem.label}`}
+            aria-label={`현재 업무 영역: ${activeNavigationSection}, 화면: ${activeNavigationItem.label}, 지금 할 일: ${currentTaskLabel}`}
           >
-            <span>
-              업무 화면 {activeNavigationIndex + 1} / {NAV_ITEMS.length}
-            </span>
+            <span>{activeNavigationSection}</span>
             <strong>{activeNavigationItem.label}</strong>
+            <small title={currentTaskLabel}>{currentTaskLabel}</small>
             <kbd aria-label={`${activeNavigationItem.shortcut}번 단축키`}>
               {activeNavigationItem.shortcut}
             </kbd>
@@ -1306,7 +1417,8 @@ export function AppShell({
             <span>
               {currentPipeline
                 ? currentPipeline.status === "blocked"
-                  ? currentPipeline.outcomeCode === "partial"
+                  ? currentPipeline.outcomeCode === "partial" ||
+                    currentPipeline.outcomeCode === "report_preview_blocked"
                     ? "CSV·증거 저장 완료 · 보고서 준비 경계에서 재개"
                     : "빈 성공 아님 · 필요한 로컬 모델팩을 설치한 뒤 재개"
                   : "한 PipelineJob · 재시작 복구 · 프로젝트 provenance"

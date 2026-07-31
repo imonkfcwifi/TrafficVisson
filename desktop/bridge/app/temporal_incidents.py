@@ -51,6 +51,7 @@ _SCORE_SEMANTICS = frozenset(
     {
         "model_score_not_probability",
         "zero_shot_relative_not_probability",
+        "review_proposal_score_not_probability",
     }
 )
 _REQUIRED_DETECTION_FIELDS = frozenset(

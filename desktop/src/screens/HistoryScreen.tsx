@@ -1,6 +1,8 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
+  AlertTriangle,
   ChevronRight,
+  Crosshair,
   Eye,
   FastForward,
   MapPin,
@@ -14,7 +16,12 @@ import {
   Rewind,
   Tags,
   Video,
+  X,
 } from "lucide-react";
+import {
+  parseAnalysisJob,
+  toRestoredRuntime,
+} from "../analysisJobs";
 import {
   loadSelectedCandidateId,
   saveSelectedCandidateId,
@@ -34,13 +41,32 @@ import {
   type GpxTrack,
 } from "../gpsTracks";
 import {
+  parsePipelineJob,
+  pipelineQuestionQueueBinding,
+  publishPipelineJob,
+  usePipelineUi,
+  type PipelineJob,
+  type PipelineQuestionQueueBinding,
+} from "../pipelineJobs";
+import {
   parseActivePersistentIncidents,
   persistentIssueLabel,
   persistentSeverityLabel,
   type PersistentIncident,
 } from "../persistentIncidents";
-import type { AnalysisCandidate } from "../runtimeState";
-import { useRuntimeState } from "../runtimeState";
+import type { AnalysisCandidate, AnalysisSummary } from "../runtimeState";
+import {
+  restoreCompletedAnalysis,
+  useRuntimeState,
+} from "../runtimeState";
+import {
+  normalizedVideoPoint,
+  parseUserDiscoveredCandidateReceipt,
+  parseUserDiscoveredReviewFrame,
+  userDiscoveredCandidateErrorMessage,
+  type UserDiscoveredPointSelection,
+  type UserDiscoveredReviewFrame,
+} from "../userDiscoveredCandidates";
 
 const HistoryMap = lazy(() =>
   import("../components/HistoryMap").then((module) => ({
@@ -62,12 +88,413 @@ function formatTime(seconds: number, milliseconds = false) {
     : base;
 }
 
+function ZeroCandidateSurveyHistory({
+  summary,
+  pipelineJob,
+  binding,
+  sourceDurationSeconds,
+  onNavigate,
+}: {
+  summary: AnalysisSummary;
+  pipelineJob: PipelineJob;
+  binding: PipelineQuestionQueueBinding;
+  sourceDurationSeconds: number;
+  onNavigate: (screen: ScreenId) => void;
+}) {
+  const [timestampSeconds, setTimestampSeconds] = useState(0);
+  const [frame, setFrame] =
+    useState<UserDiscoveredReviewFrame | null>(null);
+  const [frameUrl, setFrameUrl] = useState<string | null>(null);
+  const [displayPoint, setDisplayPoint] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
+  const [state, setState] = useState<{
+    phase:
+      | "loading_frame"
+      | "ready"
+      | "submitting"
+      | "created_refresh_failed"
+      | "failed";
+    message: string;
+  }>({
+    phase: "loading_frame",
+    message:
+      "전체 주행의 불변 2fps 인덱스에서 첫 프레임을 확인하고 있습니다.",
+  });
+  const durationSeconds = Math.max(
+    frame?.indexedDurationSeconds ?? 0,
+    sourceDurationSeconds,
+    1,
+  );
+
+  useEffect(() => {
+    const service =
+      window.trafficSuperVision?.userDiscoveredCandidates;
+    if (!service) {
+      setState({
+        phase: "failed",
+        message:
+          "설치형 앱의 전체 2fps 검토 프레임 연결을 찾지 못했습니다.",
+      });
+      return;
+    }
+    let active = true;
+    let objectUrl: string | null = null;
+    setState({
+      phase: "loading_frame",
+      message:
+        "전체 주행의 불변 2fps 인덱스에서 가장 가까운 프레임을 확인하고 있습니다.",
+    });
+    setFrame(null);
+    setFrameUrl(null);
+    setDisplayPoint(null);
+    const requestedTimestampSeconds =
+      Math.round(timestampSeconds * 1_000_000) / 1_000_000;
+    const timer = window.setTimeout(() => {
+      void service
+        .reviewFrame({
+          projectId: summary.projectId,
+          pipelineJobId: pipelineJob.jobId,
+          analysisJobId: summary.jobId,
+          timestampSeconds: requestedTimestampSeconds,
+        })
+        .then((value) =>
+          parseUserDiscoveredReviewFrame(value, {
+            projectId: summary.projectId,
+            pipelineJobId: pipelineJob.jobId,
+            analysisJobId: summary.jobId,
+            requestedTimestampSeconds,
+          }),
+        )
+        .then((nextFrame) => {
+          if (!active) return;
+          if (
+            nextFrame.questionQueueRevision !== binding.queueRevision
+          ) {
+            throw new Error(
+              "질문 큐가 갱신되어 현재 2fps 프레임 선택을 사용할 수 없습니다.",
+            );
+          }
+          objectUrl = URL.createObjectURL(
+            new Blob(
+              [nextFrame.bytes.slice().buffer as ArrayBuffer],
+              { type: "image/jpeg" },
+            ),
+          );
+          setFrame(nextFrame);
+          setFrameUrl(objectUrl);
+          setState({
+            phase: "ready",
+            message:
+              "모델이 놓친 도로 문제가 보이면 해당 위치를 한 번 클릭하세요.",
+          });
+        })
+        .catch((error) => {
+          if (!active) return;
+          setState({
+            phase: "failed",
+            message: userDiscoveredCandidateErrorMessage(error),
+          });
+        });
+    }, 180);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [
+    binding.queueRevision,
+    pipelineJob.jobId,
+    summary.jobId,
+    summary.projectId,
+    timestampSeconds,
+  ]);
+
+  const submitMissedCandidate = async (
+    event: React.MouseEvent<HTMLImageElement>,
+  ) => {
+    if (
+      state.phase !== "ready" ||
+      !frame ||
+      !frameUrl
+    ) {
+      return;
+    }
+    if (frame.questionQueueRevision !== binding.queueRevision) {
+      setState({
+        phase: "failed",
+        message:
+          "질문 큐가 갱신됐습니다. 최신 전체 주행 프레임을 다시 불러와 주세요.",
+      });
+      return;
+    }
+    const image = event.currentTarget;
+    const bounds = image.getBoundingClientRect();
+    const objectFit = window.getComputedStyle(image).objectFit;
+    const point = normalizedVideoPoint({
+      clientX: event.clientX,
+      clientY: event.clientY,
+      left: bounds.left,
+      top: bounds.top,
+      width: bounds.width,
+      height: bounds.height,
+      videoWidth: image.naturalWidth,
+      videoHeight: image.naturalHeight,
+      objectFit:
+        objectFit === "cover" || objectFit === "fill"
+          ? objectFit
+          : "contain",
+    });
+    if (!point) {
+      setState({
+        phase: "ready",
+        message:
+          "검은 여백이 아닌 실제 영상 안에서 문제 위치를 클릭해 주세요.",
+      });
+      return;
+    }
+    setDisplayPoint({
+      x: ((event.clientX - bounds.left) / bounds.width) * 100,
+      y: ((event.clientY - bounds.top) / bounds.height) * 100,
+    });
+    const bridge = window.trafficSuperVision;
+    const service = bridge?.userDiscoveredCandidates;
+    if (!bridge || !service) {
+      setState({
+        phase: "failed",
+        message:
+          "설치형 앱의 누락 후보 연결을 찾지 못했습니다. 앱을 다시 시작해 주세요.",
+      });
+      return;
+    }
+    const requestedTimestampSeconds =
+      frame.selectedFrameTimestampSeconds;
+    setState({
+      phase: "submitting",
+      message:
+        "서버가 같은 영상의 2fps 프레임과 활성 승격 모델 계보를 다시 확인하고 있습니다.",
+    });
+    try {
+      const receipt = parseUserDiscoveredCandidateReceipt(
+        await service.create({
+          projectId: summary.projectId,
+          pipelineJobId: pipelineJob.jobId,
+          analysisJobId: summary.jobId,
+          timestampSeconds: requestedTimestampSeconds,
+          selection: point,
+          requestSam2Mask: true,
+          expectedQuestionQueueRevision:
+            frame.questionQueueRevision,
+        }),
+        {
+          projectId: summary.projectId,
+          pipelineJobId: pipelineJob.jobId,
+          analysisJobId: summary.jobId,
+          requestedTimestampSeconds,
+          selection: point,
+        },
+      );
+      const [pipelineValue, analysisValue] = await Promise.all([
+        bridge.pipeline.get({
+          projectId: summary.projectId,
+          jobId: pipelineJob.jobId,
+        }),
+        bridge.analysis.get({
+          projectId: summary.projectId,
+          jobId: summary.jobId,
+        }),
+      ]);
+      const nextPipeline = parsePipelineJob(pipelineValue);
+      const nextBinding = pipelineQuestionQueueBinding(nextPipeline);
+      if (
+        nextPipeline.projectId !== receipt.projectId ||
+        nextPipeline.jobId !== receipt.pipelineJobId ||
+        !nextBinding ||
+        nextBinding.analysisJobId !== receipt.analysisJobId ||
+        nextBinding.queueRevision !== receipt.questionQueueRevision
+      ) {
+        throw new Error(
+          "새 질문 리비전과 파이프라인 상태가 일치하지 않습니다.",
+        );
+      }
+      const restored = toRestoredRuntime(parseAnalysisJob(analysisValue));
+      if (
+        restored.analysisSummary.projectId !== receipt.projectId ||
+        restored.analysisSummary.jobId !== receipt.analysisJobId ||
+        !restored.analysisSummary.candidates.some(
+          ({ candidateId }) => candidateId === receipt.candidateId,
+        )
+      ) {
+        throw new Error(
+          "새 누락 후보 근거가 분석 화면에 투영되지 않았습니다.",
+        );
+      }
+      publishPipelineJob(nextPipeline);
+      restoreCompletedAnalysis(
+        restored.activeImport,
+        restored.analysisSummary,
+      );
+      saveSelectedCandidateId(
+        receipt.projectId,
+        receipt.analysisJobId,
+        receipt.candidateId,
+      );
+      onNavigate("label");
+    } catch (error) {
+      setState({
+        phase: "created_refresh_failed",
+        message: `누락 후보 질문 생성 또는 최신 화면 갱신에 실패했습니다. 중복 제출하지 말고 질문 검토를 다시 여세요. ${
+          error instanceof Error ? error.message : ""
+        }`.trim(),
+      });
+    }
+  };
+
+  return (
+    <div className="screen screen--history">
+      <header className="screen-header">
+        <div>
+          <p className="eyebrow">승격 모델 0건 조사 QA</p>
+          <h1>전체 주행 2fps 누락 확인</h1>
+          <p>
+            기존 후보가 없어도 원본 전체 시간축을 직접 확인합니다. 문제를
+            찾으면 위치를 클릭하고, 없으면 질문 검토로 돌아가 완료하세요.
+          </p>
+        </div>
+        <div className="playback-actions">
+          <Button variant="primary" onClick={() => onNavigate("label")}>
+            누락 없음 · 질문 검토로
+          </Button>
+        </div>
+      </header>
+      <GlassPanel className="video-player">
+        <div className="video-frame video-frame--missed-qa">
+          <div className="missed-qa-frame">
+            {frameUrl ? (
+              <img
+                src={frameUrl}
+                alt={`${formatTime(
+                  frame?.selectedFrameTimestampSeconds ??
+                    timestampSeconds,
+                  true,
+                )} 전체 주행 2fps 검토 프레임`}
+                className={
+                  state.phase === "ready"
+                    ? "missed-qa-frame__image is-selectable"
+                    : "missed-qa-frame__image"
+                }
+                onClick={(event) =>
+                  void submitMissedCandidate(event)
+                }
+              />
+            ) : (
+              <div className="missed-qa-frame__loading" role="status">
+                <Crosshair size={28} />
+                <strong>전체 주행 2fps 프레임 확인 중</strong>
+                <span>
+                  후보 클립이 아니라 원본 전체 시간축의 불변 프레임을
+                  불러옵니다.
+                </span>
+              </div>
+            )}
+            {displayPoint ? (
+              <span
+                className="missed-qa-frame__point"
+                style={{
+                  left: `${displayPoint.x}%`,
+                  top: `${displayPoint.y}%`,
+                }}
+                aria-hidden="true"
+              />
+            ) : null}
+            <div className="missed-qa-frame__instruction">
+              {state.message}
+            </div>
+          </div>
+          <div className="video-status video-status--left">
+            <span className="qa-dot" />
+            <span className="mono">
+              {formatTime(
+                frame?.selectedFrameTimestampSeconds ??
+                  timestampSeconds,
+                true,
+              )}{" "}
+              / {formatTime(durationSeconds)}
+            </span>
+          </div>
+          <div className="video-status video-status--right">
+            <span>{summary.sourceFileName}</span>
+            <span>
+              {frame
+                ? `전체 2fps QA · frame ${frame.selectedFrameIndex}`
+                : "전체 2fps QA"}
+            </span>
+          </div>
+        </div>
+        <div className="video-controls missed-qa-controls">
+          <IconButton
+            label="전체 주행 2fps 프레임 0.5초 뒤로"
+            disabled={
+              state.phase === "submitting" ||
+              timestampSeconds <= 0
+            }
+            onClick={() =>
+              setTimestampSeconds((current) =>
+                Math.max(0, current - 0.5),
+              )
+            }
+          >
+            <Rewind size={16} />
+          </IconButton>
+          <input
+            type="range"
+            min={0}
+            max={durationSeconds}
+            step={0.5}
+            value={Math.min(timestampSeconds, durationSeconds)}
+            aria-label="전체 주행 2fps QA 시각"
+            disabled={state.phase === "submitting"}
+            onChange={(event) =>
+              setTimestampSeconds(Number(event.currentTarget.value))
+            }
+          />
+          <IconButton
+            label="전체 주행 2fps 프레임 0.5초 앞으로"
+            disabled={
+              state.phase === "submitting" ||
+              timestampSeconds >= durationSeconds
+            }
+            onClick={() =>
+              setTimestampSeconds((current) =>
+                Math.min(durationSeconds, current + 0.5),
+              )
+            }
+          >
+            <FastForward size={16} />
+          </IconButton>
+        </div>
+        {state.phase === "failed" ||
+        state.phase === "created_refresh_failed" ? (
+          <div className="inline-error" role="alert">
+            <AlertTriangle size={17} aria-hidden="true" />
+            <span>{state.message}</span>
+          </div>
+        ) : (
+          <p className="muted">{state.message}</p>
+        )}
+      </GlassPanel>
+    </div>
+  );
+}
+
 export function HistoryScreen({
   onNavigate,
 }: {
   onNavigate: (screen: ScreenId) => void;
 }) {
   const runtime = useRuntimeState();
+  const pipeline = usePipelineUi();
   const summary = runtime.analysisSummary;
   const candidates = summary?.candidates ?? [];
   const sourceLocation = summary?.sourceLocation ?? null;
@@ -86,6 +513,32 @@ export function HistoryScreen({
   const [gpxTrack, setGpxTrack] = useState<GpxTrack | null>(null);
   const [gpxLoading, setGpxLoading] = useState(false);
   const [gpxError, setGpxError] = useState<string | null>(null);
+  const [missQaOpen, setMissQaOpen] = useState(false);
+  const [missReviewTimestampSeconds, setMissReviewTimestampSeconds] =
+    useState(0);
+  const [missReviewFrame, setMissReviewFrame] =
+    useState<UserDiscoveredReviewFrame | null>(null);
+  const [missReviewFrameUrl, setMissReviewFrameUrl] =
+    useState<string | null>(null);
+  const [missDisplayPoint, setMissDisplayPoint] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
+  const [missCandidateState, setMissCandidateState] = useState<{
+    phase:
+      | "idle"
+      | "loading_frame"
+      | "ready"
+      | "submitting"
+      | "created_refresh_failed"
+      | "failed";
+    message: string | null;
+    point: UserDiscoveredPointSelection | null;
+  }>({
+    phase: "idle",
+    message: null,
+    point: null,
+  });
 
   useEffect(() => {
     if (!summary?.candidates.length) {
@@ -195,6 +648,21 @@ export function HistoryScreen({
     () => new Set(incidents.map((incident) => incident.candidateId)),
     [incidents],
   );
+  const currentPipelineJob =
+    summary && pipeline.projectId === summary.projectId
+      ? pipeline.job
+      : null;
+  const questionQueueBinding = currentPipelineJob
+    ? pipelineQuestionQueueBinding(currentPipelineJob)
+    : null;
+  const canAddMissedCandidate = Boolean(
+    summary &&
+      currentPipelineJob &&
+      questionQueueBinding &&
+      questionQueueBinding.surveyQaRequired &&
+      questionQueueBinding.analysisJobId === summary.jobId &&
+      /^[a-f0-9]{64}$/.test(questionQueueBinding.queueRevision),
+  );
 
   useEffect(() => {
     if (!selectedCandidate) return;
@@ -210,6 +678,15 @@ export function HistoryScreen({
         ),
       ),
     );
+    setMissCandidateState({
+      phase: "idle",
+      message: null,
+      point: null,
+    });
+    setMissQaOpen(false);
+    setMissReviewFrame(null);
+    setMissReviewFrameUrl(null);
+    setMissDisplayPoint(null);
   }, [selectedCandidate]);
 
   useEffect(() => {
@@ -224,13 +701,129 @@ export function HistoryScreen({
     return Math.max(runtime.activeImport?.durationSeconds ?? 0, candidateEnd, 1);
   }, [candidates, runtime.activeImport?.durationSeconds]);
 
+  useEffect(() => {
+    if (
+      !missQaOpen ||
+      !summary ||
+      !currentPipelineJob ||
+      !questionQueueBinding ||
+      !canAddMissedCandidate
+    ) {
+      return;
+    }
+    const bridge = window.trafficSuperVision;
+    if (!bridge?.userDiscoveredCandidates) {
+      setMissCandidateState({
+        phase: "failed",
+        message:
+          "설치형 앱의 전체 2fps 검토 프레임 연결을 찾지 못했습니다.",
+        point: null,
+      });
+      return;
+    }
+    let active = true;
+    let objectUrl: string | null = null;
+    setMissCandidateState({
+      phase: "loading_frame",
+      message:
+        "전체 주행의 불변 2fps 인덱스에서 가장 가까운 프레임을 확인하고 있습니다.",
+      point: null,
+    });
+    setMissReviewFrame(null);
+    setMissReviewFrameUrl(null);
+    setMissDisplayPoint(null);
+    const timer = window.setTimeout(() => {
+      const requestedTimestampSeconds =
+        Math.round(missReviewTimestampSeconds * 1_000_000) /
+        1_000_000;
+      void bridge.userDiscoveredCandidates
+        .reviewFrame({
+          projectId: summary.projectId,
+          pipelineJobId: currentPipelineJob.jobId,
+          analysisJobId: summary.jobId,
+          timestampSeconds: requestedTimestampSeconds,
+        })
+        .then((value) =>
+          parseUserDiscoveredReviewFrame(value, {
+            projectId: summary.projectId,
+            pipelineJobId: currentPipelineJob.jobId,
+            analysisJobId: summary.jobId,
+            requestedTimestampSeconds,
+          }),
+        )
+        .then((frame) => {
+          if (!active) return;
+          if (
+            frame.questionQueueRevision !==
+            questionQueueBinding.queueRevision
+          ) {
+            throw new Error(
+              "질문 큐가 갱신되어 현재 2fps 프레임 선택을 사용할 수 없습니다.",
+            );
+          }
+          objectUrl = URL.createObjectURL(
+            new Blob(
+              [frame.bytes.slice().buffer as ArrayBuffer],
+              { type: "image/jpeg" },
+            ),
+          );
+          setMissReviewFrame(frame);
+          setMissReviewFrameUrl(objectUrl);
+          setMissCandidateState({
+            phase: "ready",
+            message:
+              "이 프레임에서 모델이 놓친 도로 문제가 보이면 해당 위치를 한 번 클릭하세요.",
+            point: null,
+          });
+        })
+        .catch((error) => {
+          if (!active) return;
+          setMissCandidateState({
+            phase: "failed",
+            message: userDiscoveredCandidateErrorMessage(error),
+            point: null,
+          });
+        });
+    }, 180);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [
+    canAddMissedCandidate,
+    currentPipelineJob?.jobId,
+    missQaOpen,
+    missReviewTimestampSeconds,
+    questionQueueBinding?.queueRevision,
+    summary?.jobId,
+    summary?.projectId,
+  ]);
+
+  if (
+    summary &&
+    !selectedCandidate &&
+    currentPipelineJob &&
+    questionQueueBinding?.zeroCandidateSurvey
+  ) {
+    return (
+      <ZeroCandidateSurveyHistory
+        summary={summary}
+        pipelineJob={currentPipelineJob}
+        binding={questionQueueBinding}
+        sourceDurationSeconds={durationSeconds}
+        onNavigate={onNavigate}
+      />
+    );
+  }
+
   if (!summary || !selectedCandidate) {
     return (
       <div className="screen screen--history">
         <header className="screen-header">
           <div>
-            <p className="eyebrow">SYNCHRONIZED EVIDENCE</p>
-            <h1>영상·후보 히스토리</h1>
+            <p className="eyebrow">지도·영상 동기화</p>
+            <h1>지도·영상 히스토리</h1>
             <p>영상 시각·후보 근거·GPS 자료를 한 재생 흐름으로 확인합니다.</p>
           </div>
         </header>
@@ -263,8 +856,12 @@ export function HistoryScreen({
   );
   const absoluteTimeSeconds =
     selectedCandidate.previewStartSeconds + clipTimeSeconds;
+  const synchronizedTimeSeconds = missQaOpen
+    ? (missReviewFrame?.selectedFrameTimestampSeconds ??
+      missReviewTimestampSeconds)
+    : absoluteTimeSeconds;
   const currentGpxPosition = gpxTrack
-    ? interpolateGpxPosition(gpxTrack, absoluteTimeSeconds)
+    ? interpolateGpxPosition(gpxTrack, synchronizedTimeSeconds)
     : null;
   const selectedGpxPosition = gpxTrack
     ? interpolateGpxPosition(
@@ -274,7 +871,15 @@ export function HistoryScreen({
     : null;
   const tripProgress = Math.max(
     0,
-    Math.min(100, (absoluteTimeSeconds / durationSeconds) * 100),
+    Math.min(
+      100,
+      (synchronizedTimeSeconds /
+        Math.max(
+          missReviewFrame?.indexedDurationSeconds ?? durationSeconds,
+          0.001,
+        )) *
+        100,
+    ),
   );
   const clipProgress = Math.max(
     0,
@@ -378,6 +983,211 @@ export function HistoryScreen({
     }
   };
 
+  const startMissedCandidateSelection = () => {
+    if (!canAddMissedCandidate || !questionQueueBinding) {
+      setMissCandidateState({
+        phase: "failed",
+        message:
+          "승격 모델의 독립 조사 질문 큐를 검토 중일 때만 누락 장면을 추가할 수 있습니다.",
+        point: null,
+      });
+      return;
+    }
+    videoRef.current?.pause();
+    setMissReviewTimestampSeconds(
+      Math.max(
+        0,
+        Math.min(
+          durationSeconds,
+          selectedCandidate.previewStartSeconds +
+            (videoRef.current?.currentTime ?? clipTimeSeconds),
+        ),
+      ),
+    );
+    setMissQaOpen(true);
+    setMissCandidateState({
+      phase: "loading_frame",
+      message:
+        "전체 주행의 2fps 프레임을 불러오고 있습니다. 아직 질문이나 확정 사건은 생기지 않습니다.",
+      point: null,
+    });
+  };
+
+  const submitMissedCandidate = async (
+    event: React.MouseEvent<HTMLImageElement>,
+  ) => {
+    if (
+      missCandidateState.phase !== "ready" ||
+      !summary ||
+      !currentPipelineJob ||
+      !questionQueueBinding ||
+      !missReviewFrame ||
+      !missReviewFrameUrl
+    ) {
+      return;
+    }
+    if (
+      missReviewFrame.questionQueueRevision !==
+      questionQueueBinding.queueRevision
+    ) {
+      setMissCandidateState({
+        phase: "failed",
+        message:
+          "질문 큐가 갱신됐습니다. 최신 전체 주행 프레임을 다시 불러와 주세요.",
+        point: null,
+      });
+      return;
+    }
+    const image = event.currentTarget;
+    const bounds = image.getBoundingClientRect();
+    const objectFit = window.getComputedStyle(image).objectFit;
+    const point = normalizedVideoPoint({
+      clientX: event.clientX,
+      clientY: event.clientY,
+      left: bounds.left,
+      top: bounds.top,
+      width: bounds.width,
+      height: bounds.height,
+      videoWidth: image.naturalWidth,
+      videoHeight: image.naturalHeight,
+      objectFit:
+        objectFit === "cover" || objectFit === "fill"
+          ? objectFit
+          : "contain",
+    });
+    if (!point) {
+      setMissCandidateState({
+        phase: "ready",
+        message:
+          "검은 여백이 아닌 실제 영상 안에서 문제 위치를 클릭해 주세요.",
+        point: null,
+      });
+      return;
+    }
+    setMissDisplayPoint({
+      x: ((event.clientX - bounds.left) / bounds.width) * 100,
+      y: ((event.clientY - bounds.top) / bounds.height) * 100,
+    });
+    const requestedTimestampSeconds =
+      missReviewFrame.selectedFrameTimestampSeconds;
+    const expected = {
+      projectId: summary.projectId,
+      pipelineJobId: currentPipelineJob.jobId,
+      analysisJobId: summary.jobId,
+      requestedTimestampSeconds,
+      selection: point,
+    };
+    const bridge = window.trafficSuperVision;
+    const service = bridge?.userDiscoveredCandidates;
+    if (!bridge || !service) {
+      setMissCandidateState({
+        phase: "failed",
+        message:
+          "설치형 앱의 누락 후보 연결을 찾지 못했습니다. 앱을 다시 시작해 주세요.",
+        point,
+      });
+      return;
+    }
+    setMissCandidateState({
+      phase: "submitting",
+      message:
+        "서버가 같은 영상의 2fps 프레임과 활성 승격 모델 계보를 다시 확인하고 있습니다.",
+      point,
+    });
+    let receipt;
+    try {
+      receipt = parseUserDiscoveredCandidateReceipt(
+        await service.create({
+          projectId: summary.projectId,
+          pipelineJobId: currentPipelineJob.jobId,
+          analysisJobId: summary.jobId,
+          timestampSeconds: requestedTimestampSeconds,
+          selection: point,
+          requestSam2Mask: true,
+          expectedQuestionQueueRevision:
+            missReviewFrame.questionQueueRevision,
+        }),
+        expected,
+      );
+    } catch (error) {
+      setMissCandidateState({
+        phase: "failed",
+        message: userDiscoveredCandidateErrorMessage(error),
+        point,
+      });
+      return;
+    }
+    try {
+      const [pipelineValue, analysisValue] = await Promise.all([
+        bridge.pipeline.get({
+          projectId: summary.projectId,
+          jobId: currentPipelineJob.jobId,
+        }),
+        bridge.analysis.get({
+          projectId: summary.projectId,
+          jobId: summary.jobId,
+        }),
+      ]);
+      const nextPipeline = parsePipelineJob(pipelineValue);
+      const nextBinding = pipelineQuestionQueueBinding(nextPipeline);
+      if (
+        nextPipeline.projectId !== receipt.projectId ||
+        nextPipeline.jobId !== receipt.pipelineJobId ||
+        !nextBinding ||
+        nextBinding.analysisJobId !== receipt.analysisJobId ||
+        nextBinding.queueRevision !== receipt.questionQueueRevision
+      ) {
+        throw new Error(
+          "새 질문 리비전과 파이프라인 상태가 일치하지 않습니다.",
+        );
+      }
+      const restored = toRestoredRuntime(parseAnalysisJob(analysisValue));
+      if (
+        restored.analysisSummary.projectId !== receipt.projectId ||
+        restored.analysisSummary.jobId !== receipt.analysisJobId ||
+        !restored.analysisSummary.candidates.some(
+          ({ candidateId }) => candidateId === receipt.candidateId,
+        )
+      ) {
+        throw new Error(
+          "새 누락 후보 근거가 분석 화면에 투영되지 않았습니다.",
+        );
+      }
+      publishPipelineJob(nextPipeline);
+      restoreCompletedAnalysis(
+        restored.activeImport,
+        restored.analysisSummary,
+      );
+      saveSelectedCandidateId(
+        receipt.projectId,
+        receipt.analysisJobId,
+        receipt.candidateId,
+      );
+      onNavigate("label");
+    } catch (error) {
+      setMissCandidateState({
+        phase: "created_refresh_failed",
+        message: `누락 후보 질문은 생성됐지만 최신 화면을 불러오지 못했습니다. 중복 제출하지 말고 질문 검토를 다시 여세요. ${
+          error instanceof Error ? error.message : ""
+        }`.trim(),
+        point,
+      });
+    }
+  };
+
+  const closeMissedCandidateQa = () => {
+    if (missCandidateState.phase === "submitting") return;
+    setMissQaOpen(false);
+    setMissReviewFrame(null);
+    setMissReviewFrameUrl(null);
+    setMissDisplayPoint(null);
+    setMissCandidateState({
+      phase: "idle",
+      message: null,
+      point: null,
+    });
+  };
+
   const evidenceRows = selectedIncident
     ? [
         {
@@ -474,8 +1284,8 @@ export function HistoryScreen({
     <div className="screen screen--history">
       <header className="screen-header">
         <div>
-          <p className="eyebrow">SYNCHRONIZED EVIDENCE</p>
-          <h1>영상·후보 히스토리</h1>
+          <p className="eyebrow">지도·영상 동기화</p>
+          <h1>지도·영상 히스토리</h1>
           <p>
             승인 사건과 미확정 후보를 실제 클립·원본 타임코드에 동기화합니다.{" "}
             {gpxTrack
@@ -486,19 +1296,41 @@ export function HistoryScreen({
           </p>
         </div>
         <div className="playback-actions">
-          <div className="rate-toggle" role="group" aria-label="후보 클립 재생 속도">
-            {[0.5, 1, 2, 4].map((value) => (
-              <button
-                type="button"
-                key={value}
-                className={rate === value ? "active" : ""}
-                aria-pressed={rate === value}
-                onClick={() => setRate(value)}
-              >
-                {value}×
-              </button>
-            ))}
-          </div>
+          {!missQaOpen ? (
+            <div className="rate-toggle" role="group" aria-label="후보 클립 재생 속도">
+              {[0.5, 1, 2, 4].map((value) => (
+                <button
+                  type="button"
+                  key={value}
+                  className={rate === value ? "active" : ""}
+                  aria-pressed={rate === value}
+                  onClick={() => setRate(value)}
+                >
+                  {value}×
+                </button>
+              ))}
+            </div>
+          ) : null}
+          <Button
+            variant={missQaOpen ? "primary" : undefined}
+            disabled={
+              missCandidateState.phase === "submitting" ||
+              (!missQaOpen && !canAddMissedCandidate)
+            }
+            onClick={() =>
+              missQaOpen
+                ? closeMissedCandidateQa()
+                : startMissedCandidateSelection()
+            }
+            title={
+              canAddMissedCandidate
+                ? "전체 주행의 불변 2fps 프레임을 임의 시각에서 확인합니다."
+                : "승격 모델의 독립 조사 질문 큐에서만 사용할 수 있습니다."
+            }
+          >
+            {missQaOpen ? <X size={17} /> : <Crosshair size={17} />}
+            {missQaOpen ? "2fps QA 닫기" : "모델 누락 장면 확인"}
+          </Button>
           {gpxTrack ? (
             <div
               className="gps-sync-control"
@@ -553,42 +1385,106 @@ export function HistoryScreen({
 
       <div className="history-top">
         <GlassPanel className="video-player">
-          <div className="video-frame">
-            <video
-              key={selectedCandidate.candidateId}
-              ref={videoRef}
-              className="candidate-clip"
-              src={clipUrl}
-              poster={imageUrl}
-              preload="metadata"
-              onLoadedMetadata={(event) => {
-                const target = Math.max(
-                  0,
-                  Math.min(
-                    event.currentTarget.duration || selectedCandidate.previewDurationSeconds,
-                    selectedCandidate.representativeTimestampSeconds -
-                      selectedCandidate.previewStartSeconds,
-                  ),
-                );
-                event.currentTarget.currentTime = target;
-                event.currentTarget.playbackRate = rate;
-                setClipTimeSeconds(target);
-              }}
-              onTimeUpdate={(event) => setClipTimeSeconds(event.currentTarget.currentTime)}
-              onPlay={() => setPlaying(true)}
-              onPause={() => setPlaying(false)}
-              onEnded={() => setPlaying(false)}
-              onError={() => {
-                setPlaying(false);
-                setPlaybackError("저장된 후보 클립을 불러오지 못했습니다.");
-              }}
-            >
-              이 환경에서는 후보 미리보기 영상을 재생할 수 없습니다.
-            </video>
+          <div
+            className={`video-frame ${
+              missQaOpen ? "video-frame--missed-qa" : ""
+            }`}
+          >
+            {missQaOpen ? (
+              <div className="missed-qa-frame">
+                {missReviewFrameUrl ? (
+                  <img
+                    src={missReviewFrameUrl}
+                    alt={`${formatTime(
+                      missReviewFrame?.selectedFrameTimestampSeconds ??
+                        missReviewTimestampSeconds,
+                      true,
+                    )} 전체 주행 2fps 검토 프레임`}
+                    className={
+                      missCandidateState.phase === "ready"
+                        ? "missed-qa-frame__image is-selectable"
+                        : "missed-qa-frame__image"
+                    }
+                    onClick={(event) =>
+                      void submitMissedCandidate(event)
+                    }
+                  />
+                ) : (
+                  <div className="missed-qa-frame__loading" role="status">
+                    <Crosshair size={28} />
+                    <strong>전체 주행 2fps 프레임 확인 중</strong>
+                    <span>
+                      후보 클립이 아니라 원본 전체 시간축의 불변 프레임을
+                      불러옵니다.
+                    </span>
+                  </div>
+                )}
+                {missDisplayPoint ? (
+                  <span
+                    className="missed-qa-frame__point"
+                    style={{
+                      left: `${missDisplayPoint.x}%`,
+                      top: `${missDisplayPoint.y}%`,
+                    }}
+                    aria-hidden="true"
+                  />
+                ) : null}
+                {missReviewFrameUrl ? (
+                  <div className="missed-qa-frame__instruction">
+                    {missCandidateState.phase === "submitting"
+                      ? "누락 후보 근거와 질문을 생성하고 있습니다."
+                      : "문제가 보이면 위치를 한 번 클릭 · 확정 truth는 사용자 질문 승인 후 생성"}
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <video
+                key={selectedCandidate.candidateId}
+                ref={videoRef}
+                className="candidate-clip"
+                src={clipUrl}
+                poster={imageUrl}
+                preload="metadata"
+                onLoadedMetadata={(event) => {
+                  const target = Math.max(
+                    0,
+                    Math.min(
+                      event.currentTarget.duration ||
+                        selectedCandidate.previewDurationSeconds,
+                      selectedCandidate.representativeTimestampSeconds -
+                        selectedCandidate.previewStartSeconds,
+                    ),
+                  );
+                  event.currentTarget.currentTime = target;
+                  event.currentTarget.playbackRate = rate;
+                  setClipTimeSeconds(target);
+                }}
+                onTimeUpdate={(event) =>
+                  setClipTimeSeconds(event.currentTarget.currentTime)
+                }
+                onPlay={() => setPlaying(true)}
+                onPause={() => setPlaying(false)}
+                onEnded={() => setPlaying(false)}
+                onError={() => {
+                  setPlaying(false);
+                  setPlaybackError(
+                    "저장된 후보 클립을 불러오지 못했습니다.",
+                  );
+                }}
+              >
+                이 환경에서는 후보 미리보기 영상을 재생할 수 없습니다.
+              </video>
+            )}
             <div className="video-status video-status--left">
-              <span className="record-dot" />
+              <span
+                className={missQaOpen ? "qa-dot" : "record-dot"}
+              />
               <span className="mono">
-                {formatTime(absoluteTimeSeconds, true)} / {formatTime(durationSeconds)}
+                {formatTime(synchronizedTimeSeconds, true)} /{" "}
+                {formatTime(
+                  missReviewFrame?.indexedDurationSeconds ??
+                    durationSeconds,
+                )}
               </span>
             </div>
             <div className="video-status video-status--right">
@@ -602,75 +1498,223 @@ export function HistoryScreen({
                       : "GPS 자료 없음"}
               </span>
               <span>{summary.sourceFileName}</span>
-              <span>후보 클립 {selectedIndex + 1}/{candidates.length}</span>
+              <span>
+                {missQaOpen
+                  ? missReviewFrame
+                    ? `전체 2fps QA · frame ${missReviewFrame.selectedFrameIndex}`
+                    : "전체 2fps QA"
+                  : `후보 클립 ${selectedIndex + 1}/${candidates.length}`}
+              </span>
             </div>
           </div>
-          <div className="video-controls">
-            <IconButton
-              label={playing ? "재생 일시정지" : "재생"}
-              className="play-button"
-              onClick={() => void togglePlayback()}
+          {missQaOpen ? (
+            <div className="video-controls missed-qa-controls">
+              <IconButton
+                label="전체 주행 2fps 프레임 0.5초 뒤로"
+                disabled={
+                  missCandidateState.phase === "submitting" ||
+                  missReviewTimestampSeconds <= 0
+                }
+                onClick={() =>
+                  setMissReviewTimestampSeconds((current) =>
+                    Math.max(0, current - 0.5),
+                  )
+                }
+              >
+                <Rewind size={18} />
+              </IconButton>
+              <input
+                className="video-scrubber"
+                aria-label="전체 주행 2fps QA 시각"
+                type="range"
+                min={0}
+                max={Math.max(
+                  missReviewFrame?.indexedDurationSeconds ??
+                    durationSeconds,
+                  0.001,
+                )}
+                step={0.5}
+                value={Math.min(
+                  missReviewTimestampSeconds,
+                  missReviewFrame?.indexedDurationSeconds ??
+                    durationSeconds,
+                )}
+                disabled={missCandidateState.phase === "submitting"}
+                onChange={(event) =>
+                  setMissReviewTimestampSeconds(
+                    Number(event.target.value),
+                  )
+                }
+                style={{ "--progress": `${tripProgress}%` } as React.CSSProperties}
+              />
+              <IconButton
+                label="전체 주행 2fps 프레임 0.5초 앞으로"
+                disabled={
+                  missCandidateState.phase === "submitting" ||
+                  missReviewTimestampSeconds >=
+                    (missReviewFrame?.indexedDurationSeconds ??
+                      durationSeconds)
+                }
+                onClick={() =>
+                  setMissReviewTimestampSeconds((current) =>
+                    Math.min(
+                      missReviewFrame?.indexedDurationSeconds ??
+                        durationSeconds,
+                      current + 0.5,
+                    ),
+                  )
+                }
+              >
+                <FastForward size={18} />
+              </IconButton>
+              <span className="mono">
+                {formatTime(synchronizedTimeSeconds, true)}
+              </span>
+            </div>
+          ) : (
+            <div className="video-controls">
+              <IconButton
+                label={playing ? "재생 일시정지" : "재생"}
+                className="play-button"
+                onClick={() => void togglePlayback()}
+              >
+                {playing ? (
+                  <Pause size={20} fill="currentColor" />
+                ) : (
+                  <Play size={20} fill="currentColor" />
+                )}
+              </IconButton>
+              <IconButton
+                label="클립 2초 뒤로"
+                onClick={() => setVideoTime(clipTimeSeconds - 2)}
+              >
+                <Rewind size={18} />
+              </IconButton>
+              <input
+                className="video-scrubber"
+                aria-label="현재 후보 클립 재생 위치"
+                type="range"
+                min={0}
+                max={Math.max(
+                  selectedCandidate.previewDurationSeconds,
+                  0.001,
+                )}
+                step={0.01}
+                value={clipTimeSeconds}
+                onChange={(event) =>
+                  setVideoTime(Number(event.target.value))
+                }
+                style={{ "--progress": `${clipProgress}%` } as React.CSSProperties}
+              />
+              <IconButton
+                label="클립 2초 앞으로"
+                onClick={() => setVideoTime(clipTimeSeconds + 2)}
+              >
+                <FastForward size={18} />
+              </IconButton>
+              <span className="mono">
+                {formatTime(clipTimeSeconds, true)}
+              </span>
+            </div>
+          )}
+          {missQaOpen && missCandidateState.message ? (
+            <p
+              className={
+                missCandidateState.phase === "failed" ||
+                missCandidateState.phase ===
+                  "created_refresh_failed"
+                  ? "inline-error missed-qa-message"
+                  : "missed-qa-message"
+              }
+              role={
+                missCandidateState.phase === "failed" ||
+                missCandidateState.phase ===
+                  "created_refresh_failed"
+                  ? "alert"
+                  : "status"
+              }
             >
-              {playing ? (
-                <Pause size={20} fill="currentColor" />
+              {missCandidateState.phase === "failed" ||
+              missCandidateState.phase ===
+                "created_refresh_failed" ? (
+                <AlertTriangle size={15} aria-hidden="true" />
               ) : (
-                <Play size={20} fill="currentColor" />
+                <Crosshair size={15} aria-hidden="true" />
               )}
-            </IconButton>
-            <IconButton label="클립 2초 뒤로" onClick={() => setVideoTime(clipTimeSeconds - 2)}>
-              <Rewind size={18} />
-            </IconButton>
-            <input
-              className="video-scrubber"
-              aria-label="현재 후보 클립 재생 위치"
-              type="range"
-              min={0}
-              max={Math.max(selectedCandidate.previewDurationSeconds, 0.001)}
-              step={0.01}
-              value={clipTimeSeconds}
-              onChange={(event) => setVideoTime(Number(event.target.value))}
-              style={{ "--progress": `${clipProgress}%` } as React.CSSProperties}
-            />
-            <IconButton label="클립 2초 앞으로" onClick={() => setVideoTime(clipTimeSeconds + 2)}>
-              <FastForward size={18} />
-            </IconButton>
-            <span className="mono">{formatTime(clipTimeSeconds, true)}</span>
-          </div>
-          {playbackError ? <p className="inline-error">{playbackError}</p> : null}
+              <span>{missCandidateState.message}</span>
+              {missCandidateState.phase ===
+              "created_refresh_failed" ? (
+                <Button
+                  onClick={() => onNavigate("label")}
+                >
+                  질문 검토 다시 열기
+                </Button>
+              ) : null}
+            </p>
+          ) : playbackError ? (
+            <p className="inline-error">{playbackError}</p>
+          ) : null}
         </GlassPanel>
 
         <GlassPanel className="map-panel">
-          <Suspense
-            fallback={
-              <div
-                className="history-map-wrap history-map-unavailable"
-                role="status"
-                aria-live="polite"
-              >
-                <div className="history-map-unavailable__icon">
-                  <MapPin size={30} />
+          {gpxTrack ? (
+            <Suspense
+              fallback={
+                <div
+                  className="history-map-wrap history-map-unavailable"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <div className="history-map-unavailable__icon">
+                    <MapPin size={30} />
+                  </div>
+                  <Badge tone="neutral">지도 준비 중</Badge>
+                  <h2>경로 모듈을 불러오고 있습니다</h2>
+                  <p>
+                    영상과 사건 타임라인은 유지한 채 로컬 지도 모듈만 분리해
+                    준비합니다.
+                  </p>
                 </div>
-                <Badge tone="neutral">지도 준비 중</Badge>
-                <h2>경로 모듈을 불러오고 있습니다</h2>
-                <p>
-                  영상과 사건 타임라인은 유지한 채 로컬 지도 모듈만 분리해
-                  준비합니다.
-                </p>
+              }
+            >
+              <HistoryMap
+                sourceFileName={summary.sourceFileName}
+                candidateCount={candidates.length}
+                sourceLocation={sourceLocation}
+                track={gpxTrack}
+                currentVideoTimeSeconds={synchronizedTimeSeconds}
+                candidates={candidates}
+                selectedCandidateId={selectedCandidate.candidateId}
+                approvedCandidateIds={approvedCandidateIds}
+                onSelectCandidate={selectCandidateById}
+              />
+            </Suspense>
+          ) : (
+            <div
+              className="history-map-wrap history-map-unavailable"
+              role="status"
+              aria-live="polite"
+            >
+              <div className="history-map-unavailable__icon">
+                <MapPinOff size={30} />
               </div>
-            }
-          >
-            <HistoryMap
-              sourceFileName={summary.sourceFileName}
-              candidateCount={candidates.length}
-              sourceLocation={sourceLocation}
-              track={gpxTrack}
-              currentVideoTimeSeconds={absoluteTimeSeconds}
-              candidates={candidates}
-              selectedCandidateId={selectedCandidate.candidateId}
-              approvedCandidateIds={approvedCandidateIds}
-              onSelectCandidate={selectCandidateById}
-            />
-          </Suspense>
+              <Badge tone={gpxLoading ? "accent" : "neutral"}>
+                {gpxLoading ? "GPX 확인 중" : "GPX 필요"}
+              </Badge>
+              <h2>
+                {gpxLoading
+                  ? "실제 이동 경로를 확인하고 있습니다"
+                  : "실제 이동 경로 자료가 없습니다"}
+              </h2>
+              <p>
+                {gpxLoading
+                  ? "선택한 GPX의 시간 정보와 현재 주행의 범위를 검증합니다."
+                  : sourceLocation
+                    ? "촬영 시작 좌표 한 점으로 경로를 만들지 않습니다. 오른쪽 위 GPX 연결에서 시간 정보가 있는 원본을 선택하세요."
+                    : "오른쪽 위 GPX 연결에서 시간 정보가 있는 원본을 선택하면 실제 경로만 표시합니다."}
+              </p>
+            </div>
+          )}
           {gpxError ? (
             <p className="map-inline-error" role="alert">
               {gpxError}
@@ -693,7 +1737,11 @@ export function HistoryScreen({
             </span>
           </div>
           <span className="mono">
-            {formatTime(absoluteTimeSeconds, true)} / {formatTime(durationSeconds)}
+            {formatTime(synchronizedTimeSeconds, true)} /{" "}
+            {formatTime(
+              missReviewFrame?.indexedDurationSeconds ??
+                durationSeconds,
+            )}
           </span>
         </div>
         <div className="timeline-track">
@@ -734,7 +1782,7 @@ export function HistoryScreen({
         <GlassPanel className="incident-list-panel">
           <header>
             <div>
-              <p className="eyebrow">INCIDENTS · CANDIDATES</p>
+              <p className="eyebrow">승인 사건 · 미확정 후보</p>
               <h2>사건·후보 목록</h2>
             </div>
             <Badge tone={incidents.length ? "success" : "warning"}>
@@ -742,7 +1790,12 @@ export function HistoryScreen({
               {candidates.length - mappedIncidentCount}
             </Badge>
           </header>
-          <div className="incident-list">
+          <div
+            className="incident-list history-scroll-owner"
+            role="region"
+            aria-label="사건과 후보 목록"
+            tabIndex={0}
+          >
             {candidates.map((candidate, index) => {
               const incident = incidentsByCandidateId.get(candidate.candidateId);
               return (
@@ -802,8 +1855,8 @@ export function HistoryScreen({
             <div>
               <p className="eyebrow">
                 {selectedIncident
-                  ? `INCIDENT · ${selectedIncident.incidentId}`
-                  : `CANDIDATE · ${selectedCandidate.candidateId.slice(0, 10)}…`}
+                  ? `승인 사건 · ${selectedIncident.incidentId}`
+                  : `장면 후보 · ${selectedCandidate.candidateId.slice(0, 10)}…`}
               </p>
               <h2>
                 {selectedIncident
@@ -816,7 +1869,7 @@ export function HistoryScreen({
                 <Eye size={16} /> 같은 시각 검토
               </Button>
               <Button variant="primary" onClick={() => navigateWithCandidate("label")}>
-                <Tags size={16} /> 질문형 라벨링
+                <Tags size={16} /> 질문 검토
               </Button>
             </div>
           </header>

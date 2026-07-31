@@ -7,6 +7,7 @@ import {
   MapPinned,
   MessageSquareText,
   Plus,
+  RefreshCw,
   Route,
   ScanSearch,
   Settings2,
@@ -156,7 +157,8 @@ function pipelineHeadline(
     return "지도·CSV·증거·보고서 초안이 자동으로 갱신되었습니다";
   }
   if (job.status === "blocked") {
-    return job.outcomeCode === "partial"
+    return job.outcomeCode === "partial" ||
+      job.outcomeCode === "report_preview_blocked"
       ? "CSV·증거는 저장했고 보고서 준비 경계에서 재개를 기다립니다"
       : "중단 지점을 보존했습니다. 필요한 모델팩을 확인해 주세요";
   }
@@ -216,6 +218,19 @@ export function HomeScreen({
     pipeline.projectId === projectCatalog.activeProjectId
       ? pipeline.job
       : null;
+  const pipelineRecoveryError = activeProject
+    ? projectCatalog.error ??
+      (!window.trafficSuperVision?.pipeline
+        ? "자동 점검 작업 저장소에 연결할 수 없습니다."
+        : pipeline.projectId === activeProject.id
+          ? pipeline.error
+          : null)
+    : null;
+  const pipelineRecoveryPending = Boolean(
+    activeProject &&
+      !pipelineRecoveryError &&
+      (!pipeline.hydrated || pipeline.projectId !== activeProject.id),
+  );
   const hasDurableInput = Boolean(runtime.activeImport || currentPipeline);
   const activePipelineGroup = pipelineGroupIndex(currentPipeline);
   const pipelineActionScreen: ScreenId =
@@ -279,6 +294,56 @@ export function HomeScreen({
     }
   }
 
+  if (pipelineRecoveryError) {
+    return (
+      <div className="screen screen--home">
+        <header className="screen-header">
+          <div>
+            <p className="eyebrow">{projectLabel}</p>
+            <h1>저장된 작업을 확인하지 못했습니다</h1>
+            <p>
+              새 영상 입력으로 간주하지 않고 기존 PipelineJob 복구 상태를
+              보존했습니다.
+            </p>
+          </div>
+        </header>
+        <GlassPanel className="analysis-empty" role="alert">
+          <CircleAlert size={38} aria-hidden="true" />
+          <Badge tone="danger">작업 복구 오류 · 새 분석 시작 안 함</Badge>
+          <h2>상태를 다시 확인한 뒤 이어가세요</h2>
+          <p>{pipelineRecoveryError}</p>
+          <Button variant="primary" onClick={() => window.location.reload()}>
+            <RefreshCw size={17} aria-hidden="true" />
+            상태 다시 확인
+          </Button>
+        </GlassPanel>
+      </div>
+    );
+  }
+
+  if (pipelineRecoveryPending) {
+    return (
+      <div className="screen screen--home">
+        <header className="screen-header">
+          <div>
+            <p className="eyebrow">{projectLabel}</p>
+            <h1>저장된 작업을 복구하고 있습니다</h1>
+            <p>
+              기존 영상과 PipelineJob을 확인하기 전에는 새 입력을 안내하지
+              않습니다.
+            </p>
+          </div>
+        </header>
+        <GlassPanel className="analysis-empty" role="status" aria-live="polite">
+          <RefreshCw className="spin" size={38} aria-hidden="true" />
+          <Badge tone="neutral">프로젝트 작업 확인 중</Badge>
+          <h2>마지막 저장 단계와 provenance를 읽고 있습니다</h2>
+          <p>확인이 끝나면 현재 할 일과 이어갈 화면을 자동으로 표시합니다.</p>
+        </GlassPanel>
+      </div>
+    );
+  }
+
   return (
     <div className="screen screen--home">
       <header className="screen-header">
@@ -314,7 +379,7 @@ export function HomeScreen({
         <GlassPanel className="project-create-card">
           <form onSubmit={submitNewProject}>
             <div>
-              <p className="eyebrow">NEW LOCAL PROJECT</p>
+              <p className="eyebrow">새 로컬 프로젝트</p>
               <h2>분리된 프로젝트 만들기</h2>
               <p>
                 이 프로젝트의 영상·답변·라벨·모델은 다른 프로젝트와 자동으로

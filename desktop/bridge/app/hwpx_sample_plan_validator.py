@@ -1,8 +1,9 @@
-"""Fail-closed semantic plan validation for audited sample HWPX reports.
+"""Fail-closed target/structure validation for audited sample HWPX reports.
 
 This layer runs after the language model has produced a DocumentEditPlan and
 after the server has resolved project-owned approved-reference records, but
-before any deterministic writer or HWP COM call.  It does not edit a file.
+before any deterministic writer or HWP COM call. It does not establish that
+proposed text is incident truth, and it does not edit a file.
 """
 
 from __future__ import annotations
@@ -17,6 +18,9 @@ from typing import Dict, Mapping, Sequence, Tuple, Union
 from .contracts import DocumentEditPlan
 from .hwpx_sample_layout import (
     EXPECTED_RENDERED_PAGE_COUNT,
+    HWPX_SAMPLE_LAYOUT_SCHEMA,
+    SAMPLE_LAYOUT_BINDING_REVISION,
+    SAMPLE_REFERENCE_BINDING_REVISION,
     HwpxSampleLayoutError,
     SampleLayoutInspection,
     SampleReferenceCaseBinding,
@@ -25,9 +29,12 @@ from .hwpx_sample_layout import (
 )
 
 
-HWPX_SAMPLE_SEMANTIC_PLAN_SCHEMA = (
-    "trafficvisson.hwpx-sample-semantic-plan.v1"
+HWPX_SAMPLE_TARGET_PLAN_SCHEMA = (
+    "trafficvisson.hwpx-sample-target-plan.v1"
 )
+# Compatibility symbol for internal imports only. The public schema value no
+# longer claims that arbitrary proposed text is semantically true.
+HWPX_SAMPLE_SEMANTIC_PLAN_SCHEMA = HWPX_SAMPLE_TARGET_PLAN_SCHEMA
 _APPROVAL_ID = re.compile(r"^approved-reference-[a-f0-9]{24}$")
 _SHA256 = re.compile(r"^[a-f0-9]{64}$")
 _OPAQUE_EVIDENCE_REF = re.compile(
@@ -72,7 +79,9 @@ class SampleSemanticPlanValidation:
     expected_page_range: Tuple[int, int]
     page_range_preserved_by_structure: bool
     table_growth_allowed: bool
-    semantic_validation_passed: bool
+    target_structure_validation_passed: bool
+    approved_incident_bound: bool
+    content_provenance_bound: bool
     com_invocation_performed: bool
     operation_bindings: Tuple[SampleSemanticOperationBinding, ...]
 
@@ -104,7 +113,7 @@ def validate_sample_semantic_plan(
     *,
     approved_references: Sequence[Mapping[str, object]],
 ) -> SampleSemanticPlanValidation:
-    """Validate exact semantic targets without invoking COM or writing HWPX."""
+    """Validate exact target roles and structure without judging content truth."""
 
     inspection = inspect_sample_layout(source_path)
     if plan.document_snapshot_id != inspection.document_snapshot_id:
@@ -128,6 +137,37 @@ def validate_sample_semantic_plan(
                 "같은 승인 표본 사례를 두 번 결속할 수 없습니다.",
             )
         references[approval_id] = validated
+    group_records: Dict[str, list[_ValidatedReference]] = {}
+    for reference in references.values():
+        group_records.setdefault(
+            reference.binding.sample_evidence_group_id,
+            [],
+        ).append(reference)
+    for group in group_records.values():
+        if (
+            len(
+                {
+                    reference.binding.group_photo_index
+                    for reference in group
+                }
+            )
+            != len(group)
+            or len(
+                {
+                    (
+                        reference.binding.group_photo_count,
+                        reference.binding.photo_caption.cell_target_id,
+                        reference.binding.photo_caption.text_sha256,
+                    )
+                    for reference in group
+                }
+            )
+            != 1
+        ):
+            raise HwpxSampleLayoutError(
+                "approved_reference_group_conflict",
+                "같은 캡션의 복수 사진 근거 묶음 결속이 서로 충돌합니다.",
+            )
 
     operation_bindings = []
     seen_targets = set()
@@ -243,7 +283,7 @@ def validate_sample_semantic_plan(
     }
     return SampleSemanticPlanValidation(
         schema_version=HWPX_SAMPLE_SEMANTIC_PLAN_SCHEMA,
-        state="semantic_plan_validated_com_not_invoked",
+        state="target_structure_plan_validated_com_not_invoked",
         document_snapshot_id=inspection.document_snapshot_id,
         document_sha256=inspection.snapshot.document_sha256,
         structure_target_summary_sha256=(
@@ -269,7 +309,9 @@ def validate_sample_semantic_plan(
         expected_page_range=(1, EXPECTED_RENDERED_PAGE_COUNT),
         page_range_preserved_by_structure=True,
         table_growth_allowed=False,
-        semantic_validation_passed=True,
+        target_structure_validation_passed=True,
+        approved_incident_bound=False,
+        content_provenance_bound=False,
         com_invocation_performed=False,
         operation_bindings=tuple(operation_bindings),
     )
@@ -302,13 +344,30 @@ def _validate_reference(
         not isinstance(approval_id, str)
         or _APPROVAL_ID.fullmatch(approval_id) is None
         or record.get("schema_version")
-        != "trafficvisson.approved-reference.v1"
+        != "trafficvisson.approved-reference.v2"
         or record.get("reference_state") != "approved_reference"
         or record.get("approved_reference") is not True
         or record.get("user_confirmed") is not True
         or record.get("training_scope") != "approved_reference_only"
         or record.get("annotation_created") is not False
         or record.get("incident_created") is not False
+        or record.get("sample_layout_binding_schema")
+        != HWPX_SAMPLE_LAYOUT_SCHEMA
+        or record.get("sample_layout_binding_revision")
+        != SAMPLE_LAYOUT_BINDING_REVISION
+        or record.get("semantic_projection_revision")
+        != SAMPLE_REFERENCE_BINDING_REVISION
+        or not isinstance(
+            record.get("semantic_attestation_sha256"), str
+        )
+        or _SHA256.fullmatch(
+            record["semantic_attestation_sha256"]
+        )
+        is None
+        or record.get("duplicate_image_review_required")
+        is True
+        and record.get("duplicate_image_review_confirmed")
+        is not True
     ):
         raise HwpxSampleLayoutError(
             "approved_reference_state_invalid",
@@ -340,6 +399,12 @@ def _validate_reference(
         record.get("sample_layout_binding_sha256")
         != binding.binding_sha256
         or record.get("photo_slot_id") != binding.photo_slot_id
+        or record.get("sample_evidence_group_id")
+        != binding.sample_evidence_group_id
+        or record.get("group_photo_index")
+        != binding.group_photo_index
+        or record.get("group_photo_count")
+        != binding.group_photo_count
         or record.get("photo_page_number")
         != binding.photo_page_number
         or record.get("inspection_page_number")
@@ -540,6 +605,7 @@ def _validate_role_completeness(
 
 __all__ = [
     "HWPX_SAMPLE_SEMANTIC_PLAN_SCHEMA",
+    "HWPX_SAMPLE_TARGET_PLAN_SCHEMA",
     "SampleSemanticOperationBinding",
     "SampleSemanticPlanValidation",
     "validate_sample_semantic_plan",

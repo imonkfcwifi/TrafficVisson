@@ -3,9 +3,12 @@ import json
 import os
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
+from uuid import uuid4
 
 import pytest
 
+import app.dense_frame_index as dense_module
 from app.dense_frame_index import (
     DenseFrameIndexCancelled,
     DenseFrameIndexEngine,
@@ -13,9 +16,13 @@ from app.dense_frame_index import (
     DenseFrameIndexLimits,
     DenseFrameIndexOutputLimit,
     DenseFrameIndexSourceChanged,
+    DenseFrameIndexStagingUnavailable,
     MediaCommand,
     MediaCommandOutput,
     _run_bounded_command,
+    build_dense_frame_capacity_plan,
+    initialize_dense_staging_root,
+    recover_dense_staging_root,
 )
 
 
@@ -73,6 +80,39 @@ def _test_limits(**overrides) -> DenseFrameIndexLimits:
     return DenseFrameIndexLimits(**values)
 
 
+def test_dense_capacity_plan_matches_hard_writer_cap_and_ceil_boundary():
+    digest = hashlib.sha256(b"dense-capacity").hexdigest()
+    defaults = DenseFrameIndexLimits(sampling_fps=2)
+
+    long_plan = build_dense_frame_capacity_plan(
+        source_sha256=digest,
+        duration_seconds=82 * 60,
+        limits=defaults,
+    )
+    boundary_plan = build_dense_frame_capacity_plan(
+        source_sha256=digest,
+        duration_seconds=1.00000049,
+        limits=defaults,
+    )
+
+    assert long_plan.planned_frame_count == 82 * 60 * 2 + 1
+    assert long_plan.planned_output_bytes_upper_bound == 16 * 1024**3
+    assert (
+        long_plan.planned_output_bytes_upper_bound
+        == long_plan.hard_ceiling_bytes
+    )
+    assert boundary_plan.source_duration_seconds == 1.0
+    assert boundary_plan.planned_frame_count == 4
+
+
+def test_frame_count_bounds_preserve_ffmpeg_tolerance_near_writer_cap():
+    assert dense_module._frame_count_bounds(330.026, 2, 661) == (659, 661)
+
+
+def test_frame_count_bounds_require_exact_cap_only_after_true_truncation():
+    assert dense_module._frame_count_bounds(400.0, 2, 661) == (661, 661)
+
+
 class FakeDenseRunner:
     def __init__(
         self,
@@ -121,6 +161,8 @@ class FakeDenseRunner:
             )
 
         output_pattern = Path(command.argv[-1])
+        if not output_pattern.is_absolute():
+            output_pattern = command.cwd / output_pattern
         frames_root = output_pattern.parent
         for index in range(self.frame_count):
             name_index = index
@@ -246,15 +288,74 @@ def test_ffmpeg_argv_is_non_shell_data_and_output_is_confined(tmp_path):
     assert "-fps_mode" not in extraction.argv
     assert extraction.argv[extraction.argv.index("-vsync") + 1] == "0"
     assert str(source) in extraction.argv
-    assert extraction.argv[extraction.argv.index("-frames:v") + 1] == "16"
+    assert extraction.argv[extraction.argv.index("-frames:v") + 1] == "5"
     assert (
         extraction.argv[extraction.argv.index("-vf") + 1]
         == result.provenance.sampling_filter
     )
     pattern = Path(extraction.argv[-1])
-    assert pattern.parent.parent == Path(result.output_directory)
+    assert pattern == Path("frames") / "frame-%08d.jpg"
+    assert (
+        extraction.cwd / pattern.parent
+        == Path(result.output_directory) / "frames"
+    )
     assert extraction.cwd == Path(result.output_directory)
-    assert extraction.watch_directory == pattern.parent
+    assert extraction.watch_directory == (
+        extraction.cwd / pattern.parent
+    )
+
+
+@pytest.mark.skipif(
+    os.name != "nt",
+    reason="ffmpeg 4.4 MAX_PATH staging is Windows-specific",
+)
+def test_long_windows_output_uses_short_staging_then_verified_publish(
+    tmp_path,
+):
+    ffmpeg, ffprobe = _fake_tools(tmp_path)
+    source = tmp_path / "short-source.mp4"
+    source.write_bytes(b"registered immutable source video")
+    project_root = (
+        tmp_path
+        / ("long-project-root-" + "a" * 90)
+        / ("nested-output-" + "b" * 90)
+    )
+    output = project_root / ("job-" + "c" * 48)
+    output.mkdir(parents=True)
+    runner = FakeDenseRunner(source)
+    staging_root = initialize_dense_staging_root(
+        tmp_path / "dense-stage"
+    )
+    owner_id = uuid4()
+
+    result = DenseFrameIndexEngine(
+        ffmpeg_path=ffmpeg,
+        ffprobe_path=ffprobe,
+        limits=_test_limits(),
+        staging_root=staging_root,
+        staging_owner_id=str(owner_id),
+        command_runner=runner,
+    ).build(
+        source,
+        source_sha256=_source_sha256(source),
+        project_root=project_root,
+        output_directory=output,
+    )
+
+    extraction = next(
+        command
+        for command in runner.calls
+        if Path(command.argv[0]).name.casefold() == "ffmpeg.exe"
+        and command.argv[1:] != ("-version",)
+    )
+    published = Path(result.output_directory)
+    assert extraction.cwd != published
+    assert len(str(published / result.frames[0].relative_path)) >= 240
+    assert published.parent == output
+    assert (published / result.index_relative_path).is_file()
+    assert result.provenance.output_scope == (
+        "private_short_staging_then_verified_project_publish"
+    )
 
 
 def test_default_runner_uses_shell_false_and_explicit_cwd(
@@ -385,6 +486,51 @@ def test_ffmpeg_artifact_and_capture_bounds_are_enforced(tmp_path):
         assert list(output.iterdir()) == []
 
 
+def test_short_media_uses_duration_bounded_disk_reservation(
+    tmp_path,
+    monkeypatch,
+):
+    ffmpeg, ffprobe, source, project_root, output = _fixture_paths(
+        tmp_path
+    )
+    runner = FakeDenseRunner(
+        source,
+        duration=2.0,
+        frame_count=4,
+    )
+    limits = _test_limits()
+    # Less than the global 128 KiB run cap, but more than the bounded
+    # 5-frame plus index budget for this two-second source.
+    monkeypatch.setattr(
+        "app.dense_frame_index.shutil.disk_usage",
+        lambda _path: SimpleNamespace(free=70 * 1024),
+    )
+    engine = DenseFrameIndexEngine(
+        ffmpeg_path=ffmpeg,
+        ffprobe_path=ffprobe,
+        limits=limits,
+        command_runner=runner,
+    )
+
+    result = engine.build(
+        source,
+        source_sha256=_source_sha256(source),
+        project_root=project_root,
+        output_directory=output,
+    )
+
+    assert len(result.frames) == 4
+    extraction = next(
+        command
+        for command in runner.calls
+        if "-frames:v" in command.argv
+    )
+    assert extraction.argv[
+        extraction.argv.index("-frames:v") + 1
+    ] == "5"
+    assert extraction.watch_limit_bytes == 5 * 1024
+
+
 def test_bad_ffprobe_result_is_rejected(tmp_path):
     ffmpeg, ffprobe, source, project_root, output = _fixture_paths(tmp_path)
     runner = FakeDenseRunner(source, mode="bad_probe_size")
@@ -479,3 +625,334 @@ def test_output_symlink_is_rejected_when_platform_allows_it(tmp_path):
             project_root=project_root,
             output_directory=linked,
         )
+
+
+def test_long_windows_path_staging_blocks_before_media_or_output_write(
+    tmp_path,
+    monkeypatch,
+):
+    ffmpeg, ffprobe = _fake_tools(tmp_path)
+    source = tmp_path / "source.mp4"
+    source.write_bytes(b"source")
+    project_root = tmp_path
+    output = project_root
+    for index in range(4):
+        output = output / (f"dense-{index}-" + "x" * 48)
+        output.mkdir()
+    staging = initialize_dense_staging_root(tmp_path / "stage")
+    runner = FakeDenseRunner(source)
+    monkeypatch.setattr(
+        "app.dense_frame_index.shutil.disk_usage",
+        lambda _path: SimpleNamespace(free=1),
+    )
+    engine = DenseFrameIndexEngine(
+        ffmpeg_path=ffmpeg,
+        ffprobe_path=ffprobe,
+        limits=_test_limits(),
+        staging_root=staging,
+        staging_owner_id=str(uuid4()),
+        command_runner=runner,
+    )
+
+    with pytest.raises(DenseFrameIndexStagingUnavailable):
+        engine.build(
+            source,
+            source_sha256=_source_sha256(source),
+            project_root=project_root,
+            output_directory=output,
+        )
+
+    assert runner.calls == []
+    assert list(output.iterdir()) == []
+
+
+def test_dense_staging_recovery_removes_only_verified_owned_child(tmp_path):
+    root = initialize_dense_staging_root(tmp_path / "stage")
+    owner_id = uuid4()
+    child = root / f"job-{owner_id}"
+    child.mkdir()
+    payload = {
+        "schema_version": "trafficvisson.dense-staging-child.v1",
+        "owner_id": str(owner_id),
+        "path_exposed": False,
+    }
+    wrapped = {
+        **payload,
+        "integrity_sha256": hashlib.sha256(
+            json.dumps(
+                payload,
+                ensure_ascii=False,
+                allow_nan=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest(),
+    }
+    raw = json.dumps(
+        wrapped,
+        ensure_ascii=False,
+        allow_nan=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    marker = child / "ownership.json"
+    marker.write_bytes(raw)
+
+    assert recover_dense_staging_root(root) == 1
+    assert not child.exists()
+
+    unowned = root / "do-not-delete"
+    unowned.mkdir()
+    with pytest.raises(DenseFrameIndexStagingUnavailable):
+        recover_dense_staging_root(root)
+    assert unowned.is_dir()
+
+
+def test_dense_staging_root_marker_rejects_symlink_and_oversize(
+    tmp_path,
+):
+    root = initialize_dense_staging_root(tmp_path / "stage")
+    marker = root / ".trafficvisson-dense-staging.json"
+    sentinel = tmp_path / "sentinel.json"
+    sentinel.write_bytes(b'{"sentinel":true}')
+    marker.unlink()
+    try:
+        os.symlink(sentinel, marker)
+    except (OSError, NotImplementedError):
+        pytest.skip("file symlinks are unavailable on this platform")
+
+    with pytest.raises(DenseFrameIndexStagingUnavailable):
+        initialize_dense_staging_root(root)
+    assert sentinel.read_bytes() == b'{"sentinel":true}'
+
+    marker.unlink()
+    marker.write_bytes(b"x" * (16 * 1024 + 1))
+    with pytest.raises(DenseFrameIndexStagingUnavailable):
+        initialize_dense_staging_root(root)
+    assert marker.stat().st_size == 16 * 1024 + 1
+
+
+def test_dense_staging_child_marker_symlink_preserves_sentinel(
+    tmp_path,
+):
+    root = initialize_dense_staging_root(tmp_path / "stage")
+    owner_id = uuid4()
+    child = root / f"job-{owner_id}"
+    child.mkdir()
+    sentinel = tmp_path / "sentinel.json"
+    sentinel.write_bytes(b'{"sentinel":true}')
+    try:
+        os.symlink(sentinel, child / "ownership.json")
+    except (OSError, NotImplementedError):
+        pytest.skip("file symlinks are unavailable on this platform")
+
+    with pytest.raises(DenseFrameIndexStagingUnavailable):
+        recover_dense_staging_root(root)
+    assert sentinel.read_bytes() == b'{"sentinel":true}'
+    assert child.is_dir()
+
+
+def test_dense_publish_incoming_marker_symlink_preserves_sentinel(
+    tmp_path,
+):
+    output = tmp_path / "output"
+    output.mkdir()
+    owner_id = str(uuid4())
+    incoming = output / f".dense-incoming-{owner_id}"
+    incoming.mkdir()
+    sentinel = tmp_path / "sentinel.json"
+    sentinel.write_bytes(b'{"sentinel":true}')
+    try:
+        os.symlink(sentinel, incoming / "ownership.json")
+    except (OSError, NotImplementedError):
+        pytest.skip("file symlinks are unavailable on this platform")
+
+    with pytest.raises(DenseFrameIndexStagingUnavailable):
+        dense_module._prepare_dense_publish_incoming(
+            output,
+            owner_id=owner_id,
+            source_sha256=hashlib.sha256(b"source").hexdigest(),
+            final_name="dense-frame-index-" + "a" * 24,
+        )
+    assert sentinel.read_bytes() == b'{"sentinel":true}'
+    assert incoming.is_dir()
+
+
+def test_dense_staging_recovery_fails_closed_on_sharing_violation(
+    tmp_path,
+    monkeypatch,
+):
+    root = initialize_dense_staging_root(tmp_path / "stage")
+    owner_id = str(uuid4())
+    child = dense_module._create_owned_staging_child(root, owner_id)
+
+    def busy_rmtree(_path):
+        raise PermissionError("simulated Windows sharing violation")
+
+    monkeypatch.setattr(
+        "app.dense_frame_index.shutil.rmtree",
+        busy_rmtree,
+    )
+    with pytest.raises(DenseFrameIndexStagingUnavailable):
+        recover_dense_staging_root(root)
+    assert child.is_dir()
+
+
+def test_dense_atomic_publish_adopts_renamed_run_after_restart(
+    tmp_path,
+    monkeypatch,
+):
+    ffmpeg, ffprobe, source, project_root, output = _fixture_paths(
+        tmp_path
+    )
+    staging = initialize_dense_staging_root(tmp_path / "stage")
+    owner_id = str(uuid4())
+    first_runner = FakeDenseRunner(source)
+    real_cleanup = dense_module._cleanup_dense_publish_incoming
+    monkeypatch.setattr(
+        "app.dense_frame_index.dense_frame_index_requires_short_staging",
+        lambda _path: True,
+    )
+    monkeypatch.setattr(
+        "app.dense_frame_index._cleanup_dense_publish_incoming",
+        lambda *_args, **_kwargs: None,
+    )
+    first = DenseFrameIndexEngine(
+        ffmpeg_path=ffmpeg,
+        ffprobe_path=ffprobe,
+        limits=_test_limits(),
+        staging_root=staging,
+        staging_owner_id=owner_id,
+        command_runner=first_runner,
+    ).build(
+        source,
+        source_sha256=_source_sha256(source),
+        project_root=project_root,
+        output_directory=output,
+    )
+    incoming = output / f".dense-incoming-{owner_id}"
+    assert Path(first.output_directory).is_dir()
+    assert incoming.is_dir()
+
+    monkeypatch.setattr(
+        "app.dense_frame_index._cleanup_dense_publish_incoming",
+        real_cleanup,
+    )
+    second_runner = FakeDenseRunner(source)
+    second = DenseFrameIndexEngine(
+        ffmpeg_path=ffmpeg,
+        ffprobe_path=ffprobe,
+        limits=_test_limits(),
+        staging_root=staging,
+        staging_owner_id=owner_id,
+        command_runner=second_runner,
+    ).build(
+        source,
+        source_sha256=_source_sha256(source),
+        project_root=project_root,
+        output_directory=output,
+    )
+
+    assert second.output_directory == first.output_directory
+    assert second_runner.calls == []
+    assert not incoming.exists()
+    assert len(
+        [
+            child
+            for child in output.iterdir()
+            if child.name.startswith("dense-frame-index-")
+        ]
+    ) == 1
+
+
+def test_dense_atomic_publish_copy_failure_leaves_no_partial_final(
+    tmp_path,
+    monkeypatch,
+):
+    ffmpeg, ffprobe, source, project_root, output = _fixture_paths(
+        tmp_path
+    )
+    staging = initialize_dense_staging_root(tmp_path / "stage")
+    owner_id = str(uuid4())
+    monkeypatch.setattr(
+        "app.dense_frame_index.dense_frame_index_requires_short_staging",
+        lambda _path: True,
+    )
+
+    def interrupted_copytree(_source, destination, **_kwargs):
+        destination.mkdir()
+        (destination / "partial.tmp").write_bytes(b"partial")
+        raise OSError("simulated interrupted cross-volume copy")
+
+    monkeypatch.setattr(
+        "app.dense_frame_index.shutil.copytree",
+        interrupted_copytree,
+    )
+    with pytest.raises(DenseFrameIndexError):
+        DenseFrameIndexEngine(
+            ffmpeg_path=ffmpeg,
+            ffprobe_path=ffprobe,
+            limits=_test_limits(),
+            staging_root=staging,
+            staging_owner_id=owner_id,
+            command_runner=FakeDenseRunner(source),
+        ).build(
+            source,
+            source_sha256=_source_sha256(source),
+            project_root=project_root,
+            output_directory=output,
+        )
+
+    assert not (
+        output / f".dense-incoming-{owner_id}"
+    ).exists()
+    assert not any(
+        child.name.startswith("dense-frame-index-")
+        for child in output.iterdir()
+    )
+
+
+def test_same_volume_staging_reserves_run_and_atomic_copy_peak(
+    tmp_path,
+    monkeypatch,
+):
+    ffmpeg, ffprobe, source, project_root, output = _fixture_paths(
+        tmp_path
+    )
+    staging = initialize_dense_staging_root(tmp_path / "stage")
+    limits = _test_limits()
+    runner = FakeDenseRunner(source)
+    monkeypatch.setattr(
+        "app.dense_frame_index.dense_frame_index_requires_short_staging",
+        lambda _path: True,
+    )
+    # This fits the generic writer cap used by staging validation but cannot
+    # hold both the completed staging run and the same-volume incoming copy.
+    monkeypatch.setattr(
+        "app.dense_frame_index.shutil.disk_usage",
+        lambda _path: SimpleNamespace(
+            free=limits.max_total_output_bytes
+        ),
+    )
+
+    with pytest.raises(DenseFrameIndexOutputLimit):
+        DenseFrameIndexEngine(
+            ffmpeg_path=ffmpeg,
+            ffprobe_path=ffprobe,
+            limits=limits,
+            staging_root=staging,
+            staging_owner_id=str(uuid4()),
+            command_runner=runner,
+        ).build(
+            source,
+            source_sha256=_source_sha256(source),
+            project_root=project_root,
+            output_directory=output,
+        )
+
+    assert not any(
+        Path(command.argv[0]).name.casefold() == "ffmpeg.exe"
+        and command.argv[1:] != ("-version",)
+        for command in runner.calls
+    )
+    assert list(output.iterdir()) == []

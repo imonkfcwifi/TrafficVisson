@@ -283,7 +283,7 @@ export function ReviewScreen({
       <div className="screen screen--review">
         <header className="screen-header">
           <div>
-            <p className="eyebrow">CANDIDATE REVIEW</p>
+            <p className="eyebrow">판정 결과 비교</p>
             <h1>사건 검토</h1>
             <p>원본 후보·사용자 답변·최종 판정을 같은 증거 체계로 비교합니다.</p>
           </div>
@@ -346,10 +346,10 @@ export function ReviewScreen({
     <div className="screen screen--review">
       <header className="screen-header">
         <div>
-          <p className="eyebrow">CANDIDATE REVIEW</p>
+          <p className="eyebrow">판정 결과 비교</p>
           <h1>사건 검토</h1>
           <p>
-            복구된 분석 후보의 실제 프레임·클립과 질문형 라벨링의 저장 결과를 함께
+            복구된 분석 후보의 실제 프레임·클립과 질문 검토의 저장 결과를 함께
             확인합니다.
           </p>
         </div>
@@ -440,7 +440,7 @@ export function ReviewScreen({
 
           <div className="review-evidence-cards">
             <GlassPanel>
-              <PanelHeader eyebrow="PROVENANCE" title="실제 추출 근거" />
+              <PanelHeader eyebrow="추적 정보" title="실제 추출 근거" />
               <p>
                 장면 변화와 선명도 기준으로 묶은 후보입니다. 이 점수만으로 도로 결함이나
                 유지보수 유형을 확정하지 않습니다.
@@ -462,7 +462,7 @@ export function ReviewScreen({
               />
             </GlassPanel>
             <GlassPanel>
-              <PanelHeader eyebrow="LOCATION EVIDENCE" title="GPS·위치 근거" />
+              <PanelHeader eyebrow="위치 근거" title="GPS·위치 근거" />
               <div className="gps-unavailable-note">
                 {sourceLocation ? <MapPin size={22} /> : <MapPinOff size={22} />}
                 <div>
@@ -500,7 +500,7 @@ export function ReviewScreen({
 
         <GlassPanel className="review-data">
           <PanelHeader
-            eyebrow="EXTRACTED · ANSWER · FINAL"
+            eyebrow="AI 추출 · 사용자 답변 · 최종 판정"
             title={incident ? "영구 사건 판정" : "판정 변경 이력"}
             action={<Badge tone={reviewTone}>{reviewStatus}</Badge>}
           />
@@ -569,7 +569,7 @@ export function ReviewScreen({
 
           <div className="review-actions review-actions--linked">
             <Button variant="primary" onClick={() => navigateWithCandidate("label")}>
-              <Tags size={18} /> 질문형 라벨링에서 검토
+              <Tags size={18} /> 질문 검토에서 확인
             </Button>
             <Button onClick={() => navigateWithCandidate("history")}>
               <History size={18} /> 같은 시각 히스토리

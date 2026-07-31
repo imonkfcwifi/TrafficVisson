@@ -29,7 +29,7 @@ after(async () => {
   await vite.close();
 });
 
-function waitingJob() {
+function waitingJob({ promoted = false, zero = false } = {}) {
   return {
     jobId: PIPELINE_JOB_ID,
     projectId: PROJECT_ID,
@@ -82,11 +82,30 @@ function waitingJob() {
       checkpoint:
         name === "question_queue"
           ? {
+              ...(zero
+                ? {
+                    schema_version:
+                      "trafficvisson.zero-candidate-promoted-survey-queue.v1",
+                    question_candidate_ids: [],
+                  }
+                : {}),
               analysis_job_id: ANALYSIS_JOB_ID,
               source_sha256: SOURCE_SHA,
-              question_count: 2,
+              question_count: zero ? 0 : 2,
               question_queue_revision: "questions-v1",
             }
+          : name === "candidate_rescan_5_10fps" && promoted
+            ? {
+                dense_candidate_discovery: {
+                  provider_states: [
+                    {
+                      provider: "promoted_project_model",
+                      state: "ready",
+                      independent_survey_verified: true,
+                    },
+                  ],
+                },
+              }
           : {},
       metrics: {},
     })),
@@ -120,12 +139,14 @@ test("question queue binding requires server analysis, source and count provenan
     sourceSha256: SOURCE_SHA,
     questionCount: 2,
     queueRevision: "questions-v1",
+    surveyQaRequired: false,
+    zeroCandidateSurvey: false,
   });
   delete job.stages[10].checkpoint.analysis_job_id;
   assert.equal(pipeline.pipelineQuestionQueueBinding(job), null);
 });
 
-test("only a complete server-persisted answer ledger builds an idempotent completion request", async () => {
+test("bootstrap review completion omits promoted-survey QA choice", async () => {
   const records = [record("candidate-1", 0), record("candidate-2", 1)];
   const result = await completion.buildPipelineReviewCompletion({
     pipelineJob: waitingJob(),
@@ -134,9 +155,11 @@ test("only a complete server-persisted answer ledger builds an idempotent comple
     sourceSha256: SOURCE_SHA,
     questionCandidateIds: ["candidate-1", "candidate-2"],
     records,
+    finalQaChoice: "no_miss_complete",
   });
   assert.equal(result.ok, true);
   assert.match(result.request.reviewCompletionId, /^review:[a-f0-9]{64}$/);
+  assert.equal("finalQaChoice" in result.request, false);
   const replay = await completion.buildPipelineReviewCompletion({
     pipelineJob: waitingJob(),
     projectId: PROJECT_ID,
@@ -149,6 +172,78 @@ test("only a complete server-persisted answer ledger builds an idempotent comple
     replay.request.reviewCompletionId,
     result.request.reviewCompletionId,
   );
+});
+
+test("promoted survey requires and sends the explicit final missed-scene QA choice", async () => {
+  const job = waitingJob({ promoted: true });
+  assert.deepEqual(pipeline.pipelineQuestionQueueBinding(job), {
+    analysisJobId: ANALYSIS_JOB_ID,
+    sourceSha256: SOURCE_SHA,
+    questionCount: 2,
+    queueRevision: "questions-v1",
+    surveyQaRequired: true,
+    zeroCandidateSurvey: false,
+  });
+  const records = [record("candidate-1", 0), record("candidate-2", 1)];
+  const missing = await completion.buildPipelineReviewCompletion({
+    pipelineJob: job,
+    projectId: PROJECT_ID,
+    analysisJobId: ANALYSIS_JOB_ID,
+    sourceSha256: SOURCE_SHA,
+    questionCandidateIds: ["candidate-1", "candidate-2"],
+    records,
+  });
+  assert.equal(missing.ok, false);
+  assert.equal(missing.reason, "final_qa_required");
+  const complete = await completion.buildPipelineReviewCompletion({
+    pipelineJob: job,
+    projectId: PROJECT_ID,
+    analysisJobId: ANALYSIS_JOB_ID,
+    sourceSha256: SOURCE_SHA,
+    questionCandidateIds: ["candidate-1", "candidate-2"],
+    records,
+    finalQaChoice: "no_miss_complete",
+  });
+  assert.equal(complete.ok, true);
+  assert.equal(complete.request.finalQaChoice, "no_miss_complete");
+});
+
+test("zero-candidate promoted survey accepts only exact no-miss completion", async () => {
+  const job = waitingJob({ promoted: true, zero: true });
+  assert.deepEqual(pipeline.pipelineQuestionQueueBinding(job), {
+    analysisJobId: ANALYSIS_JOB_ID,
+    sourceSha256: SOURCE_SHA,
+    questionCount: 0,
+    queueRevision: "questions-v1",
+    surveyQaRequired: true,
+    zeroCandidateSurvey: true,
+  });
+  const wrongChoice = await completion.buildPipelineReviewCompletion({
+    pipelineJob: job,
+    projectId: PROJECT_ID,
+    analysisJobId: ANALYSIS_JOB_ID,
+    sourceSha256: SOURCE_SHA,
+    questionCandidateIds: [],
+    records: [],
+    finalQaChoice: "miss_candidates_reviewed",
+  });
+  assert.equal(wrongChoice.ok, false);
+  assert.equal(wrongChoice.reason, "final_qa_required");
+  const complete = await completion.buildPipelineReviewCompletion({
+    pipelineJob: job,
+    projectId: PROJECT_ID,
+    analysisJobId: ANALYSIS_JOB_ID,
+    sourceSha256: SOURCE_SHA,
+    questionCandidateIds: [],
+    records: [],
+    finalQaChoice: "no_miss_complete",
+  });
+  assert.equal(complete.ok, true);
+  assert.equal(
+    complete.request.reviewCompletionId,
+    "zero-detections:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  );
+  assert.equal(complete.request.finalQaChoice, "no_miss_complete");
 });
 
 test("local history, synthetic questions and mismatched provenance cannot complete review", async () => {
@@ -186,7 +281,7 @@ test("local history, synthetic questions and mismatched provenance cannot comple
   assert.deepEqual(mismatched.reason, "analysis_not_bound");
 });
 
-test("labeling completes the pipeline only after a persisted answer proof", () => {
+test("labeling delays completion until the explicit missed-scene QA decision", () => {
   assert.match(
     labelingSource,
     /typeof response\.record_id !== "string"[\s\S]*typeof response\.record_hash !== "string"[\s\S]*typeof response\.answer_revision !== "number"/,
@@ -196,10 +291,29 @@ test("labeling completes the pipeline only after a persisted answer proof", () =
   assert.match(labelingSource, /publishPipelineJob\(next\)/);
   assert.match(
     labelingSource,
-    /void requestPipelineReviewCompletion\(nextHistory\)/,
+    /모델 누락 장면 확인[\s\S]*누락 없음 · 검토 완료/,
+  );
+  assert.match(
+    labelingSource,
+    /pipelineCompletionAttemptRef\.current = null;[\s\S]{0,160}void requestPipelineReviewCompletion\(history\);[\s\S]{0,240}누락 없음 · 검토 완료/,
+  );
+  assert.doesNotMatch(
+    labelingSource,
+    /function goNext[\s\S]{0,700}requestPipelineReviewCompletion/,
   );
   assert.doesNotMatch(
     labelingSource,
     /setQueueComplete\(true\)[\s\S]{0,240}(createIncident|createAnnotation)/,
+  );
+});
+
+test("ordinary queues auto-start derived outputs after the final saved answer", () => {
+  assert.match(
+    labelingSource,
+    /A normal training\/review queue has no extra confirmation action[\s\S]*!queueComplete[\s\S]*promotedSurveyQaRequired[\s\S]*job\.status !== "awaiting_review"[\s\S]*history\.length !== questions\.length[\s\S]*requestPipelineReviewCompletion\(history\)/,
+  );
+  assert.match(
+    labelingSource,
+    /pipelineCompletionAttemptKey\(job, history\)[\s\S]*pipelineCompletionAttemptRef\.current === attemptKey/,
   );
 });

@@ -32,6 +32,49 @@ test("native video picker accepts no renderer-controlled payload", () => {
     validateIpcPayload(IPC_CHANNELS.DIALOG_GPX_FILE, undefined),
     {},
   );
+  assert.deepEqual(
+    validateIpcPayload(
+      IPC_CHANNELS.DIALOG_PROJECT_OUTPUT_DIRECTORY,
+      undefined,
+    ),
+    {},
+  );
+});
+
+test("project output location IPC accepts only project and opaque selection IDs", () => {
+  const selectionId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  assert.deepEqual(
+    validateIpcPayload(
+      IPC_CHANNELS.PROJECT_OUTPUT_LOCATION_REGISTER,
+      {
+        projectId: PROJECT_ID,
+        selectionId,
+      },
+    ),
+    {
+      projectId: PROJECT_ID,
+      selectionId,
+    },
+  );
+  assert.deepEqual(
+    validateIpcPayload(
+      IPC_CHANNELS.PROJECT_OUTPUT_LOCATION_LIST,
+      { projectId: PROJECT_ID },
+    ),
+    { projectId: PROJECT_ID },
+  );
+  assert.throws(
+    () =>
+      validateIpcPayload(
+        IPC_CHANNELS.PROJECT_OUTPUT_LOCATION_REGISTER,
+        {
+          projectId: PROJECT_ID,
+          selectionId,
+          selectedPath: "E:\\private\\results",
+        },
+      ),
+    /not allowed/,
+  );
 });
 
 test("GPX IPC uses opaque selections and bounded synchronization offsets", () => {
@@ -552,6 +595,54 @@ test("candidate answers enforce project identity and positive label details", ()
         negativeWithDetails,
       ),
     IpcValidationError,
+  );
+});
+
+test("structured LLM assist accepts only identity plus explicit training approval", () => {
+  const payload = {
+    projectId: PROJECT_ID,
+    jobId: "88888888-8888-4888-8888-888888888888",
+    candidateId: "0123456789abcdefabcd",
+    questionId: "77777777-7777-4777-8777-777777777777",
+    userAuthorizedTraining: true,
+  };
+  assert.deepEqual(
+    toBridgePayload(
+      IPC_CHANNELS.CANDIDATE_STRUCTURED_LLM_ASSIST,
+      payload,
+    ),
+    {
+      project_id: payload.projectId,
+      job_id: payload.jobId,
+      candidate_id: payload.candidateId,
+      question_id: payload.questionId,
+      user_authorized_training: true,
+    },
+  );
+  for (const extra of [
+    { answeredBy: "structured_llm_assisted" },
+    { answer: "yes" },
+    { selectedIssueType: "pothole" },
+    { severity: "moderate" },
+    { maintenanceAction: "repair" },
+    { incidentApproved: true },
+  ]) {
+    assert.throws(
+      () =>
+        validateIpcPayload(
+          IPC_CHANNELS.CANDIDATE_STRUCTURED_LLM_ASSIST,
+          { ...payload, ...extra },
+        ),
+      IpcValidationError,
+    );
+  }
+  assert.throws(
+    () =>
+      validateIpcPayload(
+        IPC_CHANNELS.CANDIDATE_STRUCTURED_LLM_ASSIST,
+        { ...payload, userAuthorizedTraining: false },
+      ),
+    /explicitly true/,
   );
 });
 

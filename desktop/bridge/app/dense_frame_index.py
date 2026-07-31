@@ -37,10 +37,15 @@ import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable, Mapping, Optional, Sequence, Tuple, Union
-from uuid import uuid4
+from uuid import UUID, uuid4
+
+from .candidate_extraction import _media_tool_path
 
 
 FRAME_INDEX_SCHEMA = "trafficvisson.dense-frame-index.v1"
+DENSE_FRAME_CAPACITY_PLAN_SCHEMA = (
+    "trafficvisson.dense-frame-capacity-plan.v1"
+)
 FRAME_ID_PATTERN = re.compile(r"^[a-f0-9]{24}$")
 FRAME_FILE_PATTERN = re.compile(r"^frame-(?P<index>[0-9]{8})\.jpg$")
 SHA256_PATTERN = re.compile(r"^[a-f0-9]{64}$")
@@ -58,6 +63,60 @@ _MAX_ARGUMENT_VECTOR_LENGTH = 128 * 1024
 _MAX_TOOL_VERSION_LENGTH = 256
 _READ_CHUNK_BYTES = 4 * 1024 * 1024
 _PROCESS_POLL_SECONDS = 0.05
+_DENSE_STAGING_ROOT_SCHEMA = "trafficvisson.dense-staging-root.v1"
+_DENSE_STAGING_CHILD_SCHEMA = "trafficvisson.dense-staging-child.v1"
+_DENSE_STAGING_ROOT_MARKER = ".trafficvisson-dense-staging.json"
+_DENSE_STAGING_CHILD_MARKER = "ownership.json"
+_DENSE_STAGING_CHILD_PATTERN = re.compile(
+    r"^job-(?P<job_id>[a-f0-9-]{36})$"
+)
+_DENSE_PUBLISH_INCOMING_SCHEMA = (
+    "trafficvisson.dense-publish-incoming.v1"
+)
+_DENSE_PUBLISH_INCOMING_MARKER = "ownership.json"
+_MAX_OWNERSHIP_MARKER_BYTES = 16 * 1024
+
+
+def dense_staging_root_is_short(
+    staging_root: Union[str, Path],
+    *,
+    windows: Optional[bool] = None,
+) -> bool:
+    """Return whether the deepest FFmpeg staging frame stays below MAX_PATH."""
+
+    windows_runtime = os.name == "nt" if windows is None else windows
+    if not windows_runtime:
+        return True
+    estimated_frame_path_length = (
+        len(str(Path(staging_root)))
+        + 1
+        + len("job-00000000-0000-0000-0000-000000000000")
+        + 1
+        + len("dense-frame-index-")
+        + 8
+        + len(r"\frames\frame-00000000.jpg")
+    )
+    return estimated_frame_path_length < 240
+
+
+def dense_frame_index_requires_short_staging(
+    output_root: Union[str, Path],
+    *,
+    windows: Optional[bool] = None,
+) -> bool:
+    """Return whether FFmpeg 4.4 needs an explicit short-path staging root."""
+
+    windows_runtime = os.name == "nt" if windows is None else windows
+    if not windows_runtime:
+        return False
+    estimated_frame_path_length = (
+        len(str(Path(output_root)))
+        + 1
+        + len("dense-frame-index-")
+        + 8
+        + len(r"\frames\frame-00000000.jpg")
+    )
+    return estimated_frame_path_length >= 240
 
 
 class DenseFrameIndexError(RuntimeError):
@@ -78,6 +137,265 @@ class DenseFrameIndexOutputLimit(DenseFrameIndexError):
 
 class DenseFrameIndexSourceChanged(DenseFrameIndexError):
     """Raised when the protected source changes or its hash does not match."""
+
+
+class DenseFrameIndexStagingUnavailable(DenseFrameIndexError):
+    """Raised when required short-path staging is missing, unsafe, or too small."""
+
+
+def _canonical_json(value: Mapping[str, object]) -> bytes:
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        allow_nan=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+
+
+def _atomic_write_bytes(path: Path, payload: bytes) -> None:
+    temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+    try:
+        with temporary.open("xb") as stream:
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def _write_integrity_pair(path: Path, payload: Mapping[str, object]) -> None:
+    body = dict(payload)
+    wrapped = {
+        **body,
+        "integrity_sha256": hashlib.sha256(
+            _canonical_json(body)
+        ).hexdigest(),
+    }
+    _atomic_write_bytes(
+        path,
+        _canonical_json(wrapped),
+    )
+
+
+def _read_integrity_pair(path: Path) -> Mapping[str, object]:
+    descriptor: Optional[int] = None
+    try:
+        before = path.lstat()
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or stat.S_ISLNK(before.st_mode)
+            or bool(
+                getattr(before, "st_file_attributes", 0)
+                & getattr(
+                    stat,
+                    "FILE_ATTRIBUTE_REPARSE_POINT",
+                    0x400,
+                )
+            )
+            or before.st_size < 2
+            or before.st_size > _MAX_OWNERSHIP_MARKER_BYTES
+        ):
+            raise OSError("ownership marker is not a bounded regular file")
+        flags = (
+            os.O_RDONLY
+            | getattr(os, "O_BINARY", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+        )
+        descriptor = os.open(path, flags)
+        opened = os.fstat(descriptor)
+        identity_before = (
+            before.st_dev,
+            before.st_ino,
+            before.st_size,
+            before.st_mtime_ns,
+        )
+        identity_opened = (
+            opened.st_dev,
+            opened.st_ino,
+            opened.st_size,
+            opened.st_mtime_ns,
+        )
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or opened.st_size < 2
+            or opened.st_size > _MAX_OWNERSHIP_MARKER_BYTES
+            or identity_opened != identity_before
+        ):
+            raise OSError("ownership marker identity changed")
+        chunks = []
+        remaining = _MAX_OWNERSHIP_MARKER_BYTES + 1
+        while remaining > 0:
+            chunk = os.read(descriptor, remaining)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        raw = b"".join(chunks)
+        after = path.lstat()
+        identity_after = (
+            after.st_dev,
+            after.st_ino,
+            after.st_size,
+            after.st_mtime_ns,
+        )
+        if (
+            len(raw) > _MAX_OWNERSHIP_MARKER_BYTES
+            or not stat.S_ISREG(after.st_mode)
+            or stat.S_ISLNK(after.st_mode)
+            or bool(
+                getattr(after, "st_file_attributes", 0)
+                & getattr(
+                    stat,
+                    "FILE_ATTRIBUTE_REPARSE_POINT",
+                    0x400,
+                )
+            )
+            or identity_after != identity_opened
+        ):
+            raise OSError("ownership marker identity changed")
+        payload = json.loads(raw.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise DenseFrameIndexStagingUnavailable(
+            "Dense staging ownership metadata is invalid"
+        ) from error
+    finally:
+        if descriptor is not None:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+    if (
+        not isinstance(payload, dict)
+        or SHA256_PATTERN.fullmatch(
+            str(payload.get("integrity_sha256", ""))
+        )
+        is None
+    ):
+        raise DenseFrameIndexStagingUnavailable(
+            "Dense staging ownership metadata is invalid"
+        )
+    integrity_sha256 = str(payload.pop("integrity_sha256"))
+    if hashlib.sha256(_canonical_json(payload)).hexdigest() != integrity_sha256:
+        raise DenseFrameIndexStagingUnavailable(
+            "Dense staging ownership metadata is invalid"
+        )
+    return payload
+
+
+def initialize_dense_staging_root(value: Union[str, Path]) -> Path:
+    """Create or revalidate one server-owned short-path staging root."""
+
+    root = Path(value)
+    if (
+        not root.is_absolute()
+        or root.is_symlink()
+        or _path_chain_contains_link(root.parent)
+    ):
+        raise DenseFrameIndexStagingUnavailable(
+            "The dense staging root is unsafe"
+        )
+    parent = root.parent
+    if (
+        not parent.exists()
+        or not parent.is_dir()
+        or parent.is_symlink()
+        or _is_reparse_point(parent)
+    ):
+        raise DenseFrameIndexStagingUnavailable(
+            "The dense staging root parent is unsafe"
+        )
+    root_preexisted = root.exists() or root.is_symlink()
+    try:
+        if root_preexisted:
+            if not root.is_dir():
+                raise OSError("dense staging root is not a directory")
+        else:
+            root.mkdir()
+        resolved = root.resolve(strict=True)
+    except OSError as error:
+        raise DenseFrameIndexStagingUnavailable(
+            "The dense staging root is unavailable"
+        ) from error
+    if (
+        resolved != root.resolve()
+        or not resolved.is_dir()
+        or resolved.is_symlink()
+        or _is_reparse_point(resolved)
+        or _path_chain_contains_link(root)
+    ):
+        raise DenseFrameIndexStagingUnavailable(
+            "The dense staging root is unsafe"
+        )
+    if not dense_staging_root_is_short(resolved):
+        raise DenseFrameIndexStagingUnavailable(
+            "The dense staging root is not short enough for FFmpeg"
+        )
+    marker = resolved / _DENSE_STAGING_ROOT_MARKER
+    payload = {
+        "schema_version": _DENSE_STAGING_ROOT_SCHEMA,
+        "owner": "trafficvisson-python-bridge",
+        "path_exposed": False,
+    }
+    if marker.exists() or marker.is_symlink():
+        existing = _read_integrity_pair(marker)
+        if existing != payload:
+            raise DenseFrameIndexStagingUnavailable(
+                "The dense staging root ownership changed"
+            )
+    elif not root_preexisted:
+        _write_integrity_pair(marker, payload)
+    else:
+        raise DenseFrameIndexStagingUnavailable(
+            "The existing dense staging root is not owned by the bridge"
+        )
+    return resolved
+
+
+def recover_dense_staging_root(value: Union[str, Path]) -> int:
+    """Remove only valid direct-child staging leases left by a stopped bridge."""
+
+    root = initialize_dense_staging_root(value)
+    removed = 0
+    allowed_root_entries = {
+        _DENSE_STAGING_ROOT_MARKER,
+    }
+    for child in tuple(root.iterdir()):
+        if child.name in allowed_root_entries:
+            continue
+        match = _DENSE_STAGING_CHILD_PATTERN.fullmatch(child.name)
+        if (
+            match is None
+            or child.is_symlink()
+            or _is_reparse_point(child)
+            or not child.is_dir()
+        ):
+            raise DenseFrameIndexStagingUnavailable(
+                "The dense staging root contains an unowned entry"
+            )
+        owner_id = str(UUID(match.group("job_id")))
+        marker = child / _DENSE_STAGING_CHILD_MARKER
+        payload = _read_integrity_pair(marker)
+        if (
+            payload.get("schema_version") != _DENSE_STAGING_CHILD_SCHEMA
+            or payload.get("owner_id") != owner_id
+            or payload.get("path_exposed") is not False
+        ):
+            raise DenseFrameIndexStagingUnavailable(
+                "The dense staging child ownership is invalid"
+            )
+        try:
+            shutil.rmtree(child)
+        except OSError as error:
+            raise DenseFrameIndexStagingUnavailable(
+                "A stale dense staging child could not be removed"
+            ) from error
+        removed += 1
+    return removed
 
 
 @dataclass(frozen=True)
@@ -189,6 +507,110 @@ class DenseFrameIndexLimits:
 
 
 @dataclass(frozen=True)
+class DenseFrameIndexCapacityPlan:
+    """Path-free immutable writer bound computed before any artifact writes."""
+
+    schema_version: str
+    source_sha256: str
+    source_duration_seconds: float
+    indexed_duration_seconds: float
+    sampling_fps: int
+    planned_frame_count: int
+    planned_frame_bytes_upper_bound: int
+    planned_output_bytes_upper_bound: int
+    hard_ceiling_bytes: int
+
+    def capacity_revision(self) -> dict[str, Union[str, int, float]]:
+        payload: dict[str, Union[str, int, float]] = {
+            "schema_version": self.schema_version,
+            "source_sha256": self.source_sha256,
+            "source_duration_seconds": self.source_duration_seconds,
+            "indexed_duration_seconds": self.indexed_duration_seconds,
+            "sampling_fps": self.sampling_fps,
+            "planned_frame_count": self.planned_frame_count,
+            "planned_frame_bytes_upper_bound": (
+                self.planned_frame_bytes_upper_bound
+            ),
+            "planned_output_bytes_upper_bound": (
+                self.planned_output_bytes_upper_bound
+            ),
+            "hard_ceiling_bytes": self.hard_ceiling_bytes,
+        }
+        revision_sha256 = hashlib.sha256(
+            json.dumps(
+                payload,
+                ensure_ascii=False,
+                allow_nan=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest()
+        return {**payload, "revision_sha256": revision_sha256}
+
+
+def build_dense_frame_capacity_plan(
+    *,
+    source_sha256: str,
+    duration_seconds: float,
+    limits: DenseFrameIndexLimits,
+) -> DenseFrameIndexCapacityPlan:
+    """Return the exact upper bound enforced by ``DenseFrameIndexEngine``.
+
+    The caller may use a conservative intake duration. The writer is then
+    capped to ``planned_output_bytes_upper_bound``, so a later probe cannot
+    write beyond the amount accepted by the durable capacity reservation.
+    """
+
+    if (
+        not isinstance(source_sha256, str)
+        or SHA256_PATTERN.fullmatch(source_sha256) is None
+    ):
+        raise ValueError("source_sha256 is invalid")
+    if (
+        isinstance(duration_seconds, bool)
+        or not isinstance(duration_seconds, (int, float))
+        or not math.isfinite(float(duration_seconds))
+        or not 0 < float(duration_seconds)
+        <= float(limits.max_source_duration_seconds)
+    ):
+        raise ValueError("duration_seconds is outside the supported range")
+    source_duration_value = float(duration_seconds)
+    indexed_duration_value = min(
+        source_duration_value,
+        float(limits.max_media_seconds),
+    )
+    planned_frame_count = min(
+        limits.max_frames,
+        max(
+            1,
+            math.ceil(
+                indexed_duration_value * limits.sampling_fps
+            )
+            + 1,
+        ),
+    )
+    planned_frame_bytes = min(
+        limits.max_total_output_bytes,
+        planned_frame_count * limits.max_frame_bytes,
+    )
+    planned_output_bytes = min(
+        limits.max_total_output_bytes,
+        planned_frame_bytes + limits.max_index_bytes,
+    )
+    return DenseFrameIndexCapacityPlan(
+        schema_version=DENSE_FRAME_CAPACITY_PLAN_SCHEMA,
+        source_sha256=source_sha256,
+        source_duration_seconds=round(source_duration_value, 6),
+        indexed_duration_seconds=round(indexed_duration_value, 6),
+        sampling_fps=limits.sampling_fps,
+        planned_frame_count=planned_frame_count,
+        planned_frame_bytes_upper_bound=planned_frame_bytes,
+        planned_output_bytes_upper_bound=planned_output_bytes,
+        hard_ceiling_bytes=limits.max_total_output_bytes,
+    )
+
+
+@dataclass(frozen=True)
 class ReviewOnlyPolicy:
     """Machine-readable guardrails carried into every frame index."""
 
@@ -237,6 +659,7 @@ class DenseFrameIndexProvenance:
     output_scope: str
     limits: Mapping[str, Union[int, float]]
     review_policy: ReviewOnlyPolicy
+    publisher_owner_id: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -336,6 +759,42 @@ def _is_reparse_point(path: Path) -> bool:
         attributes
         & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
     )
+
+
+def _path_chain_contains_link(path: Path) -> bool:
+    if not path.is_absolute():
+        return True
+    parts = path.parts
+    if not parts:
+        return True
+    current = Path(path.anchor)
+    for part in parts[1:]:
+        current = current / part
+        if not current.exists():
+            continue
+        if current.is_symlink() or _is_reparse_point(current):
+            return True
+    return False
+
+
+def _storage_volume_identity(path: Path) -> tuple[str, object]:
+    drive = path.drive.casefold()
+    if drive:
+        return ("drive", drive)
+    existing = path
+    while not existing.exists() and existing.parent != existing:
+        existing = existing.parent
+    resolved = existing.resolve(strict=True)
+    return ("device", resolved.stat().st_dev)
+
+
+def same_storage_volume(first: Path, second: Path) -> bool:
+    try:
+        return _storage_volume_identity(
+            first
+        ) == _storage_volume_identity(second)
+    except OSError:
+        return False
 
 
 def _cancel_requested(cancel: Optional[CancelCallback]) -> bool:
@@ -618,6 +1077,126 @@ def _validated_project_output(
     return resolved_project, resolved_output
 
 
+def _validated_short_staging_root(
+    value: Optional[Union[str, Path]],
+    *,
+    required_free_bytes: int,
+) -> Path:
+    if value is None:
+        raise DenseFrameIndexStagingUnavailable(
+            "Short-path dense staging is required but not configured"
+        )
+    root = Path(value)
+    if (
+        not root.is_absolute()
+        or root.is_symlink()
+        or _is_reparse_point(root)
+        or _path_chain_contains_link(root)
+    ):
+        raise DenseFrameIndexStagingUnavailable(
+            "The dense staging root is unsafe"
+        )
+    try:
+        resolved = root.resolve(strict=True)
+        free_bytes = int(shutil.disk_usage(resolved).free)
+    except (OSError, TypeError, ValueError) as error:
+        raise DenseFrameIndexStagingUnavailable(
+            "The dense staging root is unavailable"
+        ) from error
+    if (
+        not resolved.is_dir()
+        or resolved.is_symlink()
+        or _is_reparse_point(resolved)
+        or _path_chain_contains_link(root)
+    ):
+        raise DenseFrameIndexStagingUnavailable(
+            "The dense staging root is unsafe"
+        )
+    if not dense_staging_root_is_short(resolved):
+        raise DenseFrameIndexStagingUnavailable(
+            "The configured dense staging root is not short enough for FFmpeg"
+        )
+    if free_bytes < required_free_bytes:
+        raise DenseFrameIndexStagingUnavailable(
+            "The dense staging volume cannot fit the accepted writer bound"
+        )
+    marker = resolved / _DENSE_STAGING_ROOT_MARKER
+    payload = _read_integrity_pair(marker)
+    if (
+        payload.get("schema_version") != _DENSE_STAGING_ROOT_SCHEMA
+        or payload.get("owner") != "trafficvisson-python-bridge"
+        or payload.get("path_exposed") is not False
+    ):
+        raise DenseFrameIndexStagingUnavailable(
+            "The dense staging root ownership is invalid"
+        )
+    return resolved
+
+
+def _create_owned_staging_child(root: Path, owner_id: str) -> Path:
+    try:
+        canonical_owner = str(UUID(owner_id))
+    except (TypeError, ValueError) as error:
+        raise DenseFrameIndexStagingUnavailable(
+            "The dense staging owner is invalid"
+        ) from error
+    child = root / f"job-{canonical_owner}"
+    if child.exists() or child.is_symlink():
+        raise DenseFrameIndexStagingUnavailable(
+            "A dense staging lease already exists for this job"
+        )
+    try:
+        child.mkdir()
+        _write_integrity_pair(
+            child / _DENSE_STAGING_CHILD_MARKER,
+            {
+                "schema_version": _DENSE_STAGING_CHILD_SCHEMA,
+                "owner_id": canonical_owner,
+                "path_exposed": False,
+            },
+        )
+    except OSError as error:
+        try:
+            child.rmdir()
+        except OSError:
+            pass
+        raise DenseFrameIndexStagingUnavailable(
+            "The dense staging lease could not be created"
+        ) from error
+    return child
+
+
+def _cleanup_owned_staging_child(
+    child: Optional[Path],
+    root: Optional[Path],
+    owner_id: Optional[str],
+) -> None:
+    if child is None or root is None or owner_id is None:
+        return
+    try:
+        canonical_owner = str(UUID(owner_id))
+        if (
+            child.parent != root
+            or child.name != f"job-{canonical_owner}"
+            or child.is_symlink()
+            or _is_reparse_point(child)
+            or not child.is_dir()
+        ):
+            return
+        payload = _read_integrity_pair(
+            child / _DENSE_STAGING_CHILD_MARKER
+        )
+        if (
+            payload.get("schema_version") != _DENSE_STAGING_CHILD_SCHEMA
+            or payload.get("owner_id") != canonical_owner
+            or payload.get("path_exposed") is not False
+        ):
+            return
+        shutil.rmtree(child)
+    except (OSError, TypeError, ValueError, DenseFrameIndexStagingUnavailable):
+        return
+
+
 def _remaining_timeout(
     deadline: float, configured_seconds: float
 ) -> float:
@@ -889,10 +1468,11 @@ def _frame_count_bounds(
     duration_seconds: float, fps: int, max_frames: int
 ) -> tuple[int, int]:
     nominal = duration_seconds * fps
-    if math.ceil(nominal) >= max_frames:
+    minimum_count = max(1, math.floor(nominal) - 1)
+    if minimum_count >= max_frames:
         return max_frames, max_frames
     return (
-        max(1, math.floor(nominal) - 1),
+        minimum_count,
         min(max_frames, math.ceil(nominal) + 1),
     )
 
@@ -1049,6 +1629,205 @@ def _atomic_write_index(
     return len(encoded)
 
 
+def _dense_publish_revision(
+    *,
+    source_sha256: str,
+    owner_id: str,
+    limits: DenseFrameIndexLimits,
+) -> str:
+    return hashlib.sha256(
+        _canonical_json(
+            {
+                "source_sha256": source_sha256,
+                "owner_id": owner_id,
+                "limits": asdict(limits),
+            }
+        )
+    ).hexdigest()
+
+
+def _load_completed_dense_run(
+    directory: Path,
+    *,
+    source_identity: _SourceIdentity,
+    source_sha256: str,
+    owner_id: str,
+    limits: DenseFrameIndexLimits,
+) -> DenseFrameIndexResult:
+    if (
+        directory.is_symlink()
+        or _is_reparse_point(directory)
+        or not directory.is_dir()
+        or _RUN_DIRECTORY_PATTERN.fullmatch(directory.name) is None
+        or {path.name for path in directory.iterdir()}
+        != {"frames", "frame-index.json"}
+    ):
+        raise DenseFrameIndexStagingUnavailable(
+            "The completed dense publication is invalid"
+        )
+    index_path = directory / "frame-index.json"
+    try:
+        if (
+            index_path.is_symlink()
+            or _is_reparse_point(index_path)
+            or not index_path.is_file()
+            or index_path.stat().st_size > limits.max_index_bytes
+        ):
+            raise DenseFrameIndexStagingUnavailable(
+                "The completed dense publication is invalid"
+            )
+        payload = _strict_json_object(
+            index_path.read_bytes(),
+            "completed dense-frame index",
+        )
+        raw_frames = payload.get("frames")
+        raw_provenance = payload.get("provenance")
+        if (
+            payload.get("schema_version") != FRAME_INDEX_SCHEMA
+            or not isinstance(raw_frames, list)
+            or payload.get("frame_count") != len(raw_frames)
+            or not isinstance(raw_provenance, dict)
+        ):
+            raise ValueError("completed index envelope is invalid")
+        raw_policy = raw_provenance.get("review_policy")
+        if not isinstance(raw_policy, dict):
+            raise ValueError("completed review policy is invalid")
+        provenance_payload = dict(raw_provenance)
+        provenance_payload["review_policy"] = ReviewOnlyPolicy(
+            **raw_policy
+        )
+        provenance = DenseFrameIndexProvenance(
+            **provenance_payload
+        )
+        frames = tuple(DenseFrameRecord(**item) for item in raw_frames)
+    except (
+        DenseFrameIndexError,
+        OSError,
+        TypeError,
+        ValueError,
+    ) as error:
+        raise DenseFrameIndexStagingUnavailable(
+            "The completed dense publication is invalid"
+        ) from error
+    if (
+        provenance.source_sha256 != source_sha256
+        or provenance.publisher_owner_id != owner_id
+        or provenance.source_size_bytes != source_identity.size_bytes
+        or provenance.source_modified_time_ns
+        != source_identity.modified_time_ns
+        or dict(provenance.limits) != asdict(limits)
+        or provenance.frame_count != len(frames)
+    ):
+        raise DenseFrameIndexStagingUnavailable(
+            "The completed dense publication ownership changed"
+        )
+    verified_frames, _ = _validate_frames(
+        directory / "frames",
+        source_sha256=source_sha256,
+        indexed_duration_seconds=(
+            provenance.indexed_duration_seconds
+        ),
+        limits=limits,
+    )
+    if verified_frames != frames:
+        raise DenseFrameIndexStagingUnavailable(
+            "The completed dense publication content changed"
+        )
+    _directory_size(directory, limits.max_total_output_bytes)
+    return DenseFrameIndexResult(
+        output_directory=str(directory),
+        index_relative_path="frame-index.json",
+        frames=frames,
+        provenance=provenance,
+    )
+
+
+def _prepare_dense_publish_incoming(
+    output_root: Path,
+    *,
+    owner_id: str,
+    source_sha256: str,
+    final_name: str,
+) -> Path:
+    incoming = output_root / f".dense-incoming-{owner_id}"
+    expected = {
+        "schema_version": _DENSE_PUBLISH_INCOMING_SCHEMA,
+        "owner_id": owner_id,
+        "source_sha256": source_sha256,
+        "final_name": final_name,
+        "path_exposed": False,
+    }
+    if incoming.exists() or incoming.is_symlink():
+        if (
+            incoming.parent != output_root
+            or incoming.is_symlink()
+            or _is_reparse_point(incoming)
+            or not incoming.is_dir()
+        ):
+            raise DenseFrameIndexStagingUnavailable(
+                "The dense publication incoming directory is unsafe"
+            )
+        existing = _read_integrity_pair(
+            incoming / _DENSE_PUBLISH_INCOMING_MARKER
+        )
+        if existing != expected:
+            raise DenseFrameIndexStagingUnavailable(
+                "The dense publication incoming ownership changed"
+            )
+        try:
+            shutil.rmtree(incoming)
+        except OSError as error:
+            raise DenseFrameIndexStagingUnavailable(
+                "The stale dense publication incoming directory is busy"
+            ) from error
+    try:
+        incoming.mkdir()
+        _write_integrity_pair(
+            incoming / _DENSE_PUBLISH_INCOMING_MARKER,
+            expected,
+        )
+    except OSError as error:
+        raise DenseFrameIndexStagingUnavailable(
+            "The dense publication incoming directory is unavailable"
+        ) from error
+    return incoming
+
+
+def _cleanup_dense_publish_incoming(
+    incoming: Optional[Path],
+    output_root: Path,
+    *,
+    owner_id: Optional[str],
+    source_sha256: str,
+    final_name: Optional[str],
+) -> None:
+    if incoming is None or owner_id is None or final_name is None:
+        return
+    try:
+        if (
+            incoming.parent != output_root
+            or incoming.name != f".dense-incoming-{owner_id}"
+            or incoming.is_symlink()
+            or _is_reparse_point(incoming)
+            or not incoming.is_dir()
+        ):
+            return
+        payload = _read_integrity_pair(
+            incoming / _DENSE_PUBLISH_INCOMING_MARKER
+        )
+        if payload != {
+            "schema_version": _DENSE_PUBLISH_INCOMING_SCHEMA,
+            "owner_id": owner_id,
+            "source_sha256": source_sha256,
+            "final_name": final_name,
+            "path_exposed": False,
+        }:
+            return
+        shutil.rmtree(incoming)
+    except (OSError, DenseFrameIndexStagingUnavailable):
+        return
+
+
 def _cleanup_run_directory(
     run_directory: Optional[Path], output_directory: Path
 ) -> None:
@@ -1078,11 +1857,17 @@ class DenseFrameIndexEngine:
         ffmpeg_path: Optional[Union[str, Path]] = None,
         ffprobe_path: Optional[Union[str, Path]] = None,
         limits: Optional[DenseFrameIndexLimits] = None,
+        staging_root: Optional[Union[str, Path]] = None,
+        staging_owner_id: Optional[str] = None,
         command_runner: Optional[CommandRunner] = None,
     ) -> None:
         self._ffmpeg = _resolve_executable(ffmpeg_path, "ffmpeg")
         self._ffprobe = _resolve_executable(ffprobe_path, "ffprobe")
         self._limits = limits or DenseFrameIndexLimits()
+        self._staging_root = (
+            Path(staging_root) if staging_root is not None else None
+        )
+        self._staging_owner_id = staging_owner_id
         self._runner = command_runner or _run_bounded_command
 
     def _run(
@@ -1136,15 +1921,6 @@ class DenseFrameIndexEngine:
         )
         if _cancel_requested(cancel):
             raise DenseFrameIndexCancelled("Dense-frame indexing was cancelled")
-        required_free = (
-            self._limits.max_total_output_bytes
-            + self._limits.min_free_disk_bytes
-        )
-        if shutil.disk_usage(output_root).free < required_free:
-            raise DenseFrameIndexOutputLimit(
-                "The project output disk cannot fit the bounded index and reserve"
-            )
-
         deadline = time.monotonic() + self._limits.max_total_seconds
         _verify_source_sha256(
             source,
@@ -1154,12 +1930,108 @@ class DenseFrameIndexEngine:
             cancel=cancel,
         )
 
+        publisher_owner_id: Optional[str] = None
+        if self._staging_owner_id is not None:
+            try:
+                publisher_owner_id = str(
+                    UUID(self._staging_owner_id)
+                )
+            except (TypeError, ValueError) as error:
+                raise DenseFrameIndexStagingUnavailable(
+                    "The dense publication owner is invalid"
+                ) from error
         run_directory: Optional[Path] = None
+        published_directory: Optional[Path] = None
+        publish_incoming: Optional[Path] = None
+        publish_final_name: Optional[str] = None
+        staging_root: Optional[Path] = None
+        staging_directory: Optional[Path] = None
         try:
+            use_short_windows_staging = (
+                dense_frame_index_requires_short_staging(output_root)
+            )
+            run_parent = output_root
+            output_scope = (
+                "new_run_directory_under_authorized_project_subfolder"
+            )
+            if use_short_windows_staging:
+                # ffmpeg 4.4 still uses legacy Win32 path handling for image
+                # sequences.  Python can safely publish a verified directory
+                # to a longer project path, while ffmpeg cannot create the
+                # same JPEGs there directly.  Keep the execution CWD private
+                # and short, then revalidate every frame after publication.
+                staging_root = _validated_short_staging_root(
+                    self._staging_root,
+                    required_free_bytes=(
+                        self._limits.max_total_output_bytes
+                        + self._limits.min_free_disk_bytes
+                    ),
+                )
+                if self._staging_owner_id is None:
+                    raise DenseFrameIndexStagingUnavailable(
+                        "Short-path dense staging has no durable job owner"
+                    )
+                assert publisher_owner_id is not None
+                publish_revision = _dense_publish_revision(
+                    source_sha256=source_sha256,
+                    owner_id=publisher_owner_id,
+                    limits=self._limits,
+                )
+                publish_final_name = (
+                    f"dense-frame-index-{publish_revision[:24]}"
+                )
+                published_directory = (
+                    output_root / publish_final_name
+                )
+                competing_publications = [
+                    child
+                    for child in output_root.iterdir()
+                    if child != published_directory
+                    and _RUN_DIRECTORY_PATTERN.fullmatch(
+                        child.name
+                    )
+                    is not None
+                ]
+                if competing_publications:
+                    raise DenseFrameIndexStagingUnavailable(
+                        "Multiple dense publications exist for one job"
+                    )
+                existing_incoming = (
+                    output_root
+                    / f".dense-incoming-{publisher_owner_id}"
+                )
+                if existing_incoming.exists():
+                    publish_incoming = existing_incoming
+                if published_directory.exists():
+                    adopted = _load_completed_dense_run(
+                        published_directory,
+                        source_identity=source_identity,
+                        source_sha256=source_sha256,
+                        owner_id=publisher_owner_id,
+                        limits=self._limits,
+                    )
+                    _cleanup_dense_publish_incoming(
+                        publish_incoming,
+                        output_root,
+                        owner_id=publisher_owner_id,
+                        source_sha256=source_sha256,
+                        final_name=publish_final_name,
+                    )
+                    publish_incoming = None
+                    published_directory = None
+                    return adopted
+                staging_directory = _create_owned_staging_child(
+                    staging_root,
+                    self._staging_owner_id,
+                )
+                run_parent = staging_directory
+                output_scope = (
+                    "private_short_staging_then_verified_project_publish"
+                )
             run_directory = Path(
                 tempfile.mkdtemp(
                     prefix="dense-frame-index-",
-                    dir=str(output_root),
+                    dir=str(run_parent),
                 )
             )
             try:
@@ -1210,7 +2082,7 @@ class DenseFrameIndexEngine:
                         ),
                         "-of",
                         "json",
-                        str(source),
+                        _media_tool_path(source),
                     ),
                     cwd=run_directory,
                     timeout_seconds=_remaining_timeout(
@@ -1234,9 +2106,55 @@ class DenseFrameIndexEngine:
                     "The protected source changed while it was probed"
                 )
 
-            indexed_duration = min(
-                probe.duration_seconds, self._limits.max_media_seconds
+            capacity_plan = build_dense_frame_capacity_plan(
+                source_sha256=source_sha256,
+                duration_seconds=probe.duration_seconds,
+                limits=self._limits,
             )
+            indexed_duration = capacity_plan.indexed_duration_seconds
+            frame_limit = capacity_plan.planned_frame_count
+            bounded_frame_bytes = (
+                capacity_plan.planned_frame_bytes_upper_bound
+            )
+            bounded_total_bytes = (
+                capacity_plan.planned_output_bytes_upper_bound
+            )
+            required_free = (
+                bounded_total_bytes
+                + self._limits.min_free_disk_bytes
+            )
+            same_volume_publish = (
+                run_parent != output_root
+                and same_storage_volume(run_parent, output_root)
+            )
+            output_available = int(
+                shutil.disk_usage(output_root).free
+            )
+            if same_volume_publish:
+                combined_peak = (
+                    2 * bounded_total_bytes
+                    + self._limits.min_free_disk_bytes
+                )
+                if output_available < combined_peak:
+                    raise DenseFrameIndexOutputLimit(
+                        "The shared staging and output volume cannot fit "
+                        "both the bounded run and atomic publication copy"
+                    )
+            else:
+                if output_available < required_free:
+                    raise DenseFrameIndexOutputLimit(
+                        "The project output disk cannot fit this media's "
+                        "bounded index and reserve"
+                    )
+                if (
+                    run_parent != output_root
+                    and int(shutil.disk_usage(run_parent).free)
+                    < required_free
+                ):
+                    raise DenseFrameIndexOutputLimit(
+                        "The private staging disk cannot fit this media's "
+                        "bounded index and reserve"
+                    )
             frames_root = run_directory / "frames"
             frames_root.mkdir(exist_ok=False)
             if frames_root.is_symlink() or _is_reparse_point(frames_root):
@@ -1249,7 +2167,14 @@ class DenseFrameIndexEngine:
                 f"scale=w=min(iw\\,{self._limits.max_frame_width}):"
                 "h=-2:flags=lanczos"
             )
-            frame_pattern = frames_root / "frame-%08d.jpg"
+            # Keep the ffmpeg output argument relative to the already
+            # validated run-directory CWD.  Windows builds of ffmpeg 4.4 can
+            # fail to open an otherwise valid JPEG sequence when the absolute
+            # UTF-16 path crosses the legacy MAX_PATH boundary.  The relative
+            # argument is still confined because shell execution is disabled,
+            # the CWD is the fresh run directory, and the absolute
+            # ``watch_directory`` below remains the bounded output guard.
+            frame_pattern = Path("frames") / "frame-%08d.jpg"
             extraction_argv = (
                 self._ffmpeg,
                 "-hide_banner",
@@ -1257,7 +2182,7 @@ class DenseFrameIndexEngine:
                 "-loglevel",
                 "error",
                 "-i",
-                str(source),
+                _media_tool_path(source),
                 "-map",
                 f"0:{probe.stream_index}",
                 "-an",
@@ -1268,7 +2193,7 @@ class DenseFrameIndexEngine:
                 "-vf",
                 sampling_filter,
                 "-frames:v",
-                str(self._limits.max_frames),
+                str(frame_limit),
                 "-q:v",
                 "4",
                 "-start_number",
@@ -1280,7 +2205,7 @@ class DenseFrameIndexEngine:
                 "-vsync",
                 "0",
                 "-n",
-                str(frame_pattern),
+                _media_tool_path(frame_pattern),
             )
             extraction_output = self._run(
                 MediaCommand(
@@ -1292,7 +2217,7 @@ class DenseFrameIndexEngine:
                     ),
                     capture_limit_bytes=self._limits.max_process_output_bytes,
                     watch_directory=frames_root,
-                    watch_limit_bytes=self._limits.max_total_output_bytes,
+                    watch_limit_bytes=bounded_frame_bytes,
                 ),
                 cancel,
             )
@@ -1345,10 +2270,11 @@ class DenseFrameIndexEngine:
                 ffmpeg_version=ffmpeg_version,
                 ffprobe_version=ffprobe_version,
                 output_scope=(
-                    "new_run_directory_under_authorized_project_subfolder"
+                    output_scope
                 ),
                 limits=asdict(self._limits),
                 review_policy=ReviewOnlyPolicy(),
+                publisher_owner_id=publisher_owner_id,
             )
             index_payload = {
                 "schema_version": FRAME_INDEX_SCHEMA,
@@ -1375,6 +2301,69 @@ class DenseFrameIndexEngine:
             _directory_size(
                 run_directory, self._limits.max_total_output_bytes
             )
+            if use_short_windows_staging:
+                assert publisher_owner_id is not None
+                assert publish_final_name is not None
+                assert published_directory is not None
+                index_bytes_before_publish = (
+                    run_directory / "frame-index.json"
+                ).read_bytes()
+                if published_directory.exists():
+                    raise DenseFrameIndexError(
+                        "The dense-frame publication target already exists"
+                    )
+                publish_incoming = (
+                    _prepare_dense_publish_incoming(
+                        output_root,
+                        owner_id=publisher_owner_id,
+                        source_sha256=source_sha256,
+                        final_name=publish_final_name,
+                    )
+                )
+                incoming_payload = publish_incoming / "payload"
+                shutil.copytree(
+                    run_directory,
+                    incoming_payload,
+                    copy_function=shutil.copy2,
+                )
+                published_frames, published_frame_bytes = _validate_frames(
+                    incoming_payload / "frames",
+                    source_sha256=source_sha256,
+                    indexed_duration_seconds=indexed_duration,
+                    limits=self._limits,
+                )
+                if (
+                    published_frames != frames
+                    or published_frame_bytes != frame_bytes
+                ):
+                    raise DenseFrameIndexError(
+                        "The published dense-frame index changed in transit"
+                    )
+                published_index = run_directory / "frame-index.json"
+                if (
+                    (incoming_payload / "frame-index.json").read_bytes()
+                    != index_bytes_before_publish
+                ):
+                    raise DenseFrameIndexError(
+                        "The published dense-frame manifest changed in transit"
+                    )
+                _directory_size(
+                    incoming_payload,
+                    self._limits.max_total_output_bytes,
+                )
+                os.replace(
+                    incoming_payload,
+                    published_directory,
+                )
+                run_directory = published_directory
+                _cleanup_dense_publish_incoming(
+                    publish_incoming,
+                    output_root,
+                    owner_id=publisher_owner_id,
+                    source_sha256=source_sha256,
+                    final_name=publish_final_name,
+                )
+                publish_incoming = None
             result = DenseFrameIndexResult(
                 output_directory=str(run_directory),
                 index_relative_path="frame-index.json",
@@ -1382,18 +2371,36 @@ class DenseFrameIndexEngine:
                 provenance=provenance,
             )
             run_directory = None
+            published_directory = None
             return result
-        except (
-            DenseFrameIndexError,
-            OSError,
-            ValueError,
-        ):
+        except DenseFrameIndexError:
+            raise
+        except OSError as error:
+            raise DenseFrameIndexError(
+                "The dense-frame publication failed"
+            ) from error
+        except ValueError:
             raise
         finally:
             _cleanup_run_directory(run_directory, output_root)
+            _cleanup_run_directory(published_directory, output_root)
+            _cleanup_dense_publish_incoming(
+                publish_incoming,
+                output_root,
+                owner_id=publisher_owner_id,
+                source_sha256=source_sha256,
+                final_name=publish_final_name,
+            )
+            _cleanup_owned_staging_child(
+                staging_directory,
+                staging_root,
+                self._staging_owner_id,
+            )
 
 
 __all__ = [
+    "DENSE_FRAME_CAPACITY_PLAN_SCHEMA",
+    "DenseFrameIndexCapacityPlan",
     "DenseFrameIndexCancelled",
     "DenseFrameIndexEngine",
     "DenseFrameIndexError",
@@ -1402,6 +2409,7 @@ __all__ = [
     "DenseFrameIndexProvenance",
     "DenseFrameIndexResult",
     "DenseFrameIndexSourceChanged",
+    "DenseFrameIndexStagingUnavailable",
     "DenseFrameIndexTimeout",
     "DenseFrameRecord",
     "FRAME_ID_PATTERN",
@@ -1409,4 +2417,10 @@ __all__ = [
     "MediaCommand",
     "MediaCommandOutput",
     "ReviewOnlyPolicy",
+    "build_dense_frame_capacity_plan",
+    "dense_frame_index_requires_short_staging",
+    "dense_staging_root_is_short",
+    "initialize_dense_staging_root",
+    "recover_dense_staging_root",
+    "same_storage_volume",
 ]

@@ -5,8 +5,8 @@
 > 참조 이미지: `Pretendard와 리퀴드 글래스 디자인/uploads/pasted-1785143633633-0.png`  
 > 기능·정보구조 참고본: `Pretendard와 리퀴드 글래스 디자인/uploads/TrafficSuperVision Desktop.dc.html`
 > 구현 화면: `desktop/src`  
-> 현재 기능 기준: Master v2.13 · alpha.10 기반 현재 소스 · SQLite v4 · project-scoped `PipelineJob`
-> 디자인 QA 결과: alpha.9·alpha.10의 이전 감사는 역사 증거로 보존한다. 최신 post-fix Home·Labeling·Report 재감사는 **PASSED — P0 0건 / P1 0건 / P2 0건**이다. 이는 현재 UI 범위의 판정이며 제품 전체·현장 수용 완료 판정은 아니다
+> 현재 기능 기준: Master v2.16 · alpha.10 기반 현재 소스 · SQLite v4 · project-scoped `PipelineJob`
+> 디자인 QA 결과: alpha.9·alpha.10과 v2.13의 이전 감사는 역사 증거로 보존한다. 그러나 v2.16은 그 뒤 단일 창 IA·프로필 상태·포커스·글래스·홈 높이·진행 표면을 변경했고, 동일 상태의 최신 Electron 캡처가 없으므로 **BLOCKED — 현재 소스 시각 수용 미완료**다. 이전 PASSED를 현재 코드의 픽셀 증거로 재사용하지 않는다
 > 제품 상태: development alpha / 기능 완성 전
 
 ## 1. 평가 기준
@@ -187,7 +187,7 @@ alpha.10 완결 패키지의 역사 회귀는 **546 passed, 2 skipped, 실패 0*
 - **당시 P3 성능 경계:** 당시 lazy-load `HistoryScreen` 청크는 약 969.24kB였다. 최신 source에서는 초기 화면과 `HistoryMap`이 분리됐으며 현재 수치는 §10을 따른다
 - 범위 경계: 위 PASSED는 이번 final-suit UI 감사만의 판정이다. `NotSigned`, `development_only_not_distribution_ready`, 실제 운영 GPX·검지 성능·HWP COM·클린 PC 수용 경계는 그대로다
 
-## 10. v2.13 post-fix Home·Labeling·Report 재감사
+## 10. v2.13 post-fix Home·Labeling·Report 재감사 - 역사 기록
 
 최신 실기동 화면과 같은 참조 이미지를 결합해 다시 비교했다. 이 재감사 범위에서는 P0 0건·P1 0건·P2 0건으로 판정한다.
 
@@ -208,4 +208,21 @@ alpha.10 완결 패키지의 역사 회귀는 **546 passed, 2 skipped, 실패 0*
 
 남은 P3 증거 공백은 1280×720 live pixel 재캡처, 정밀 판정의 심각도 선택 상태, 실제 OCR 관측이 존재하는 질문 카드다. 또한 실제 NAS PipelineJob은 질문 1건 대기 상태이고 사용자 답변·Annotation·Incident가 모두 0건이므로, 이번 디자인 통과를 검지 성능·승인 종단·HWPX 48쪽 검증 또는 제품 전체 완료로 확대하지 않는다.
 
-result: passed
+## 11. v2.16 현재 소스 디자인 QA
+
+현재 소스는 v2.13 역사 캡처 뒤 다음 시각·상호작용 구조를 변경했다.
+
+1. 새 프로젝트 `1/2 → 2/2` 온보딩과 기존 프로젝트 설정 편집을 분리하고 홈 탈출을 추가했다.
+2. `화면 n/9`를 업무 영역·현재 화면·남은 질문을 반영한 지금 할 일로 교체했다.
+3. 전체 workspace 포커스 액자를 화면 제목 단위 포커스로 축소했다.
+4. 내부 shell·titlebar·주요 패널의 저채도 liquid-glass 투명도와 blur를 복구했다.
+5. 홈·분석의 여러 단계 카드를 하나의 평면 진행 표면으로 합쳤다.
+6. 1280×720 홈 히어로의 고정 높이 압축과 `overflow: hidden`을 제거해 한국어 문구와 진행 띠가 잘리지 않도록 높이 예산을 재배분했다.
+7. 프로필 미설정과 로드 실패를 분리하고 프로젝트 전환 중 이전 설정이 다른 프로젝트에 저장되지 않도록 차단했다.
+
+소스 계약과 회귀는 domain 10, renderer 172, Electron 80, Python bridge 665 passed·2 skipped, vision runner 20, release 9, Sites 경계 4로 총 960 passed·2 skipped이며 TypeScript와 Vite production build도 통과했다. 하지만 빌드와 source test는 시각 증거가 아니다.
+
+현재 실행 화면 제어를 사용하지 않는 경계 때문에 같은 v2.16 소스의 Electron 1280×720 캡처, 참조 결합 비교, 글자 절단·대비·초점·한 화면 도달성 재검증을 수행하지 않았다. 따라서 현재 디자인 QA는 통과가 아니라 차단 상태로 유지한다. 다음 시각 수용에서는 최소한 Home, 새 프로젝트 설정, 기존 프로젝트 설정, Analysis, 빠른 질문, 정밀 심각도, OCR 질문, Report의 동일 viewport 캡처와 참조 결합본이 필요하다.
+
+final result: blocked
+result: blocked

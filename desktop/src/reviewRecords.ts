@@ -20,6 +20,8 @@ export type ReviewRecord = {
   recordId?: string;
   recordHash?: string;
   answerRevision?: number;
+  answeredBy?: "local_user" | "structured_llm_assisted";
+  labelSource?: "local_user_review" | "structured_llm_assisted";
 };
 
 const EMPTY_REVIEW_RECORDS: ReviewRecord[] = [];
@@ -109,6 +111,7 @@ export function reviewRecordsFromQuestionList(
         severity?: string;
         maintenance_action?: string;
         ocr_text?: string;
+        answered_by?: "local_user" | "structured_llm_assisted";
         normalized_box?: {
           x?: number;
           y?: number;
@@ -192,6 +195,17 @@ export function reviewRecordsFromQuestionList(
           Number.isInteger(row.answer_revision) && Number(row.answer_revision) >= 0
             ? Number(row.answer_revision)
             : undefined,
+        ...(row.latest_answer.answered_by === "structured_llm_assisted" ||
+        row.latest_answer.answered_by === "local_user"
+          ? {
+              answeredBy: row.latest_answer.answered_by,
+              labelSource:
+                row.latest_answer.answered_by ===
+                "structured_llm_assisted"
+                  ? ("structured_llm_assisted" as const)
+                  : ("local_user_review" as const),
+            }
+          : {}),
       } satisfies ReviewRecord,
     ];
   });

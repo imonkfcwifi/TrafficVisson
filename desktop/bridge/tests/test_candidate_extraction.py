@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -13,9 +14,22 @@ from app.candidate_extraction import (
     CandidateExtractionOutputLimit,
     ExtractionLimits,
     _CommandOutput,
+    _media_tool_path,
     _parse_source_location,
     _run_bounded_command,
 )
+
+
+def test_media_tool_path_preserves_short_paths_and_prefixes_long_windows_paths():
+    short_path = Path("C:/trafficvisson/input.mp4")
+    assert _media_tool_path(short_path) == str(short_path)
+
+    long_path = Path("C:/") / ("a" * 240) / "representative.jpg"
+    rendered = _media_tool_path(long_path)
+    if os.name == "nt":
+        assert rendered == "\\\\?\\" + str(long_path)
+    else:
+        assert rendered == str(long_path)
 
 
 def _fake_tools(tmp_path):

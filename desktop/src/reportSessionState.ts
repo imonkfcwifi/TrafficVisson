@@ -14,7 +14,7 @@ export type HwpWorkflow =
 
 export type DocumentEditOperation = {
   operationId: string;
-  type: "fill_text" | "fill_cell";
+  type: "fill_text" | "fill_cell" | "insert_image";
   target: string;
   expectedValue?: string;
   value: string;
@@ -30,7 +30,7 @@ export type DocumentEditPlan = {
   operations: DocumentEditOperation[];
 };
 
-export type HwpPreviewResult = {
+export type LegacyHwpPreviewResult = {
   mode: "preview";
   operation_count: number;
   operation_types: Record<string, number>;
@@ -55,13 +55,73 @@ export type HwpPreviewResult = {
   };
 };
 
+export type HwpSampleTargetStructureBlockingReason =
+  | "exact_hwpml_target_writer_not_implemented"
+  | "output_reopen_and_48_page_render_validation_not_implemented";
+
+export type HwpSampleTargetStructureOperationBinding = {
+  operation_id: string;
+  approval_id: string;
+  operation_type: "fill_cell" | "insert_image";
+  target_id: string;
+  semantic_role:
+    | "photo_slot_image"
+    | "photo_caption"
+    | "inspection_route"
+    | "inspection_opinion_body"
+    | "evaluation_square_marker";
+  page_number: number;
+  table_index: number;
+  row: number;
+  column: number;
+};
+
+export type HwpSampleTargetStructurePreviewResult = {
+  schema_version: "trafficvisson.hwpx-sample-target-plan.v1";
+  mode: "sample_target_structure_preview";
+  state: "target_structure_preview_validated_apply_unavailable";
+  document_snapshot_id: string;
+  document_sha256: string;
+  structure_target_summary_sha256: string;
+  weak_case_index_manifest_sha256: string;
+  plan_sha256: string;
+  validation_sha256: string;
+  approved_references_sha256: string;
+  approved_reference_count: number;
+  operation_count: number;
+  page_pair_indices: number[];
+  touched_pages: number[];
+  expected_rendered_page_count: 48;
+  expected_page_range: [1, 48];
+  page_range_preserved_by_structure: true;
+  table_growth_allowed: false;
+  target_structure_validation_passed: true;
+  approved_incident_bound: false;
+  content_provenance_bound: false;
+  com_invocation_performed: false;
+  operation_bindings: HwpSampleTargetStructureOperationBinding[];
+  approval_scope: "sample_target_structure_hash_binding_only";
+  approval_token: string;
+  approval_expires_at: string;
+  apply_eligible: false;
+  writer_state: "unavailable";
+  output_render_validation_status: "not_run";
+  blocking_reasons: HwpSampleTargetStructureBlockingReason[];
+  no_com: true;
+  no_document_write: true;
+};
+
+export type HwpPreviewResult =
+  | LegacyHwpPreviewResult
+  | HwpSampleTargetStructurePreviewResult;
+
 export type HwpApplyResult = {
   mode: "applied";
   rollback_token: string;
   output_file_name: string;
   size_bytes: number;
   sha256: string;
-  readback: HwpPreviewResult["structure"];
+  readback: LegacyHwpPreviewResult["structure"];
   message: string;
 };
 

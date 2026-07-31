@@ -140,6 +140,27 @@ export type AnalysisJobResponse = {
        * serializes the optional backend contract as null when it is absent.
        */
       ai_inference?: AnalysisCandidateInferenceResponse | null;
+      candidate_kind?: "dense_candidate_evidence_overlay" | null;
+      dense_proposal?: null | {
+        issue_type: string;
+        score: number;
+        normalized_box: AnalysisNormalizedBoxResponse | null;
+        ocr_text: string | null;
+        urgent_review: boolean;
+        proposal_sources: string[];
+      };
+      evidence_overlay?: null | {
+        schema_version: "trafficvisson.candidate-evidence-overlay.v1";
+        overlay_id: string;
+        pipeline_job_id: string;
+        manifest_sha256: string;
+        discovery_revision: string;
+        dense_index_sha256: string;
+        provider_provenance_sha256: string;
+        model_provenance_sha256: string;
+        candidate_set_metadata_sha256: string;
+        review_only: true;
+      };
     }>;
   };
 };
@@ -149,6 +170,8 @@ const UUID_PATTERN =
 const SHA_PATTERN = /^[a-f0-9]{64}$/;
 const CANDIDATE_PATTERN = /^[a-f0-9]{20}$/;
 const RELATIVE_ARTIFACT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/;
+const CANDIDATE_EVIDENCE_ARTIFACT_PATTERN =
+  /^candidate-evidence:(ceo_[a-f0-9]{32}):cea_[a-f0-9]{32}$/;
 const MAX_MEDIA_SECONDS = 2_678_400;
 const ERROR_CODES = new Set([
   "source_changed",
@@ -220,7 +243,13 @@ function validArtifact(
     typeof value.sha256 !== "string" ||
     !SHA_PATTERN.test(value.sha256) ||
     value.media_type !== expectedMediaType ||
-    value.artifact_ref !== `analysis:${jobId}:${value.relative_path}`
+    !(
+      value.artifact_ref ===
+        `analysis:${jobId}:${value.relative_path}` ||
+      CANDIDATE_EVIDENCE_ARTIFACT_PATTERN.test(
+        String(value.artifact_ref),
+      )
+    )
   ) {
     return false;
   }
@@ -348,6 +377,62 @@ function validCandidateInference(value: unknown) {
   );
 }
 
+function validDenseCandidateEvidence(value: Record<string, unknown>) {
+  const kind = value.candidate_kind;
+  const proposal = value.dense_proposal;
+  const evidence = value.evidence_overlay;
+  if (kind === undefined || kind === null) {
+    return (
+      (proposal === undefined || proposal === null) &&
+      (evidence === undefined || evidence === null)
+    );
+  }
+  if (
+    kind !== "dense_candidate_evidence_overlay" ||
+    !isRecord(proposal) ||
+    normalizeIssueTypeApi(proposal.issue_type) === null ||
+    !boundedNumber(proposal.score, 0, 1) ||
+    !(
+      proposal.normalized_box === null ||
+      validNormalizedBox(proposal.normalized_box)
+    ) ||
+    !(
+      proposal.ocr_text === null ||
+      (typeof proposal.ocr_text === "string" &&
+        proposal.ocr_text.trim().length > 0 &&
+        proposal.ocr_text.length <= 500)
+    ) ||
+    typeof proposal.urgent_review !== "boolean" ||
+    !stringArray(proposal.proposal_sources, {
+      minimum: 1,
+      maximum: 8,
+    }) ||
+    !isRecord(evidence) ||
+    evidence.schema_version !==
+      "trafficvisson.candidate-evidence-overlay.v1" ||
+    typeof evidence.overlay_id !== "string" ||
+    !/^ceo_[a-f0-9]{32}$/.test(evidence.overlay_id) ||
+    typeof evidence.pipeline_job_id !== "string" ||
+    !UUID_PATTERN.test(evidence.pipeline_job_id) ||
+    typeof evidence.manifest_sha256 !== "string" ||
+    !SHA_PATTERN.test(evidence.manifest_sha256) ||
+    typeof evidence.discovery_revision !== "string" ||
+    !SHA_PATTERN.test(evidence.discovery_revision) ||
+    typeof evidence.dense_index_sha256 !== "string" ||
+    !SHA_PATTERN.test(evidence.dense_index_sha256) ||
+    typeof evidence.provider_provenance_sha256 !== "string" ||
+    !SHA_PATTERN.test(evidence.provider_provenance_sha256) ||
+    typeof evidence.model_provenance_sha256 !== "string" ||
+    !SHA_PATTERN.test(evidence.model_provenance_sha256) ||
+    typeof evidence.candidate_set_metadata_sha256 !== "string" ||
+    !SHA_PATTERN.test(evidence.candidate_set_metadata_sha256) ||
+    evidence.review_only !== true
+  ) {
+    return false;
+  }
+  return true;
+}
+
 function validCandidate(value: unknown, jobId: string) {
   if (
     !isRecord(value) ||
@@ -370,7 +455,33 @@ function validCandidate(value: unknown, jobId: string) {
     !validArtifact(value.preview_clip, jobId, "video/mp4") ||
     !boundedNumber(value.preview_start_seconds, 0, MAX_MEDIA_SECONDS) ||
     !boundedNumber(value.preview_duration_seconds, 0, 5) ||
-    !validCandidateInference(value.ai_inference)
+    !validCandidateInference(value.ai_inference) ||
+    !validDenseCandidateEvidence(value)
+  ) {
+    return false;
+  }
+  const image = value.representative_image;
+  const clip = value.preview_clip;
+  if (!isRecord(image) || !isRecord(clip)) return false;
+  if (value.candidate_kind === "dense_candidate_evidence_overlay") {
+    const evidence = value.evidence_overlay;
+    if (!isRecord(evidence)) return false;
+    const prefix = `candidate-evidence:${String(
+      evidence.overlay_id,
+    )}:`;
+    if (
+      typeof image.artifact_ref !== "string" ||
+      typeof clip.artifact_ref !== "string" ||
+      !image.artifact_ref.startsWith(prefix) ||
+      !clip.artifact_ref.startsWith(prefix)
+    ) {
+      return false;
+    }
+  } else if (
+    image.artifact_ref !==
+      `analysis:${jobId}:${String(image.relative_path)}` ||
+    clip.artifact_ref !==
+      `analysis:${jobId}:${String(clip.relative_path)}`
   ) {
     return false;
   }
@@ -612,6 +723,50 @@ export function toRuntimeCandidate(
     previewDurationSeconds: candidate.preview_duration_seconds,
     ...(candidate.ai_inference
       ? { aiInference: toInference(candidate.ai_inference) }
+      : {}),
+    ...(candidate.candidate_kind ===
+      "dense_candidate_evidence_overlay" &&
+    candidate.dense_proposal &&
+    candidate.evidence_overlay
+      ? {
+          candidateKind: candidate.candidate_kind,
+          denseProposal: {
+            issueType: normalizeIssueTypeApi(
+              candidate.dense_proposal.issue_type,
+            )!,
+            score: candidate.dense_proposal.score,
+            normalizedBox:
+              candidate.dense_proposal.normalized_box,
+            ocrText: candidate.dense_proposal.ocr_text,
+            urgentReview:
+              candidate.dense_proposal.urgent_review,
+            proposalSources:
+              candidate.dense_proposal.proposal_sources,
+          },
+          evidenceOverlay: {
+            schemaVersion:
+              candidate.evidence_overlay.schema_version,
+            overlayId: candidate.evidence_overlay.overlay_id,
+            pipelineJobId:
+              candidate.evidence_overlay.pipeline_job_id,
+            manifestSha256:
+              candidate.evidence_overlay.manifest_sha256,
+            discoveryRevision:
+              candidate.evidence_overlay.discovery_revision,
+            denseIndexSha256:
+              candidate.evidence_overlay.dense_index_sha256,
+            providerProvenanceSha256:
+              candidate.evidence_overlay
+                .provider_provenance_sha256,
+            modelProvenanceSha256:
+              candidate.evidence_overlay
+                .model_provenance_sha256,
+            candidateSetMetadataSha256:
+              candidate.evidence_overlay
+                .candidate_set_metadata_sha256,
+            reviewOnly: true as const,
+          },
+        }
       : {}),
   };
 }

@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 import math
 import re
+import unicodedata
 from typing import Annotated, Any, Dict, List, Literal, Optional, Tuple, Union
 from uuid import UUID
 
@@ -13,6 +14,7 @@ from pydantic import (
     ConfigDict,
     Field,
     field_validator,
+    model_serializer,
     model_validator,
 )
 
@@ -31,6 +33,11 @@ QuestionStatus = Literal[
     "CONFIRMED",
 ]
 PolicyMode = Literal["learning_assist", "full_review", "quick_review"]
+ReportEvidenceMode = Literal[
+    "internal_original",
+    "shared_deidentified",
+]
+REPORT_INSPECTION_DATE_POLICY = "source_filename_yyyymmdd_or_block"
 SourceType = Literal[
     "local_selection",
     "direct_url",
@@ -52,6 +59,20 @@ ArtifactName = Literal[
     "report_payload",
     "manifest",
 ]
+
+
+def _trimmed_report_context_text(value: object) -> str:
+    if not isinstance(value, str):
+        raise ValueError("report context must be text")
+    normalized = value.strip()
+    if any(
+        unicodedata.category(character) == "Cc"
+        for character in normalized
+    ):
+        raise ValueError("report context must not contain controls")
+    return normalized
+
+
 MediaStabilityReason = Literal[
     "stable",
     "no_supported_media",
@@ -174,7 +195,7 @@ class MediaFileMetadata(StrictModel):
     ]
     size_bytes: int = Field(ge=0)
     created_time_ns: int = Field(ge=0)
-    modified_time_ns: int = Field(ge=0)
+    modified_time_ns: str = Field(pattern=r"^[0-9]{1,32}$")
 
 
 class MediaSnapshotResponse(StrictModel):
@@ -357,7 +378,12 @@ class AnalysisArtifact(StrictModel):
     artifact_ref: str = Field(
         min_length=1,
         max_length=512,
-        pattern=r"^analysis:[a-f0-9-]{36}:[A-Za-z0-9][A-Za-z0-9._-]*$",
+        pattern=(
+            r"^(?:analysis:[a-f0-9-]{36}:"
+            r"[A-Za-z0-9][A-Za-z0-9._-]*|"
+            r"candidate-evidence:ceo_[a-f0-9]{32}:"
+            r"cea_[a-f0-9]{32})$"
+        ),
     )
 
 
@@ -411,6 +437,11 @@ VisionIssueType = Annotated[
         "other",
     ],
     BeforeValidator(_canonical_contract_issue_type),
+]
+
+ReviewCandidateIssueType = Union[
+    VisionIssueType,
+    Literal["issue_type_unclassified"],
 ]
 
 
@@ -491,6 +522,38 @@ class AnalysisCandidateInference(StrictModel):
             ):
                 raise ValueError("scene fallback cannot contain model predictions")
         return self
+
+
+class DenseCandidateProposal(StrictModel):
+    """Review-only proposal produced from the full immutable 2 FPS index."""
+
+    issue_type: ReviewCandidateIssueType
+    score: float = Field(ge=0, le=1)
+    normalized_box: Optional[AnalysisNormalizedBox] = None
+    ocr_text: Optional[str] = Field(default=None, min_length=1, max_length=500)
+    urgent_review: bool
+    proposal_sources: List[str] = Field(min_length=1, max_length=8)
+
+
+class CandidateEvidenceOverlayIdentity(StrictModel):
+    schema_version: Literal[
+        "trafficvisson.candidate-evidence-overlay.v1"
+    ]
+    overlay_id: str = Field(pattern=r"^ceo_[a-f0-9]{32}$")
+    pipeline_job_id: UUID
+    manifest_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    discovery_revision: str = Field(pattern=r"^[a-f0-9]{64}$")
+    dense_index_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    provider_provenance_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    model_provenance_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    candidate_set_metadata_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    review_only: Literal[True]
 
 
 class AnalysisVisionSummary(StrictModel):
@@ -591,6 +654,47 @@ class AnalysisCandidate(StrictModel):
     preview_start_seconds: float = Field(ge=0, le=2_678_400)
     preview_duration_seconds: float = Field(ge=0, le=5)
     ai_inference: Optional[AnalysisCandidateInference] = None
+    candidate_kind: Optional[
+        Literal[
+            "dense_candidate_evidence_overlay",
+            "dino_temporal_review_evidence_overlay",
+            "user_discovered",
+        ]
+    ] = None
+    dense_proposal: Optional[DenseCandidateProposal] = None
+    evidence_overlay: Optional[
+        CandidateEvidenceOverlayIdentity
+    ] = None
+
+    @model_validator(mode="after")
+    def validate_dense_evidence(self) -> "AnalysisCandidate":
+        dense_values = (
+            self.dense_proposal,
+            self.evidence_overlay,
+        )
+        if self.candidate_kind is None:
+            if any(value is not None for value in dense_values):
+                raise ValueError(
+                    "base candidates cannot claim dense evidence"
+                )
+        elif any(value is None for value in dense_values):
+            raise ValueError(
+                "dense candidates require proposal and overlay identity"
+            )
+        if (
+            self.dense_proposal is not None
+            and self.dense_proposal.issue_type
+            == "issue_type_unclassified"
+            and (
+                self.candidate_kind != "user_discovered"
+                or "local_user_discovered_false_negative"
+                not in self.dense_proposal.proposal_sources
+            )
+        ):
+            raise ValueError(
+                "only user-discovered review candidates may be unclassified"
+            )
+        return self
 
 
 class AnalysisSourceLocation(StrictModel):
@@ -901,9 +1005,11 @@ PipelineStageName = Literal[
 PipelineOutcomeCode = Literal[
     "success",
     "zero_detections",
+    "unusable_visual_evidence",
     "model_unavailable",
     "blocked_gpx_required",
     "partial",
+    "report_preview_blocked",
     "failed",
     "cancelled",
 ]
@@ -913,6 +1019,10 @@ class PipelineProfileConfigureRequest(StrictModel):
     project_id: UUID
     question_policy: PolicyMode
     review_mode: Literal["precision", "quick"]
+    label_confirmation_authority: Literal[
+        "human_review",
+        "structured_llm_training_assist",
+    ] = "human_review"
     default_template_id: str = Field(
         min_length=1,
         max_length=128,
@@ -935,6 +1045,27 @@ class PipelineProfileConfigureRequest(StrictModel):
         pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
     )
     report_provider: Literal["codex", "claude", "local", "none"]
+    report_transmission_consent: bool = False
+    template_semantic_map_id: str = Field(
+        default="unconfigured",
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+    )
+    report_route_name: str = Field(
+        default="unconfigured",
+        min_length=1,
+        max_length=300,
+    )
+    report_inspector_name: str = Field(
+        default="unconfigured",
+        min_length=1,
+        max_length=120,
+    )
+    report_evidence_mode: ReportEvidenceMode = "internal_original"
+    report_inspection_date_policy: Literal[
+        "source_filename_yyyymmdd_or_block"
+    ] = REPORT_INSPECTION_DATE_POLICY
     output_location_id: str = Field(
         min_length=1,
         max_length=128,
@@ -949,12 +1080,32 @@ class PipelineProfileConfigureRequest(StrictModel):
             raise ValueError("candidate_rescan_fps must be an integer")
         return value
 
+    @field_validator(
+        "report_route_name",
+        "report_inspector_name",
+        mode="before",
+    )
+    @classmethod
+    def normalized_report_context(
+        cls, value: object
+    ) -> str:
+        return _trimmed_report_context_text(value)
+
 
 class PipelineProfileResponse(StrictModel):
-    schema_version: Literal["trafficvisson.pipeline-profile.v1"]
+    schema_version: Literal[
+        "trafficvisson.pipeline-profile.v1",
+        "trafficvisson.pipeline-profile.v2",
+        "trafficvisson.pipeline-profile.v3",
+        "trafficvisson.pipeline-profile.v4",
+    ]
     project_id: UUID
     question_policy: PolicyMode
     review_mode: Literal["precision", "quick"]
+    label_confirmation_authority: Literal[
+        "human_review",
+        "structured_llm_training_assist",
+    ] = "human_review"
     default_template_id: str = Field(
         pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
     )
@@ -969,6 +1120,31 @@ class PipelineProfileResponse(StrictModel):
         pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
     )
     report_provider: Literal["codex", "claude", "local", "none"]
+    report_transmission_consent: bool = False
+    template_semantic_map_id: str = Field(
+        default="unconfigured",
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+    )
+    template_semantic_map_sha256: str = Field(
+        default="0" * 64,
+        pattern=r"^[a-f0-9]{64}$",
+    )
+    template_semantic_map_ready: bool = False
+    report_provider_ready_at_configuration: bool = False
+    report_route_name: str = Field(
+        default="unconfigured",
+        min_length=1,
+        max_length=300,
+    )
+    report_inspector_name: str = Field(
+        default="unconfigured",
+        min_length=1,
+        max_length=120,
+    )
+    report_evidence_mode: ReportEvidenceMode = "internal_original"
+    report_inspection_date_policy: Literal[
+        "source_filename_yyyymmdd_or_block"
+    ] = REPORT_INSPECTION_DATE_POLICY
     output_location_id: str = Field(
         pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
     )
@@ -977,6 +1153,17 @@ class PipelineProfileResponse(StrictModel):
     bulk_frame_provider_policy: Literal["local_models_only"]
     revision: int = Field(ge=1)
     updated_at: datetime
+
+    @field_validator(
+        "report_route_name",
+        "report_inspector_name",
+        mode="before",
+    )
+    @classmethod
+    def normalized_report_context(
+        cls, value: object
+    ) -> str:
+        return _trimmed_report_context_text(value)
 
 
 class PipelineJobStartRequest(StrictModel):
@@ -1005,12 +1192,390 @@ class PipelineJobStartRequest(StrictModel):
         return value
 
 
+class PipelineJobRerunRequest(StrictModel):
+    project_id: UUID
+    source_job_id: UUID
+    expected_source_record_sha256: str = Field(
+        min_length=64,
+        max_length=64,
+        pattern=r"^[a-f0-9]{64}$",
+    )
+    expected_profile_revision: int = Field(ge=1)
+    rights_confirmed: Literal[True]
+    user_confirmed: Literal[True]
+    idempotency_key: str = Field(
+        min_length=16,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$",
+    )
+
+    @field_validator(
+        "expected_source_record_sha256",
+        "idempotency_key",
+        mode="before",
+    )
+    @classmethod
+    def reject_security_text_normalization(cls, value: object) -> str:
+        if not isinstance(value, str) or value != value.strip():
+            raise ValueError("rerun security fields must not be normalized")
+        return value
+
+    @field_validator("expected_profile_revision", mode="before")
+    @classmethod
+    def strict_profile_revision(cls, value: object) -> int:
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError(
+                "expected_profile_revision must be a positive integer"
+            )
+        return value
+
+    @field_validator(
+        "rights_confirmed",
+        "user_confirmed",
+        mode="before",
+    )
+    @classmethod
+    def explicit_rerun_confirmation(cls, value: object) -> bool:
+        if value is not True:
+            raise ValueError("pipeline rerun confirmations must be explicitly true")
+        return True
+
+    @field_validator("idempotency_key")
+    @classmethod
+    def reject_reserved_start_prefix(cls, value: str) -> str:
+        if value.startswith("explicit-new:"):
+            raise ValueError("idempotency_key uses a reserved prefix")
+        return value
+
+
 class PipelineReviewCompleteRequest(StrictModel):
     review_completion_id: str = Field(
         min_length=1,
         max_length=128,
         pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
     )
+    final_qa_choice: Optional[
+        Literal["no_miss_complete", "miss_candidates_reviewed"]
+    ] = None
+
+
+class UserDiscoveredCandidateSelection(StrictModel):
+    kind: Literal["point", "box"]
+    x: float = Field(ge=0, le=1)
+    y: float = Field(ge=0, le=1)
+    width: Optional[float] = Field(default=None, gt=0, le=1)
+    height: Optional[float] = Field(default=None, gt=0, le=1)
+
+    @field_validator("x", "y", "width", "height", mode="before")
+    @classmethod
+    def finite_selection_number(
+        cls,
+        value: object,
+    ) -> Optional[float]:
+        if value is None:
+            return None
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+        ):
+            raise ValueError(
+                "selection coordinates must be finite JSON numbers"
+            )
+        return float(value)
+
+    @model_validator(mode="after")
+    def exact_selection_shape(
+        self,
+    ) -> "UserDiscoveredCandidateSelection":
+        if self.kind == "point":
+            if self.width is not None or self.height is not None:
+                raise ValueError(
+                    "point selection cannot contain box dimensions"
+                )
+            return self
+        if self.width is None or self.height is None:
+            raise ValueError(
+                "box selection requires width and height"
+            )
+        if (
+            self.x + self.width > 1.00000001
+            or self.y + self.height > 1.00000001
+        ):
+            raise ValueError("selection box must remain inside the frame")
+        return self
+
+
+class UserDiscoveredCandidateCreateRequest(StrictModel):
+    timestamp_seconds: float = Field(ge=0, le=2_678_400)
+    selection: UserDiscoveredCandidateSelection
+    issue_type_proposal: Optional[VisionIssueType] = None
+    request_sam2_mask: bool = True
+    expected_question_queue_revision: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+
+    @field_validator("timestamp_seconds", mode="before")
+    @classmethod
+    def finite_timestamp(cls, value: object) -> float:
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+        ):
+            raise ValueError("timestamp must be a finite JSON number")
+        return float(value)
+
+    @field_validator("request_sam2_mask", mode="before")
+    @classmethod
+    def strict_sam2_request(cls, value: object) -> bool:
+        if not isinstance(value, bool):
+            raise ValueError("request_sam2_mask must be boolean")
+        return value
+
+
+class UserDiscoveredReviewFrameResponse(StrictModel):
+    schema_version: Literal[
+        "trafficvisson.user-discovered-review-frame.v1"
+    ]
+    project_id: UUID
+    pipeline_job_id: UUID
+    analysis_job_id: UUID
+    requested_timestamp_seconds: float = Field(
+        ge=0,
+        le=86_400,
+    )
+    selected_frame_id: str = Field(pattern=r"^[a-f0-9]{24}$")
+    selected_frame_index: int = Field(ge=0, le=172_800)
+    selected_frame_timestamp_seconds: float = Field(
+        ge=0,
+        le=86_400,
+    )
+    selected_frame_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    selected_frame_size_bytes: int = Field(gt=0, le=32 * 1024 * 1024)
+    media_type: Literal["image/jpeg"]
+    source_duration_seconds: float = Field(gt=0, le=86_400)
+    indexed_duration_seconds: float = Field(gt=0, le=86_400)
+    sampling_fps: Literal[2]
+    dense_index_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    promoted_model_version_id: UUID
+    source_analysis_lineage_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    review_frame_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    question_queue_revision: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    path_exposed: Literal[False]
+
+    @field_validator(
+        "requested_timestamp_seconds",
+        "selected_frame_timestamp_seconds",
+        "source_duration_seconds",
+        "indexed_duration_seconds",
+        mode="before",
+    )
+    @classmethod
+    def finite_review_frame_number(cls, value: object) -> float:
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+        ):
+            raise ValueError("review frame timing must be finite")
+        return float(value)
+
+    @model_validator(mode="after")
+    def review_frame_timing_is_coherent(
+        self,
+    ) -> "UserDiscoveredReviewFrameResponse":
+        if (
+            self.indexed_duration_seconds
+            > self.source_duration_seconds + 0.000001
+            or self.requested_timestamp_seconds
+            > self.indexed_duration_seconds + 0.000001
+            or self.selected_frame_timestamp_seconds
+            > self.indexed_duration_seconds + 0.000001
+            or abs(
+                self.selected_frame_timestamp_seconds
+                - self.requested_timestamp_seconds
+            )
+            > 0.500001
+        ):
+            raise ValueError("review frame timing is inconsistent")
+        return self
+
+
+class UserDiscoveredCandidateArtifactResponse(StrictModel):
+    artifact_id: str = Field(
+        min_length=1,
+        max_length=160,
+        pattern=r"^[A-Za-z0-9._:-]+$",
+    )
+    media_type: Literal["image/jpeg", "video/mp4"]
+    size_bytes: int = Field(gt=0)
+    sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    duration_seconds: Optional[float] = Field(
+        default=None,
+        ge=2,
+        le=5,
+    )
+    duration_contract: Optional[
+        Literal["candidate_overlay_limit_2_to_5_seconds"]
+    ] = None
+
+    @model_validator(mode="after")
+    def duration_matches_media(
+        self,
+    ) -> "UserDiscoveredCandidateArtifactResponse":
+        has_duration = (
+            self.duration_seconds is not None
+            or self.duration_contract is not None
+        )
+        if self.media_type == "video/mp4":
+            if (
+                self.duration_seconds is None
+                or self.duration_contract is None
+            ):
+                raise ValueError(
+                    "preview clips require a bounded duration contract"
+                )
+        elif has_duration:
+            raise ValueError(
+                "representative images cannot claim a clip duration"
+            )
+        return self
+
+
+class UserDiscoveredReviewEventBindingResponse(StrictModel):
+    event_id: str = Field(pattern=r"^rve_[a-f0-9]{32}$")
+    event_revision: str = Field(pattern=r"^[a-f0-9]{64}$")
+    representative_candidate_id: str = Field(
+        pattern=r"^[a-f0-9]{20}$"
+    )
+
+
+class UserDiscoveredCandidateCreateResponse(StrictModel):
+    schema_version: Literal[
+        "trafficvisson.user-discovered-candidate-api.v1"
+    ]
+    project_id: UUID
+    pipeline_job_id: UUID
+    analysis_job_id: UUID
+    candidate_id: str = Field(pattern=r"^[a-f0-9]{20}$")
+    question_id: UUID
+    candidate_kind: Literal["user_discovered"]
+    requested_timestamp_seconds: float = Field(
+        ge=0,
+        le=2_678_400,
+    )
+    selected_frame_timestamp_seconds: float = Field(
+        ge=0,
+        le=2_678_400,
+    )
+    selected_frame_id: str = Field(pattern=r"^[a-f0-9]{24}$")
+    selected_frame_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    selection: UserDiscoveredCandidateSelection
+    issue_type_proposal: Optional[VisionIssueType]
+    review_issue_type: ReviewCandidateIssueType
+    request_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    dense_index_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    promoted_model_version_id: UUID
+    promoted_model_artifact_manifest_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    promoted_model_inference_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    dataset_version_id: UUID
+    dataset_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    source_analysis_lineage_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    overlay_id: str = Field(pattern=r"^ceo_[a-f0-9]{32}$")
+    overlay_manifest_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    discovery_revision: str = Field(pattern=r"^[a-f0-9]{64}$")
+    representative_image: UserDiscoveredCandidateArtifactResponse
+    preview_clip: UserDiscoveredCandidateArtifactResponse
+    sam2_refinement_request: Optional[Dict[str, Any]]
+    review_event_set_id: str = Field(
+        pattern=r"^res_[a-f0-9]{32}$"
+    )
+    review_event_set_revision: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    review_event_set_manifest_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    review_event_binding: UserDiscoveredReviewEventBindingResponse
+    question_queue_revision: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    question_catalog_revision: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    question_catalog_collection_revision: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    idempotent_replay: bool
+    review_only: Literal[True]
+    annotations_created: Literal[0]
+    incidents_created: Literal[0]
+    training_members_created: Literal[0]
+    report_truth_records_created: Literal[0]
+
+
+class ProviderVisualEvidencePrivacyReviewRequest(StrictModel):
+    candidate_id: str = Field(pattern=r"^[a-f0-9]{20}$")
+    preparation_id: str = Field(pattern=r"^[a-f0-9]{24}$")
+    expected_manifest_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    approved: bool
+    explicit_user_confirmation: Literal[True]
+
+    @field_validator(
+        "approved",
+        "explicit_user_confirmation",
+        mode="before",
+    )
+    @classmethod
+    def strict_privacy_decision(cls, value: object) -> bool:
+        if not isinstance(value, bool):
+            raise ValueError("privacy review fields must be booleans")
+        return value
+
+
+class ReportDeidentifiedEvidenceReviewRequest(StrictModel):
+    incident_id: UUID
+    derivative_id: str = Field(pattern=r"^rde_[a-f0-9]{32}$")
+    expected_manifest_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    approved: bool
+    explicit_user_confirmation: Literal[True]
+
+    @field_validator(
+        "approved",
+        "explicit_user_confirmation",
+        mode="before",
+    )
+    @classmethod
+    def strict_report_privacy_decision(
+        cls,
+        value: object,
+    ) -> bool:
+        if not isinstance(value, bool):
+            raise ValueError(
+                "report privacy review fields must be booleans"
+            )
+        return value
 
 
 class PipelineStageResponse(StrictModel):
@@ -1098,23 +1663,51 @@ class PipelineJobResponse(StrictModel):
             if self.progress_percent != 100 or self.outcome_code not in {
                 "success",
                 "zero_detections",
+                "unusable_visual_evidence",
             }:
                 raise ValueError("completed pipeline state is inconsistent")
         if self.status == "blocked" and self.outcome_code not in {
             "model_unavailable",
             "partial",
+            "report_preview_blocked",
         }:
             raise ValueError(
-                "blocked pipeline must expose model_unavailable or partial"
+                "blocked pipeline must expose an explicit blocked outcome"
             )
-        if (
-            self.status == "blocked"
-            and self.outcome_code == "partial"
-            and self.current_stage != "derived_outputs"
-        ):
-            raise ValueError(
-                "partial pipeline must remain at derived_outputs"
-            )
+        if self.status == "blocked":
+            if (
+                self.outcome_code == "report_preview_blocked"
+                and self.current_stage != "derived_outputs"
+            ):
+                raise ValueError(
+                    "report-blocked pipeline must remain at derived_outputs"
+                )
+            if self.outcome_code == "partial":
+                privacy_blocked = (
+                    self.current_stage == "vision_proposal"
+                    and self.error_code
+                    in {
+                        "awaiting_deidentification_review",
+                        "deidentification_review_rejected",
+                        "provider_visual_evidence_unavailable",
+                    }
+                )
+                report_partial = (
+                    self.current_stage == "derived_outputs"
+                )
+                storage_partial = self.error_code in {
+                    "storage_blocked",
+                    "storage_capacity_replan_required",
+                    "dense_staging_storage_blocked",
+                }
+                if (
+                    not privacy_blocked
+                    and not report_partial
+                    and not storage_partial
+                ):
+                    raise ValueError(
+                        "partial pipeline is outside a resumable review boundary"
+                    )
         if self.status == "failed" and self.outcome_code != "failed":
             raise ValueError("failed pipeline must expose failed outcome")
         if self.status == "cancelled" and self.outcome_code != "cancelled":
@@ -1351,6 +1944,13 @@ class CandidateLabelAnswerRequest(StrictModel):
         return self
 
 
+class CandidateStructuredLlmAssistRequest(StrictModel):
+    project_id: UUID
+    analysis_job_id: UUID
+    question_id: UUID
+    user_authorized_training: Literal[True]
+
+
 class CandidateLatestAnswer(StrictModel):
     answer: Literal["yes", "no", "unsure", "edit", "skipped"]
     selected_issue_type: Optional[CandidateIssueType]
@@ -1359,7 +1959,7 @@ class CandidateLatestAnswer(StrictModel):
     ocr_text: Optional[str]
     normalized_box: Optional[CandidateNormalizedBox]
     include_in_training: bool
-    answered_by: str
+    answered_by: Literal["local_user", "structured_llm_assisted"]
 
 
 class ExperimentalProposalModel(StrictModel):
@@ -1407,8 +2007,36 @@ class ExperimentalProposalPrediction(StrictModel):
     box: Optional[AnalysisNormalizedBox] = None
     source_label: str = Field(min_length=1, max_length=128)
     calibration: Literal["zero_shot_relative", "model_score"]
+    # Grounding DINO may run on the persisted 5-10 fps rescan evidence while
+    # the public review question remains bound to its parent analysis
+    # candidate.  These optional fields retain the exact frame provenance
+    # without turning the frame-level proposal into an approved label.
+    evidence_candidate_id: Optional[str] = Field(
+        default=None,
+        pattern=r"^[a-f0-9]{20}$",
+    )
+    evidence_timestamp_seconds: Optional[float] = Field(
+        default=None,
+        ge=0,
+        le=2_678_400,
+    )
+    evidence_image_sha256: Optional[str] = Field(
+        default=None,
+        pattern=r"^[a-f0-9]{64}$",
+    )
+    evidence_source: Optional[
+        Literal[
+            "analysis_representative_frames",
+            "candidate_window_rescan_5_10fps",
+        ]
+    ] = None
 
-    @field_validator("relative_score", "model_score", mode="before")
+    @field_validator(
+        "relative_score",
+        "model_score",
+        "evidence_timestamp_seconds",
+        mode="before",
+    )
     @classmethod
     def strict_finite_score(cls, value: object) -> Optional[float]:
         if value is None:
@@ -1434,7 +2062,36 @@ class ExperimentalProposalPrediction(StrictModel):
             raise ValueError(
                 "model-score predictions require only model_score"
             )
+        evidence_values = (
+            self.evidence_candidate_id,
+            self.evidence_timestamp_seconds,
+            self.evidence_image_sha256,
+            self.evidence_source,
+        )
+        if any(value is not None for value in evidence_values) and any(
+            value is None for value in evidence_values
+        ):
+            raise ValueError(
+                "experimental frame evidence provenance must be complete"
+            )
         return self
+
+    @model_serializer(mode="wrap")
+    def preserve_legacy_prediction_shape(self, handler: Any) -> Dict[str, Any]:
+        """Do not add empty frame-provenance keys to legacy v1 proposals."""
+
+        row = handler(self)
+        if not isinstance(row, dict):
+            return row
+        for field_name in (
+            "evidence_candidate_id",
+            "evidence_timestamp_seconds",
+            "evidence_image_sha256",
+            "evidence_source",
+        ):
+            if row.get(field_name) is None:
+                row.pop(field_name, None)
+        return row
 
     @property
     def sortable_score(self) -> float:
@@ -1509,6 +2166,25 @@ class CandidateExperimentalProposal(StrictModel):
         return self
 
 
+class CandidateStructuredLlmTrainingAssist(StrictModel):
+    provider: Literal["codex", "claude"]
+    proposal_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    suggested_answer: Literal["yes", "no"]
+    selected_issue_type: Optional[CandidateIssueType]
+    recommended_severity: Optional[
+        Literal["minor", "moderate", "major"]
+    ]
+    maintenance_action: Optional[str] = Field(default=None, max_length=500)
+    ocr_text: Optional[str] = Field(default=None, max_length=500)
+    rationale: str = Field(min_length=1, max_length=1500)
+    maintenance_required: bool
+    user_authorization_required: Literal[True]
+    training_only: Literal[True]
+    label_source: Literal["structured_llm_assisted"]
+    incident_truth_allowed: Literal[False]
+    report_truth_allowed: Literal[False]
+
+
 class CandidateLabelQuestion(StrictModel):
     project_id: UUID
     analysis_job_id: UUID
@@ -1520,6 +2196,9 @@ class CandidateLabelQuestion(StrictModel):
     answered_at: Optional[datetime]
     answer_revision: int = Field(ge=0)
     experimental_proposal: Optional[CandidateExperimentalProposal] = None
+    structured_llm_training_assist: Optional[
+        CandidateStructuredLlmTrainingAssist
+    ] = None
 
 
 class CandidateLabelQuestionList(StrictModel):
@@ -1539,6 +2218,8 @@ class CandidateLabelAnswerResponse(StrictModel):
     answer_revision: int = Field(ge=1)
     partition: Literal["approved", "negative", "held", "excluded"]
     include_in_training: bool
+    answered_by: Literal["local_user", "structured_llm_assisted"]
+    label_source: Literal["local_user_review", "structured_llm_assisted"]
     answered_at: datetime
     record_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
 
@@ -1993,6 +2674,645 @@ class ModelPromotionReviewResponse(StrictModel):
     automatic_promotion_performed: Literal[False]
 
 
+class ProjectFixedValidationExtensionApproval(StrictModel):
+    """Separate stale-safe approval for adding model issue types."""
+
+    schema_version: Literal[
+        "trafficvisson.fixed-validation-extension-approval.v1"
+    ]
+    expected_parent_version: int = Field(ge=1)
+    expected_parent_membership_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    expected_parent_fixed_validation_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    added_issue_types: List[ValidationIssueType] = Field(
+        min_length=1,
+        max_length=12,
+    )
+    added_validation_analysis_job_ids: List[UUID] = Field(
+        min_length=1,
+        max_length=100_000,
+    )
+    user_confirmed: Literal[True]
+
+    @model_validator(mode="after")
+    def issue_types_are_unique(self) -> "ProjectFixedValidationExtensionApproval":
+        if (
+            len(self.added_issue_types)
+            != len(set(self.added_issue_types))
+            or "other" in self.added_issue_types
+        ):
+            raise ValueError(
+                "fixed-validation extension issue types are invalid"
+            )
+        job_ids = [str(value) for value in self.added_validation_analysis_job_ids]
+        if job_ids != sorted(set(job_ids)):
+            raise ValueError(
+                "fixed-validation extension analysis jobs are invalid"
+            )
+        return self
+
+
+class ProjectFixedValidationVersionSummary(StrictModel):
+    """Renderer-safe immutable fixed-validation lineage summary."""
+
+    schema_version: Literal[
+        "trafficvisson.project-fixed-validation.v1",
+        "trafficvisson.project-fixed-validation.v2",
+    ]
+    project_id: UUID
+    validation_set_version: int = Field(ge=1)
+    parent_validation_set_version: Optional[int] = Field(
+        default=None,
+        ge=1,
+    )
+    parent_membership_sha256: Optional[str] = Field(
+        default=None,
+        pattern=r"^[a-f0-9]{64}$",
+    )
+    parent_fixed_validation_sha256: Optional[str] = Field(
+        default=None,
+        pattern=r"^[a-f0-9]{64}$",
+    )
+    origin_dataset_version_id: UUID
+    required_issue_types: List[ValidationIssueType] = Field(
+        min_length=1,
+        max_length=12,
+    )
+    added_issue_types: List[ValidationIssueType] = Field(
+        min_length=1,
+        max_length=12,
+    )
+    added_validation_analysis_job_ids: List[UUID] = Field(
+        default_factory=list,
+        max_length=100_000,
+    )
+    validation_sample_counts: Dict[ValidationIssueType, int]
+    extension_positive_sample_counts: Dict[ValidationIssueType, int] = Field(
+        default_factory=dict,
+    )
+    membership_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    fixed_validation_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    extension_approval_sha256: Optional[str] = Field(
+        default=None,
+        pattern=r"^[a-f0-9]{64}$",
+    )
+    minimum_positive_samples_per_type: Literal[30]
+    persisted: Literal[True]
+    created_at: datetime
+
+    @model_validator(mode="after")
+    def validate_version_summary(
+        self,
+    ) -> "ProjectFixedValidationVersionSummary":
+        required = list(self.required_issue_types)
+        added = list(self.added_issue_types)
+        jobs = [str(value) for value in self.added_validation_analysis_job_ids]
+        if (
+            len(required) != len(set(required))
+            or len(added) != len(set(added))
+            or not set(added).issubset(required)
+            or jobs != sorted(set(jobs))
+            or set(self.validation_sample_counts) != set(required)
+            or any(
+                isinstance(count, bool) or count < 0
+                for count in self.validation_sample_counts.values()
+            )
+            or any(
+                issue_type not in added
+                or isinstance(count, bool)
+                or count < 0
+                for issue_type, count in (
+                    self.extension_positive_sample_counts.items()
+                )
+            )
+        ):
+            raise ValueError("fixed-validation summary is inconsistent")
+        if self.validation_set_version == 1:
+            if (
+                self.parent_validation_set_version is not None
+                or self.parent_membership_sha256 is not None
+                or self.parent_fixed_validation_sha256 is not None
+                or self.extension_approval_sha256 is not None
+                or self.added_validation_analysis_job_ids
+            ):
+                raise ValueError(
+                    "fixed-validation parent summary is inconsistent"
+                )
+        elif (
+            self.parent_validation_set_version
+            != self.validation_set_version - 1
+            or self.parent_membership_sha256 is None
+            or self.parent_fixed_validation_sha256 is None
+            or self.extension_approval_sha256 is None
+            or not self.added_validation_analysis_job_ids
+            or set(self.extension_positive_sample_counts) != set(added)
+        ):
+            raise ValueError(
+                "fixed-validation child summary is inconsistent"
+            )
+        return self
+
+
+class ProjectFixedValidationVersionListResponse(StrictModel):
+    schema_version: Literal[
+        "trafficvisson.project-fixed-validation-list.v2"
+    ]
+    project_id: UUID
+    count: int = Field(ge=0)
+    versions: List[ProjectFixedValidationVersionSummary] = Field(
+        max_length=1_000,
+    )
+
+    @model_validator(mode="after")
+    def count_matches_versions(
+        self,
+    ) -> "ProjectFixedValidationVersionListResponse":
+        if (
+            self.count != len(self.versions)
+            or [
+                version.validation_set_version
+                for version in self.versions
+            ]
+            != list(range(1, self.count + 1))
+        ):
+            raise ValueError(
+                "fixed-validation version count is inconsistent"
+            )
+        return self
+
+
+class ProjectModelTrainingStartRequest(StrictModel):
+    """Only user choices cross the renderer-to-bridge boundary.
+
+    Dataset contents, current annotations, approved sample references, and the
+    active base model are all resolved again by the bridge.
+    """
+
+    dataset_version_id: UUID
+    idempotency_key: str = Field(
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:@-]{7,127}$"
+    )
+    user_confirmed: Literal[True]
+    fixed_validation_extension_approval: Optional[
+        ProjectFixedValidationExtensionApproval
+    ] = None
+
+
+class ProjectModelTrainingResumeRequest(StrictModel):
+    user_confirmed: Literal[True]
+
+
+class ProjectModelTrainingCancelRequest(StrictModel):
+    user_confirmed: Literal[True]
+
+
+class ProjectModelTransitionRequest(StrictModel):
+    expected_revision: int = Field(ge=0)
+    idempotency_key: str = Field(
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:@-]{7,127}$"
+    )
+    user_confirmed: Literal[True]
+
+    @field_validator("expected_revision", mode="before")
+    @classmethod
+    def strict_expected_revision(cls, value: object) -> int:
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError("expected_revision must be an integer")
+        return value
+
+
+class ProjectModelLifecycleErrorState(StrictModel):
+    code: str = Field(pattern=r"^[a-z][a-z0-9_]{0,127}$")
+    message: str = Field(min_length=1, max_length=1_000)
+
+
+class ProjectModelTrainingProgress(StrictModel):
+    stage: str = Field(pattern=_REVIEW_IDENTIFIER_PATTERN)
+    attempt_number: int = Field(ge=0)
+    updated_at: datetime
+    epoch: Optional[int] = Field(default=None, ge=0, le=10_000_000)
+    epochs: Optional[int] = Field(default=None, ge=0, le=10_000_000)
+    current: Optional[int] = Field(default=None, ge=0, le=10_000_000)
+    total: Optional[int] = Field(default=None, ge=0, le=10_000_000)
+    loss: Optional[float] = None
+
+    @model_validator(mode="after")
+    def counters_do_not_exceed_totals(
+        self,
+    ) -> "ProjectModelTrainingProgress":
+        if (
+            self.current is not None
+            and self.total is not None
+            and self.current > self.total
+        ) or (
+            self.epoch is not None
+            and self.epochs is not None
+            and self.epoch > self.epochs
+        ):
+            raise ValueError("training progress exceeds its total")
+        return self
+
+
+class ProjectModelTrainingCheckpoint(StrictModel):
+    schema_version: Literal[
+        "trafficvisson.project-model-training-checkpoint.v1"
+    ]
+    attempt_number: int = Field(ge=1)
+    relative_path: str = Field(
+        min_length=1,
+        max_length=512,
+        pattern=r"^[A-Za-z0-9._/-]+$",
+    )
+    sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    size_bytes: int = Field(gt=0)
+    # Nanosecond timestamps exceed JavaScript's safe integer range. Keep the
+    # integrity-bound value decimal and lossless across the HTTP/IPC boundary.
+    modified_time_ns: str = Field(pattern=r"^[0-9]{1,32}$")
+    request_manifest_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    created_at: datetime
+
+
+class ProjectModelTrainingJobResponse(StrictModel):
+    schema_version: Literal["trafficvisson.training-job.v1"]
+    training_job_id: UUID
+    project_id: UUID
+    idempotency_key: str = Field(
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:@-]{7,127}$"
+    )
+    request_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    dataset_version_id: UUID
+    dataset_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    base_model_version: str = Field(pattern=_REVIEW_IDENTIFIER_PATTERN)
+    required_issue_types: List[ValidationIssueType] = Field(
+        min_length=1,
+        max_length=12,
+    )
+    current_confirmed_label_count: int = Field(ge=0)
+    approved_reference_training_member_count: int = Field(ge=0)
+    approved_reference_training_event_count: int = Field(ge=0)
+    training_gate_member_count: int = Field(ge=0)
+    current_train_member_count: int = Field(ge=0)
+    current_validation_member_count: int = Field(ge=0)
+    fixed_validation_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    fixed_validation_membership_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    fixed_validation_set_version: int = Field(ge=1)
+    fixed_validation_set_schema_version: Literal[
+        "trafficvisson.project-fixed-validation.v1",
+        "trafficvisson.project-fixed-validation.v2",
+    ]
+    fixed_validation_parent_version: Optional[int] = Field(
+        default=None,
+        ge=1,
+    )
+    fixed_validation_extension_approval_sha256: Optional[str] = Field(
+        default=None,
+        pattern=r"^[a-f0-9]{64}$",
+    )
+    validation_sample_counts: Dict[str, int]
+    auxiliary_reference_count: int = Field(ge=0)
+    approved_references_count_toward_training_gate: Literal[False]
+    auxiliary_references_count_toward_validation: Literal[False]
+    trainer_id: str = Field(pattern=_REVIEW_IDENTIFIER_PATTERN)
+    trainer_version: str = Field(pattern=_REVIEW_IDENTIFIER_PATTERN)
+    trainer_available: bool
+    trainer_test_only: bool
+    status: Literal[
+        "queued",
+        "running",
+        "interrupted",
+        "succeeded",
+        "failed",
+        "blocked",
+        "cancelled",
+    ]
+    attempt_count: int = Field(ge=0)
+    blockers: List[Dict[str, Any]] = Field(max_length=64)
+    error: Optional[ProjectModelLifecycleErrorState] = None
+    progress: ProjectModelTrainingProgress
+    checkpoint: Optional[ProjectModelTrainingCheckpoint] = None
+    cancel_requested: bool
+    resume_count: int = Field(ge=0)
+    recovery_count: int = Field(ge=0)
+    model_version_id: Optional[UUID] = None
+    automatic_training_started: Literal[False]
+    user_confirmed_start: Literal[True]
+    created_at: datetime
+    updated_at: datetime
+    idempotent_replay: bool = False
+
+    @field_validator("validation_sample_counts")
+    @classmethod
+    def valid_validation_counts(
+        cls,
+        value: Dict[str, int],
+    ) -> Dict[str, int]:
+        if not value or len(value) > 12:
+            raise ValueError("validation_sample_counts is invalid")
+        for issue_type, count in value.items():
+            _canonical_contract_issue_type(issue_type)
+            if issue_type == "other":
+                raise ValueError("other is not a trainable issue type")
+            if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+                raise ValueError("validation sample count is invalid")
+        return value
+
+    @model_validator(mode="after")
+    def validate_training_gate_count(
+        self,
+    ) -> "ProjectModelTrainingJobResponse":
+        if (
+            self.approved_reference_training_member_count
+            != self.auxiliary_reference_count
+            or self.approved_reference_training_event_count
+            > self.approved_reference_training_member_count
+            or self.training_gate_member_count
+            != self.current_confirmed_label_count
+        ):
+            raise ValueError(
+                "training gate member counts are inconsistent"
+            )
+        if (
+            self.fixed_validation_set_version == 1
+            and (
+                self.fixed_validation_parent_version is not None
+                or self.fixed_validation_extension_approval_sha256
+                is not None
+            )
+        ) or (
+            self.fixed_validation_set_version > 1
+            and (
+                self.fixed_validation_parent_version
+                != self.fixed_validation_set_version - 1
+                or self.fixed_validation_extension_approval_sha256
+                is None
+            )
+        ):
+            raise ValueError(
+                "fixed-validation version lineage is inconsistent"
+            )
+        return self
+
+
+class ProjectModelTrainingJobListResponse(StrictModel):
+    schema_version: Literal["trafficvisson.training-job-list.v1"]
+    project_id: UUID
+    count: int = Field(ge=0)
+    jobs: List[ProjectModelTrainingJobResponse]
+
+    @model_validator(mode="after")
+    def count_matches_jobs(self) -> "ProjectModelTrainingJobListResponse":
+        if self.count != len(self.jobs):
+            raise ValueError("training job count does not match jobs")
+        return self
+
+
+class ProjectModelVersionResponse(StrictModel):
+    schema_version: Literal["trafficvisson.project-model-version.v1"]
+    model_version_id: UUID
+    project_id: UUID
+    training_job_id: UUID
+    model_version: str = Field(pattern=_REVIEW_IDENTIFIER_PATTERN)
+    model_format: Literal[
+        "trafficvisson.visual-embedding-centroid-head.v1",
+        "trafficvisson.local-object-detector.v1",
+    ]
+    base_model_version: str = Field(pattern=_REVIEW_IDENTIFIER_PATTERN)
+    dataset_version_id: UUID
+    dataset_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    fixed_validation_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    fixed_validation_membership_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    fixed_validation_set_version: int = Field(default=1, ge=1)
+    training_analysis_job_ids: List[UUID] = Field(
+        min_length=1,
+        max_length=100_000,
+    )
+    fixed_validation_analysis_job_ids: List[UUID] = Field(
+        min_length=1,
+        max_length=100_000,
+    )
+    source_analysis_lineage_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    primary_artifact_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    artifact_manifest_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    artifact_file_count: int = Field(ge=1, le=128)
+    artifact_total_size_bytes: int = Field(ge=1)
+    trainer_id: str = Field(pattern=_REVIEW_IDENTIFIER_PATTERN)
+    trainer_version: str = Field(pattern=_REVIEW_IDENTIFIER_PATTERN)
+    trainer_test_only: bool
+    promotion_review: PromotionReviewDecision
+    validation_decision: Literal["eligible", "rejected"]
+    auxiliary_reference_count: int = Field(ge=0)
+    auxiliary_reference_manifest_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    state: Literal[
+        "candidate",
+        "active",
+        "previous",
+        "rejected",
+        "archived",
+    ]
+    automatic_promotion: Literal[False]
+    automatic_rejection: bool
+    user_promotion_required: bool
+    created_at: datetime
+    updated_at: datetime
+
+    @model_validator(mode="after")
+    def validate_source_lineage_and_review_gate(
+        self,
+    ) -> "ProjectModelVersionResponse":
+        training = [
+            str(value)
+            for value in self.training_analysis_job_ids
+        ]
+        validation = [
+            str(value)
+            for value in self.fixed_validation_analysis_job_ids
+        ]
+        if (
+            training != sorted(set(training))
+            or validation != sorted(set(validation))
+            or set(training) & set(validation)
+        ):
+            raise ValueError(
+                "training and validation source analyses must be "
+                "canonical and disjoint"
+            )
+        rejected_by_gate = self.validation_decision == "rejected"
+        if (
+            self.automatic_rejection is not rejected_by_gate
+            or self.user_promotion_required is rejected_by_gate
+        ):
+            raise ValueError(
+                "validation decision does not match review transition"
+            )
+        if rejected_by_gate and self.state != "rejected":
+            raise ValueError(
+                "a validation-rejected model must be stored as rejected"
+            )
+        return self
+
+
+class ProjectModelVersionListResponse(StrictModel):
+    schema_version: Literal["trafficvisson.model-version-list.v1"]
+    project_id: UUID
+    count: int = Field(ge=0)
+    models: List[ProjectModelVersionResponse]
+
+    @model_validator(mode="after")
+    def count_matches_models(self) -> "ProjectModelVersionListResponse":
+        if self.count != len(self.models):
+            raise ValueError("model version count does not match models")
+        return self
+
+
+class ProjectModelSurveyQaLedgerItem(StrictModel):
+    schema_version: Literal[
+        "trafficvisson.model-survey-qa-summary.v1"
+    ]
+    survey_model_qa_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    pipeline_job_id: UUID
+    analysis_job_id: UUID
+    model_version_id: str = Field(
+        pattern=_REVIEW_IDENTIFIER_PATTERN
+    )
+    dataset_version_id: UUID
+    qa_scope_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    model_candidate_count: int = Field(ge=0)
+    user_discovered_candidate_count: int = Field(ge=0)
+    other_detector_candidate_count: int = Field(ge=0)
+    resolved_training_feedback_count: int = Field(ge=0)
+    true_positive_count: int = Field(ge=0)
+    false_positive_count: int = Field(ge=0)
+    false_negative_count: int = Field(ge=0)
+    held_count: int = Field(ge=0)
+    drift_assessed: bool
+    baseline_survey_model_qa_sha256: Optional[str] = Field(
+        default=None,
+        pattern=r"^[a-f0-9]{64}$",
+    )
+    promotion_gate_authority: Literal[False]
+    starts_training: Literal[False]
+    promotes_model: Literal[False]
+
+
+class ProjectModelIterationLedgerItem(StrictModel):
+    schema_version: Literal[
+        "trafficvisson.model-iteration-summary.v1"
+    ]
+    model_iteration_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    parent_iteration_sha256: Optional[str] = Field(
+        default=None,
+        pattern=r"^[a-f0-9]{64}$",
+    )
+    survey_model_qa_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    parent_model_version_id: str = Field(
+        pattern=_REVIEW_IDENTIFIER_PATTERN
+    )
+    parent_dataset_version_id: UUID
+    next_dataset_version_id: UUID
+    feedback_annotation_count: int = Field(ge=0)
+    audit_only_member_count: int = Field(ge=0)
+    fixed_validation_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    next_training_requires_user_confirmation: Literal[True]
+    automatic_training_start: Literal[False]
+    automatic_model_promotion: Literal[False]
+    iteration_creates_incident: Literal[False]
+    iteration_creates_report_truth: Literal[False]
+
+
+class ProjectModelIterationLedgerResponse(StrictModel):
+    schema_version: Literal[
+        "trafficvisson.model-iteration-ledger.v1"
+    ]
+    project_id: UUID
+    survey_qa_count: int = Field(ge=0)
+    iteration_count: int = Field(ge=0)
+    survey_qa: List[ProjectModelSurveyQaLedgerItem] = Field(
+        max_length=10_000
+    )
+    iterations: List[ProjectModelIterationLedgerItem] = Field(
+        max_length=10_000
+    )
+
+    @model_validator(mode="after")
+    def validate_ledger_identity(
+        self,
+    ) -> "ProjectModelIterationLedgerResponse":
+        if (
+            self.survey_qa_count != len(self.survey_qa)
+            or self.iteration_count != len(self.iterations)
+        ):
+            raise ValueError(
+                "model iteration ledger identity is inconsistent"
+            )
+        return self
+
+
+class ProjectModelStateResponse(StrictModel):
+    schema_version: Literal["trafficvisson.project-model-state.v1"]
+    project_id: UUID
+    revision: int = Field(ge=0)
+    active_model_id: Optional[UUID] = None
+    active_model_version: str = Field(pattern=_REVIEW_IDENTIFIER_PATTERN)
+    candidate_model_id: Optional[UUID] = None
+    candidate_model_version: Optional[str] = Field(
+        default=None,
+        pattern=_REVIEW_IDENTIFIER_PATTERN,
+    )
+    previous_model_id: Optional[UUID] = None
+    previous_model_version: Optional[str] = Field(
+        default=None,
+        pattern=_REVIEW_IDENTIFIER_PATTERN,
+    )
+    automatic_promotion: Literal[False]
+    updated_at: datetime
+
+    @model_validator(mode="after")
+    def model_ids_match_versions(self) -> "ProjectModelStateResponse":
+        if (self.candidate_model_id is None) != (
+            self.candidate_model_version is None
+        ):
+            raise ValueError("candidate model identity is incomplete")
+        if self.previous_model_id is not None and (
+            self.previous_model_version is None
+        ):
+            raise ValueError("previous model identity is incomplete")
+        return self
+
+
+class ProjectModelTransitionResponse(StrictModel):
+    schema_version: Literal["trafficvisson.project-model-event.v1"]
+    event_id: UUID
+    project_id: UUID
+    action: Literal["promote", "reject", "rollback"]
+    target_model_id: Optional[UUID] = None
+    request_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    user_confirmed: Literal[True]
+    automatic_transition: Literal[False]
+    before_state: ProjectModelStateResponse
+    after_state: ProjectModelStateResponse
+    created_at: datetime
+    idempotent_replay: bool = False
+
+
 class LabelPartitionCounts(StrictModel):
     approved: int = Field(ge=0)
     negative: int = Field(ge=0)
@@ -2153,6 +3473,151 @@ class SourceCandidateCatalogResponse(StrictModel):
         return self
 
 
+PdfCompanionStatus = Literal[
+    "ready",
+    "pdf_missing",
+    "pdf_sha256_mismatch",
+    "pdf_malformed",
+    "pdf_page_count_mismatch",
+    "pdf_parser_unavailable",
+    "pdf_unavailable",
+    "pdf_invalid_file",
+    "pdf_size_limit",
+    "pdf_source_changed",
+    "pdf_text_invalid",
+    "pdf_text_limit",
+    "pdf_encrypted",
+    "pdf_path_rejected",
+    "pdf_render_timeout",
+    "pdf_render_failed",
+    "pdf_render_limit",
+    "pdf_render_invalid",
+]
+
+
+class PdfCompanionPageHash(StrictModel):
+    page_number: int = Field(ge=1, le=256)
+    text_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    text_char_count: int = Field(ge=0, le=2 * 1024 * 1024)
+    text_extraction_status: Literal["extracted"]
+
+
+class PdfCompanionRenderedPage(StrictModel):
+    page_number: int = Field(ge=1, le=256)
+    width: int = Field(ge=1, le=20_000)
+    height: int = Field(ge=1, le=20_000)
+    size_bytes: int = Field(ge=24, le=16 * 1024 * 1024)
+    sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    media_type: Literal["image/png"]
+
+
+class PdfCompanionRenderAudit(StrictModel):
+    status: Literal[
+        "smoke_passed",
+        "renderer_unavailable",
+        "not_run",
+    ]
+    renderer: Optional[Literal["pdftoppm"]]
+    renderer_version: Optional[str] = Field(default=None, max_length=256)
+    render_dpi: Optional[int] = Field(default=None, ge=18, le=300)
+    requested_pages: List[int] = Field(max_length=3)
+    rendered_pages: List[PdfCompanionRenderedPage] = Field(max_length=3)
+
+    @model_validator(mode="after")
+    def validate_render_state(self) -> "PdfCompanionRenderAudit":
+        if self.status == "smoke_passed":
+            if (
+                self.renderer != "pdftoppm"
+                or self.renderer_version is None
+                or self.render_dpi is None
+                or not self.requested_pages
+                or self.requested_pages
+                != [
+                    page.page_number
+                    for page in self.rendered_pages
+                ]
+            ):
+                raise ValueError("PDF render smoke provenance is incomplete")
+        elif (
+            self.renderer is not None
+            or self.renderer_version is not None
+            or self.render_dpi is not None
+            or self.requested_pages
+            or self.rendered_pages
+        ):
+            raise ValueError("unavailable PDF renderer exposes artifacts")
+        return self
+
+
+class PdfCompanionAuditResponse(StrictModel):
+    schema_version: Literal["trafficvisson.pdf-companion-audit.v1"]
+    role: Literal["official_render_cross_validation_only"]
+    quarter: Literal[3, 4]
+    document_name: str = Field(min_length=1, max_length=120)
+    pdf_sha256: Optional[str] = Field(
+        default=None, pattern=r"^[a-f0-9]{64}$"
+    )
+    expected_pdf_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    size_bytes: Optional[int] = Field(default=None, ge=1, le=64 * 1024**2)
+    status: PdfCompanionStatus
+    page_count: Optional[int] = Field(default=None, ge=1, le=256)
+    expected_page_count: int = Field(ge=1, le=256)
+    pages: List[PdfCompanionPageHash] = Field(max_length=256)
+    full_text_sha256: Optional[str] = Field(
+        default=None, pattern=r"^[a-f0-9]{64}$"
+    )
+    full_text_char_count: int = Field(ge=0, le=16 * 1024 * 1024)
+    text_hash_method: Literal[
+        "sha256(nfc_lf_normalized_pypdf_text_utf8)"
+    ]
+    full_text_hash_method: Literal[
+        "sha256(form_feed_joined_normalized_page_text_utf8)"
+    ]
+    parser: Literal["pypdf"]
+    parser_version: Optional[str] = Field(default=None, max_length=64)
+    strict_parsing: Literal[True]
+    render: PdfCompanionRenderAudit
+    pdf_images_added_as_cases: Literal[False]
+    case_source: Literal["paired_hwpx_photo_slots_only"]
+    automatic_annotation_creation: Literal[False]
+    automatic_incident_creation: Literal[False]
+    automatic_training_ingest: Literal[False]
+    audit_sha256: Optional[str] = Field(
+        default=None, pattern=r"^[a-f0-9]{64}$"
+    )
+
+    @model_validator(mode="after")
+    def validate_audit_state(self) -> "PdfCompanionAuditResponse":
+        if self.status == "ready":
+            if (
+                self.pdf_sha256 != self.expected_pdf_sha256
+                or self.size_bytes is None
+                or self.page_count != self.expected_page_count
+                or self.page_count != len(self.pages)
+                or self.full_text_sha256 is None
+                or self.full_text_char_count
+                != sum(page.text_char_count for page in self.pages)
+                or self.parser_version is None
+                or self.audit_sha256 is None
+            ):
+                raise ValueError("ready PDF companion audit is incomplete")
+        elif (
+            self.pdf_sha256 is not None
+            or self.size_bytes is not None
+            or self.page_count is not None
+            or self.pages
+            or self.full_text_sha256 is not None
+            or self.full_text_char_count != 0
+            or self.parser_version is not None
+            or self.render.status != "not_run"
+            or self.audit_sha256 is not None
+        ):
+            raise ValueError(
+                "unavailable PDF companion exposes trusted provenance"
+            )
+        return self
+
+
 WeakCaseSourceStatus = Literal[
     "ready",
     "source_missing",
@@ -2186,9 +3651,19 @@ class WeakCaseSourceResponse(StrictModel):
     index_manifest_sha256: Optional[str] = Field(
         default=None, pattern=r"^[a-f0-9]{64}$"
     )
+    companion_pdf: Optional[PdfCompanionAuditResponse] = None
 
     @model_validator(mode="after")
     def validate_state(self) -> "WeakCaseSourceResponse":
+        if self.companion_pdf is not None and (
+            self.companion_pdf.quarter != self.quarter
+            or not self.document_name.casefold().endswith(".hwpx")
+            or self.companion_pdf.document_name
+            != f"{self.document_name[:-5]}.pdf"
+        ):
+            raise ValueError(
+                "PDF companion does not match its HWPX quarter source"
+            )
         if self.status == "ready":
             if (
                 self.index_manifest_sha256 is None
@@ -2215,7 +3690,7 @@ class WeakCaseSourceResponse(StrictModel):
 
 
 class WeakCaseSourceListResponse(StrictModel):
-    schema_version: Literal["trafficvisson.weak-case-catalog.v1"]
+    schema_version: Literal["trafficvisson.weak-case-catalog.v2"]
     catalog_role: Literal[
         "sample_hwpx_weak_unconfirmed_reference",
         "sample_hwpx_project_scoped_reference",
@@ -2311,6 +3786,43 @@ class WeakCaseSearchResult(StrictModel):
     cell_row: Optional[int] = Field(default=None, ge=0, le=100_000)
     cell_column: Optional[int] = Field(default=None, ge=0, le=100_000)
     picture_index: int = Field(ge=0, le=100_000)
+    sample_layout_binding_schema: Optional[
+        Literal["trafficvisson.hwpx-sample-layout.v2"]
+    ] = None
+    sample_layout_binding_revision: Optional[
+        Literal[2]
+    ] = None
+    semantic_projection_revision: Optional[
+        Literal["audited-photo-caption-evidence-group-v2"]
+    ] = None
+    sample_evidence_group_id: Optional[str] = Field(
+        default=None,
+        pattern=r"^sample-evidence-group-[a-f0-9]{24}$",
+    )
+    group_photo_index: Optional[int] = Field(
+        default=None, ge=1, le=10_000
+    )
+    group_photo_count: Optional[int] = Field(
+        default=None, ge=1, le=10_000
+    )
+    photo_slot_id: Optional[str] = Field(
+        default=None,
+        pattern=r"^sample-photo-slot-[a-f0-9]{24}$",
+    )
+    sample_layout_binding_sha256: Optional[str] = Field(
+        default=None, pattern=r"^[a-f0-9]{64}$"
+    )
+    semantic_attestation_sha256: Optional[str] = Field(
+        default=None, pattern=r"^[a-f0-9]{64}$"
+    )
+    duplicate_image_occurrence_count: int = Field(
+        ge=1, le=10_000
+    )
+    duplicate_image_review_required: bool
+    duplicate_image_registry_complete: bool
+    duplicate_image_case_refs: List[str] = Field(
+        min_length=1, max_length=10_000
+    )
     caption: Optional[str] = Field(default=None, max_length=320)
     route: Optional[str] = Field(default=None, max_length=320)
     location: Optional[str] = Field(default=None, max_length=320)
@@ -2377,11 +3889,57 @@ class WeakCaseSearchResult(StrictModel):
             or any(value is not None for value in approval_fields)
         ):
             raise ValueError("weak reference state is inconsistent")
+        layout_fields = (
+            self.sample_layout_binding_schema,
+            self.sample_layout_binding_revision,
+            self.semantic_projection_revision,
+            self.sample_evidence_group_id,
+            self.group_photo_index,
+            self.group_photo_count,
+            self.photo_slot_id,
+            self.sample_layout_binding_sha256,
+            self.semantic_attestation_sha256,
+        )
+        if any(value is not None for value in layout_fields):
+            if (
+                any(value is None for value in layout_fields)
+                or self.group_photo_index > self.group_photo_count
+            ):
+                raise ValueError(
+                    "sample evidence-group binding is incomplete"
+                )
+        if (
+            self.duplicate_image_occurrence_count
+            != len(self.duplicate_image_case_refs)
+            or self.duplicate_image_case_refs
+            != sorted(set(self.duplicate_image_case_refs))
+            or (
+                f"{self.source_id}/{self.case_id}"
+                not in self.duplicate_image_case_refs
+            )
+            or any(
+                re.fullmatch(
+                    r"sample-hwpx-[34]q-[a-f0-9]{16}/"
+                    r"hwpx-weak-case-[a-f0-9]{32}",
+                    case_ref,
+                )
+                is None
+                for case_ref in self.duplicate_image_case_refs
+            )
+            or self.duplicate_image_review_required
+            != (
+                self.duplicate_image_occurrence_count > 1
+                or not self.duplicate_image_registry_complete
+            )
+        ):
+            raise ValueError(
+                "duplicate image review metadata is inconsistent"
+            )
         return self
 
 
 class WeakCaseSearchResponse(StrictModel):
-    schema_version: Literal["trafficvisson.weak-case-search.v1"]
+    schema_version: Literal["trafficvisson.weak-case-search.v2"]
     search_mode: Literal["bounded_text_and_structure_metadata"]
     semantic_image_embedding_used: Literal[False]
     capability_state: Literal[
@@ -2435,6 +3993,207 @@ class WeakCaseSearchResponse(StrictModel):
         return self
 
 
+class WeakCaseStandardizationProposalRequest(StrictModel):
+    project_id: UUID
+    source_id: str = Field(
+        pattern=r"^sample-hwpx-[34]q-[a-f0-9]{16}$"
+    )
+    case_id: str = Field(
+        pattern=r"^hwpx-weak-case-[a-f0-9]{32}$"
+    )
+    provider: Literal["codex", "claude"]
+    expected_document_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    expected_index_manifest_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    expected_image_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    expected_revision: Optional[int] = Field(default=None, ge=1)
+    metadata_transmission_confirmed: Literal[True]
+
+
+class WeakCaseStandardizationSourceSnapshot(StrictModel):
+    quarter: Literal[3, 4]
+    caption: Optional[str] = Field(default=None, max_length=320)
+    opinion: Optional[str] = Field(default=None, max_length=320)
+    route: Optional[str] = Field(default=None, max_length=320)
+    document_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    index_manifest_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+class WeakCaseStandardizationPhotoProvenance(StrictModel):
+    source_id: str = Field(
+        pattern=r"^sample-hwpx-[34]q-[a-f0-9]{16}$"
+    )
+    case_id: str = Field(
+        pattern=r"^hwpx-weak-case-[a-f0-9]{32}$"
+    )
+    photo_slot_id: str = Field(
+        pattern=r"^sample-photo-slot-[a-f0-9]{24}$"
+    )
+    picture_target_id: str = Field(
+        pattern=r"^hwpx-picture-[a-f0-9]{24}$"
+    )
+    group_photo_index: int = Field(ge=1, le=10_000)
+    group_photo_count: int = Field(ge=1, le=10_000)
+    image_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    sample_layout_binding_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    semantic_attestation_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    duplicate_image_occurrence_count: int = Field(
+        ge=1, le=10_000
+    )
+    duplicate_image_review_required: bool
+    duplicate_image_case_refs: List[str] = Field(
+        min_length=1, max_length=10_000
+    )
+
+    @model_validator(mode="after")
+    def validate_photo_provenance(
+        self,
+    ) -> "WeakCaseStandardizationPhotoProvenance":
+        own_ref = f"{self.source_id}/{self.case_id}"
+        if (
+            self.group_photo_index > self.group_photo_count
+            or self.duplicate_image_occurrence_count
+            != len(self.duplicate_image_case_refs)
+            or self.duplicate_image_case_refs
+            != sorted(set(self.duplicate_image_case_refs))
+            or own_ref not in self.duplicate_image_case_refs
+            or self.duplicate_image_review_required
+            != (self.duplicate_image_occurrence_count > 1)
+        ):
+            raise ValueError(
+                "weak-case standardization photo provenance is invalid"
+            )
+        return self
+
+
+class WeakCaseStandardizationSuggestion(StrictModel):
+    issue_type: CandidateIssueType
+    maintenance_action: str = Field(min_length=1, max_length=500)
+
+
+class WeakCaseStandardizationTransportPolicy(StrictModel):
+    mode: Literal["text_and_structure_metadata_only"]
+    image_pixels_sent: Literal[False]
+    image_attachments_allowed: Literal[False]
+    local_paths_sent: Literal[False]
+    raw_video_sent: Literal[False]
+    document_bytes_sent: Literal[False]
+
+
+class WeakCaseStandardizationProposalResponse(StrictModel):
+    schema_version: Literal[
+        "trafficvisson.weak-case-standardization-proposal.v1"
+    ]
+    proposal_id: str = Field(
+        pattern=r"^weak-case-standardization-[a-f0-9]{24}$"
+    )
+    project_id: UUID
+    revision: int = Field(ge=1)
+    status: Literal["proposed"]
+    reference_state: Literal["weak_unconfirmed"]
+    review_required: Literal[True]
+    approved_reference: Literal[False]
+    training_eligible: Literal[False]
+    annotation_count: Literal[0]
+    incident_count: Literal[0]
+    report_fact_count: Literal[0]
+    user_confirmed: Literal[False]
+    provider: Literal["codex", "claude"]
+    provider_model: Optional[str] = Field(
+        default=None,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$",
+    )
+    provider_usage: Optional[Dict[str, int]] = None
+    evidence_transport_policy: (
+        WeakCaseStandardizationTransportPolicy
+    )
+    source_snapshot: WeakCaseStandardizationSourceSnapshot
+    source_snapshot_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    sample_evidence_group_id: str = Field(
+        pattern=r"^sample-evidence-group-[a-f0-9]{24}$"
+    )
+    case_refs: List[str] = Field(min_length=1, max_length=10_000)
+    photo_provenance: List[
+        WeakCaseStandardizationPhotoProvenance
+    ] = Field(min_length=1, max_length=10_000)
+    photo_provenance_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    proposal: WeakCaseStandardizationSuggestion
+    proposal_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    input_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    created_at: datetime
+    updated_at: datetime
+    record_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    idempotent_replay: bool = False
+
+    @model_validator(mode="after")
+    def validate_event_provenance(
+        self,
+    ) -> "WeakCaseStandardizationProposalResponse":
+        photo_refs = [
+            f"{photo.source_id}/{photo.case_id}"
+            for photo in self.photo_provenance
+        ]
+        if (
+            self.case_refs != photo_refs
+            or len(self.case_refs) != len(set(self.case_refs))
+            or [photo.group_photo_index for photo in self.photo_provenance]
+            != list(range(1, len(self.photo_provenance) + 1))
+            or any(
+                photo.group_photo_count != len(self.photo_provenance)
+                for photo in self.photo_provenance
+            )
+        ):
+            raise ValueError(
+                "weak-case standardization evidence event is invalid"
+            )
+        return self
+
+
+class WeakCaseStandardizationProposalListResponse(StrictModel):
+    schema_version: Literal[
+        "trafficvisson.weak-case-standardization-proposal-list.v1"
+    ]
+    project_id: UUID
+    proposal_count: int = Field(ge=0, le=10_000)
+    evidence_event_count: int = Field(ge=0, le=10_000)
+    approved_reference_count: Literal[0]
+    training_eligible_count: Literal[0]
+    annotation_count: Literal[0]
+    incident_count: Literal[0]
+    report_fact_count: Literal[0]
+    records: List[
+        WeakCaseStandardizationProposalResponse
+    ] = Field(max_length=10_000)
+
+    @model_validator(mode="after")
+    def validate_counts(
+        self,
+    ) -> "WeakCaseStandardizationProposalListResponse":
+        if (
+            self.proposal_count != len(self.records)
+            or self.evidence_event_count
+            != len(
+                {
+                    record.sample_evidence_group_id
+                    for record in self.records
+                }
+            )
+        ):
+            raise ValueError(
+                "weak-case standardization proposal counts are inconsistent"
+            )
+        return self
+
+
 class WeakCaseApprovalRequest(StrictModel):
     project_id: UUID
     source_id: str = Field(
@@ -2460,6 +4219,7 @@ class WeakCaseApprovalRequest(StrictModel):
     evaluation: Optional[str] = Field(default=None, max_length=320)
     opinion: Optional[str] = Field(default=None, max_length=320)
     expected_revision: Optional[int] = Field(default=None, ge=1)
+    duplicate_image_review_confirmed: bool = False
     user_confirmed: Literal[True]
 
 
@@ -2498,7 +4258,7 @@ class ApprovedReferenceSemanticCell(StrictModel):
 
 
 class ApprovedReferenceRecord(StrictModel):
-    schema_version: Literal["trafficvisson.approved-reference.v1"]
+    schema_version: Literal["trafficvisson.approved-reference.v2"]
     approval_id: str = Field(
         pattern=r"^approved-reference-[a-f0-9]{24}$"
     )
@@ -2555,6 +4315,29 @@ class ApprovedReferenceRecord(StrictModel):
     photo_slot_id: str = Field(
         pattern=r"^sample-photo-slot-[a-f0-9]{24}$"
     )
+    sample_layout_binding_schema: Literal[
+        "trafficvisson.hwpx-sample-layout.v2"
+    ]
+    sample_layout_binding_revision: Literal[2]
+    semantic_projection_revision: Literal[
+        "audited-photo-caption-evidence-group-v2"
+    ]
+    semantic_attestation_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    sample_evidence_group_id: str = Field(
+        pattern=r"^sample-evidence-group-[a-f0-9]{24}$"
+    )
+    group_photo_index: int = Field(ge=1, le=10_000)
+    group_photo_count: int = Field(ge=1, le=10_000)
+    duplicate_image_occurrence_count: int = Field(
+        ge=1, le=10_000
+    )
+    duplicate_image_review_required: bool
+    duplicate_image_review_confirmed: bool
+    duplicate_image_case_refs: List[str] = Field(
+        min_length=1, max_length=10_000
+    )
     photo_page_number: Literal[
         2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24,
         26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48,
@@ -2602,6 +4385,35 @@ class ApprovedReferenceRecord(StrictModel):
             raise ValueError(
                 "approved reference semantic cell roles are invalid"
             )
+        if (
+            self.group_photo_index > self.group_photo_count
+            or self.duplicate_image_occurrence_count
+            != len(self.duplicate_image_case_refs)
+            or self.duplicate_image_case_refs
+            != sorted(set(self.duplicate_image_case_refs))
+            or self.duplicate_image_review_required
+            != (self.duplicate_image_occurrence_count > 1)
+            or (
+                self.duplicate_image_review_required
+                and not self.duplicate_image_review_confirmed
+            )
+            or (
+                f"{self.source_id}/{self.case_id}"
+                not in self.duplicate_image_case_refs
+            )
+            or any(
+                re.fullmatch(
+                    r"sample-hwpx-[34]q-[a-f0-9]{16}/"
+                    r"hwpx-weak-case-[a-f0-9]{32}",
+                    case_ref,
+                )
+                is None
+                for case_ref in self.duplicate_image_case_refs
+            )
+        ):
+            raise ValueError(
+                "approved reference evidence-group metadata is invalid"
+            )
         return self
 
 
@@ -2611,11 +4423,13 @@ class WeakCaseApprovalResponse(ApprovedReferenceRecord):
 
 class ApprovedReferenceListResponse(StrictModel):
     schema_version: Literal[
-        "trafficvisson.approved-reference-list.v1"
+        "trafficvisson.approved-reference-list.v2"
     ]
     project_id: UUID
     approved_reference_count: int = Field(ge=0, le=10_000)
+    approved_reference_event_count: int = Field(ge=0, le=10_000)
     training_eligible_count: int = Field(ge=0, le=10_000)
+    duplicate_image_reference_count: int = Field(ge=0, le=10_000)
     annotation_count: Literal[0]
     incident_count: Literal[0]
     records: List[ApprovedReferenceRecord] = Field(max_length=10_000)
@@ -2625,6 +4439,18 @@ class ApprovedReferenceListResponse(StrictModel):
         if (
             self.approved_reference_count != len(self.records)
             or self.training_eligible_count != len(self.records)
+            or self.approved_reference_event_count
+            != len(
+                {
+                    record.sample_evidence_group_id
+                    for record in self.records
+                }
+            )
+            or self.duplicate_image_reference_count
+            != sum(
+                record.duplicate_image_review_required
+                for record in self.records
+            )
         ):
             raise ValueError(
                 "approved reference list counts are inconsistent"
@@ -2651,12 +4477,22 @@ class ProjectIncidentResponse(StrictModel):
     evidence_image_ref: str = Field(
         min_length=1,
         max_length=512,
-        pattern=r"^analysis:[a-f0-9-]{36}:[A-Za-z0-9][A-Za-z0-9._-]*$",
+        pattern=(
+            r"^(?:analysis:[a-f0-9-]{36}:"
+            r"[A-Za-z0-9][A-Za-z0-9._-]*|"
+            r"candidate-evidence:ceo_[a-f0-9]{32}:"
+            r"cea_[a-f0-9]{32})$"
+        ),
     )
     preview_clip_ref: str = Field(
         min_length=1,
         max_length=512,
-        pattern=r"^analysis:[a-f0-9-]{36}:[A-Za-z0-9][A-Za-z0-9._-]*$",
+        pattern=(
+            r"^(?:analysis:[a-f0-9-]{36}:"
+            r"[A-Za-z0-9][A-Za-z0-9._-]*|"
+            r"candidate-evidence:ceo_[a-f0-9]{32}:"
+            r"cea_[a-f0-9]{32})$"
+        ),
     )
     start_time_ms: int = Field(ge=0)
     representative_time_ms: int = Field(ge=0)
@@ -2709,6 +4545,9 @@ class ProjectIncidentListResponse(StrictModel):
 
 class DatasetVersionCreateRequest(StrictModel):
     user_confirmed: Literal[True]
+    fixed_validation_extension_approval: Optional[
+        ProjectFixedValidationExtensionApproval
+    ] = None
 
 
 class DatasetMembershipResponse(StrictModel):
@@ -2725,12 +4564,267 @@ class DatasetMembershipResponse(StrictModel):
     annotation_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
 
 
+class DatasetApprovedReferenceMemberResponse(StrictModel):
+    schema_version: Literal["trafficvisson.approved-reference.v2"]
+    approval_id: str = Field(
+        pattern=r"^approved-reference-[a-f0-9]{24}$"
+    )
+    approval_revision: int = Field(ge=1)
+    source_id: str = Field(
+        pattern=r"^sample-hwpx-[34]q-[a-f0-9]{16}$"
+    )
+    case_id: str = Field(
+        pattern=r"^hwpx-weak-case-[a-f0-9]{32}$"
+    )
+    document_name: str = Field(min_length=1, max_length=120)
+    document_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    structure_target_summary_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    index_manifest_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    image_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    image_media_type: Literal[
+        "image/bmp",
+        "image/png",
+        "image/jpeg",
+        "image/gif",
+        "image/webp",
+    ]
+    image_width: int = Field(ge=1, le=65_535)
+    image_height: int = Field(ge=1, le=65_535)
+    record_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    quarter: Literal[3, 4]
+    section_path: str = Field(
+        pattern=r"^Contents/section[0-9]{1,5}\.xml$"
+    )
+    section_index: int = Field(ge=0, le=100_000)
+    picture_target_id: str = Field(
+        pattern=r"^hwpx-picture-[a-f0-9]{24}$"
+    )
+    picture_index: int = Field(ge=0, le=100_000)
+    picture_xml_id: Optional[str] = Field(default=None, max_length=256)
+    table_id: str = Field(min_length=1, max_length=120)
+    table_index: int = Field(ge=0, le=100_000)
+    cell_target_id: str = Field(
+        pattern=r"^hwpx-cell-[a-f0-9]{24}$"
+    )
+    cell_row: int = Field(ge=0, le=100_000)
+    cell_column: int = Field(ge=0, le=100_000)
+    page_hint: int = Field(ge=1, le=10_000)
+    page_hint_source: str = Field(min_length=1, max_length=120)
+    photo_page_number: Literal[
+        2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24,
+        26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48,
+    ]
+    inspection_page_number: Literal[
+        1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23,
+        25, 27, 29, 31, 33, 35, 37, 39, 41, 43, 45, 47,
+    ]
+    sample_layout_binding_schema: Literal[
+        "trafficvisson.hwpx-sample-layout.v2"
+    ]
+    sample_layout_binding_revision: Literal[2]
+    sample_layout_binding_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    semantic_projection_revision: Literal[
+        "audited-photo-caption-evidence-group-v2"
+    ]
+    semantic_attestation_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    photo_slot_id: str = Field(
+        pattern=r"^sample-photo-slot-[a-f0-9]{24}$"
+    )
+    sample_evidence_group_id: str = Field(
+        pattern=r"^sample-evidence-group-[a-f0-9]{24}$"
+    )
+    group_photo_index: int = Field(ge=1, le=10_000)
+    group_photo_count: int = Field(ge=1, le=10_000)
+    duplicate_image_occurrence_count: int = Field(
+        ge=1, le=10_000
+    )
+    duplicate_image_review_required: bool
+    duplicate_image_review_confirmed: bool
+    duplicate_image_case_refs: List[str] = Field(
+        min_length=1, max_length=10_000
+    )
+    square_markers: List[ApprovedReferenceSquareMarker] = Field(
+        min_length=1, max_length=64
+    )
+    square_marker_target_ids: List[str] = Field(
+        min_length=1, max_length=64
+    )
+    evaluation_marker_target_ids: List[str] = Field(
+        min_length=1, max_length=64
+    )
+    semantic_cells: List[ApprovedReferenceSemanticCell] = Field(
+        min_length=4, max_length=4
+    )
+    weak_candidates: Dict[str, Optional[str]] = Field(
+        min_length=5, max_length=5
+    )
+    issue_type: CandidateIssueType
+    maintenance_action: str = Field(min_length=1, max_length=500)
+    caption: Optional[str] = Field(default=None, max_length=320)
+    route: Optional[str] = Field(default=None, max_length=320)
+    location: Optional[str] = Field(default=None, max_length=320)
+    evaluation: Optional[str] = Field(default=None, max_length=320)
+    opinion: Optional[str] = Field(default=None, max_length=320)
+    source_address_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    approved_reference_member_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    source_kind: Literal["approved_reference"]
+    split: Literal["train"]
+    user_confirmed: Literal[True]
+
+    @model_validator(mode="after")
+    def validate_evidence_group(
+        self,
+    ) -> "DatasetApprovedReferenceMemberResponse":
+        if (
+            self.group_photo_index > self.group_photo_count
+            or self.duplicate_image_occurrence_count
+            != len(self.duplicate_image_case_refs)
+            or self.duplicate_image_case_refs
+            != sorted(set(self.duplicate_image_case_refs))
+            or self.duplicate_image_review_required
+            != (self.duplicate_image_occurrence_count > 1)
+            or (
+                self.duplicate_image_review_required
+                and not self.duplicate_image_review_confirmed
+            )
+            or (
+                f"{self.source_id}/{self.case_id}"
+                not in self.duplicate_image_case_refs
+            )
+            or self.inspection_page_number
+            != self.photo_page_number - 1
+            or self.square_marker_target_ids
+            != [
+                marker.cell_target_id
+                for marker in self.square_markers
+            ]
+            or self.evaluation_marker_target_ids
+            != [
+                marker.cell_target_id
+                for marker in self.square_markers
+            ]
+            or len(self.square_marker_target_ids)
+            != len(set(self.square_marker_target_ids))
+            or {
+                cell.role for cell in self.semantic_cells
+            }
+            != {
+                "photo_caption",
+                "inspection_route",
+                "inspection_opinion_label",
+                "inspection_opinion_body",
+            }
+            or set(self.weak_candidates)
+            != {
+                "caption",
+                "route",
+                "location",
+                "evaluation",
+                "opinion",
+            }
+        ):
+            raise ValueError(
+                "Dataset approved-reference evidence group is invalid"
+            )
+        return self
+
+
+class DatasetTrainingGateTypeStatus(StrictModel):
+    issue_type: CandidateIssueType
+    sample_count: int = Field(ge=0)
+    positive_count: int = Field(ge=0)
+    required_sample_count: Literal[30]
+    ready: bool
+
+    @model_validator(mode="after")
+    def validate_readiness(
+        self,
+    ) -> "DatasetTrainingGateTypeStatus":
+        if (
+            self.positive_count > self.sample_count
+            or self.ready != (
+                self.sample_count >= self.required_sample_count
+            )
+        ):
+            raise ValueError(
+                "DatasetVersion fixed-validation gate is inconsistent"
+            )
+        return self
+
+
+class DatasetTrainingGateResponse(StrictModel):
+    schema_version: Literal[
+        "trafficvisson.dataset-training-gate.v1"
+    ]
+    dataset_version_id: UUID
+    dataset_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    required_current_video_train_unique_annotations: Literal[100]
+    current_video_train_unique_annotation_count: int = Field(ge=0)
+    current_video_train_unique_question_count: int = Field(ge=0)
+    required_fixed_validation_samples_per_type: Literal[30]
+    required_issue_types: List[CandidateIssueType] = Field(
+        max_length=13
+    )
+    fixed_validation_type_statuses: List[
+        DatasetTrainingGateTypeStatus
+    ] = Field(max_length=13)
+    approved_reference_member_count: int = Field(
+        ge=0, le=10_000
+    )
+    approved_references_count_toward_training_gate: Literal[False]
+    approved_references_count_toward_fixed_validation: Literal[False]
+    ready_for_explicit_training: bool
+    gate_snapshot_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+    @model_validator(mode="after")
+    def validate_gate(self) -> "DatasetTrainingGateResponse":
+        status_types = [
+            status.issue_type
+            for status in self.fixed_validation_type_statuses
+        ]
+        if (
+            self.current_video_train_unique_annotation_count
+            != self.current_video_train_unique_question_count
+            or self.required_issue_types != status_types
+            or len(status_types) != len(set(status_types))
+            or self.ready_for_explicit_training
+            != (
+                self.current_video_train_unique_annotation_count
+                >= (
+                    self
+                    .required_current_video_train_unique_annotations
+                )
+                and bool(self.fixed_validation_type_statuses)
+                and all(
+                    status.ready
+                    for status
+                    in self.fixed_validation_type_statuses
+                )
+            )
+        ):
+            raise ValueError(
+                "DatasetVersion training gate is inconsistent"
+            )
+        return self
+
+
 class DatasetVersionResponse(StrictModel):
     dataset_version_id: UUID
     project_id: UUID
     schema_version: Literal["trafficvisson.dataset-version.v1"]
     dataset_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
-    split_strategy: Literal["analysis_job_hash_v1"]
+    split_strategy: Literal[
+        "analysis_job_hash_v1",
+        "project_fixed_analysis_job_v1",
+    ]
     validation_fraction: float = Field(gt=0, lt=1)
     source_answer_count: int = Field(ge=1)
     training_member_count: int = Field(ge=0)
@@ -2738,9 +4832,88 @@ class DatasetVersionResponse(StrictModel):
     validation_count: int = Field(ge=0)
     excluded_count: int = Field(ge=0)
     manifest: Dict[str, Any]
+    approved_reference_members: List[
+        DatasetApprovedReferenceMemberResponse
+    ] = Field(max_length=10_000)
+    approved_reference_member_count: int = Field(ge=0, le=10_000)
+    approved_reference_training_event_count: int = Field(
+        ge=0, le=10_000
+    )
+    approved_reference_members_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    training_gate_member_count: int = Field(ge=0)
+    training_gate: DatasetTrainingGateResponse
+    approved_references_count_toward_training_gate: Literal[False]
+    approved_references_count_toward_validation: Literal[False]
     created_at: datetime
     reused: bool
     memberships: List[DatasetMembershipResponse]
+
+    @model_validator(mode="after")
+    def validate_reference_members(
+        self,
+    ) -> "DatasetVersionResponse":
+        if (
+            self.approved_reference_member_count
+            != len(self.approved_reference_members)
+            or self.training_gate_member_count
+            != self.train_count
+            or self.training_gate.dataset_version_id
+            != self.dataset_version_id
+            or self.training_gate.dataset_hash != self.dataset_hash
+            or (
+                self.training_gate
+                .current_video_train_unique_annotation_count
+                != self.training_gate_member_count
+            )
+            or (
+                self.training_gate.approved_reference_member_count
+                != self.approved_reference_member_count
+            )
+            or self.approved_reference_training_event_count
+            != len(
+                {
+                    member.sample_evidence_group_id
+                    for member in self.approved_reference_members
+                }
+            )
+        ):
+            raise ValueError(
+                "DatasetVersion reference counts are inconsistent"
+            )
+        approval_ids = {
+            member.approval_id
+            for member in self.approved_reference_members
+        }
+        case_ids = {
+            (member.source_id, member.case_id)
+            for member in self.approved_reference_members
+        }
+        image_hashes = {
+            member.image_sha256
+            for member in self.approved_reference_members
+        }
+        group_photo_indexes = {
+            (
+                member.sample_evidence_group_id,
+                member.group_photo_index,
+            )
+            for member in self.approved_reference_members
+        }
+        if any(
+            len(values) != len(self.approved_reference_members)
+            for values in (
+                approval_ids,
+                case_ids,
+                image_hashes,
+                group_photo_indexes,
+            )
+        ):
+            raise ValueError(
+                "DatasetVersion contains duplicate approved references"
+            )
+        return self
 
 
 class DatasetVersionListResponse(StrictModel):
@@ -3252,6 +5425,13 @@ class DocumentEditOperation(StrictModel):
         "fill_cell",
         "insert_image",
         "insert_map",
+        # These two operations are emitted only by the server-owned,
+        # deterministic exact-sample binder.  The provider output validator
+        # does not allow them.  They let the later exact HWPX writer remove
+        # stale sample facts instead of disguising an old photo/caption as
+        # current-trip evidence.
+        "clear_cell",
+        "clear_image",
     ]
     target: str = Field(
         min_length=1,
@@ -3368,6 +5548,217 @@ class HwpApplyDocumentRequest(HwpDocumentRequest):
     approval_token: str = Field(pattern=r"^[a-f0-9]{64}$")
 
 
+class CurrentReportExactPreviewRequest(StrictModel):
+    project_id: UUID
+    pipeline_job_id: UUID
+    preview_id: str = Field(
+        pattern=r"^report-preview-attempt-(?:0|[1-9][0-9]?)$"
+    )
+
+
+class CurrentReportExactPreviewResponse(StrictModel):
+    schema_version: Literal[
+        "trafficvisson.current-report-exact-preview.v1"
+    ]
+    mode: Literal["exact_current_report_preview"]
+    state: Literal[
+        "exact_current_report_draft_ready_apply_approval_required"
+    ]
+    draft_id: str = Field(
+        pattern=r"^current-report-[a-f0-9]{32}$"
+    )
+    project_id: UUID
+    pipeline_job_id: UUID
+    analysis_job_id: UUID
+    approved_incident_count: int = Field(ge=1, le=500)
+    binding_manifest_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    exact_plan_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    document_edit_plan_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    accept_reject_rollback_binding_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    document_edit_plan: Dict[str, Any]
+    output_document_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    render_binding_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    record_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    operation_count: int = Field(ge=1, le=5_000)
+    expected_rendered_page_count: Literal[48]
+    approval_token: str = Field(pattern=r"^[a-f0-9]{64}$")
+    approval_expires_at: datetime
+    apply_approval_required: Literal[True]
+    apply_endpoint_available: Literal[True]
+    remaining_blocker_codes: List[str] = Field(max_length=0)
+    exact_writer_completed: Literal[True]
+    output_render_validation_status: Literal[
+        "not_run_com_validation_required"
+    ]
+    provider_invocation_count: Literal[0]
+    com_invocation_count: Literal[0]
+    document_published: Literal[False]
+    path_exposed: Literal[False]
+    idempotent_replay: bool
+
+    @field_validator("remaining_blocker_codes")
+    @classmethod
+    def exact_remaining_apply_blockers(
+        cls,
+        values: List[str],
+    ) -> List[str]:
+        if values:
+            raise ValueError(
+                "exact preview must not claim resolved apply blockers"
+            )
+        return values
+
+
+class CurrentReportExactApplyRequest(StrictModel):
+    project_id: UUID
+    pipeline_job_id: UUID
+    draft_id: str = Field(
+        pattern=r"^current-report-[a-f0-9]{32}$"
+    )
+    approval_token: str = Field(pattern=r"^[a-f0-9]{64}$")
+    document_edit_plan_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    accept_reject_rollback_binding_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    user_confirmed: Literal[True]
+
+
+class CurrentReportApplicationResponse(StrictModel):
+    schema_version: Literal[
+        "trafficvisson.current-report-application.v1"
+    ]
+    application_id: str = Field(
+        pattern=r"^current-report-application-[a-f0-9]{32}$"
+    )
+    state: Literal[
+        "render_validated_accept_or_reject_required",
+        "render_validation_failed_rolled_back",
+        "render_validation_failed_rollback_blocked",
+        "accepted_render_validated_report",
+        "rejected_report_rolled_back",
+        "accepted_report_rolled_back",
+    ]
+    project_id: UUID
+    pipeline_job_id: UUID
+    analysis_job_id: UUID
+    draft_id: str = Field(
+        pattern=r"^current-report-[a-f0-9]{32}$"
+    )
+    binding_manifest_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    exact_plan_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    document_edit_plan_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    accept_reject_rollback_binding_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    output_file_name: str = Field(min_length=1, max_length=255)
+    output_sha256: Optional[str] = Field(
+        default=None,
+        pattern=r"^[a-f0-9]{64}$",
+    )
+    pdf_file_name: str = Field(min_length=1, max_length=255)
+    pdf_sha256: Optional[str] = Field(
+        default=None,
+        pattern=r"^[a-f0-9]{64}$",
+    )
+    render_validation_status: str = Field(
+        min_length=1,
+        max_length=80,
+    )
+    rendered_page_count: Optional[int] = Field(
+        default=None,
+        ge=0,
+        le=48,
+    )
+    render_failure_codes: List[str] = Field(max_length=8)
+    output_reopen_structure_sha256: Optional[str] = Field(
+        default=None,
+        pattern=r"^[a-f0-9]{64}$",
+    )
+    raster_artifact_manifest_sha256: Optional[str] = Field(
+        default=None,
+        pattern=r"^[a-f0-9]{64}$",
+    )
+    com_publish_completed: bool
+    pdf_export_completed: bool
+    render_validation_completed: bool
+    rollback_completed: bool
+    accept_reject_required: bool
+    accepted: bool
+    rejected: bool
+    path_exposed: Literal[False]
+
+
+class CurrentReportPublicationResponse(StrictModel):
+    schema_version: Literal[
+        "trafficvisson.current-report-publication.v1"
+    ]
+    publication_id: str = Field(
+        pattern=r"^current-report-publication-[a-f0-9]{32}$"
+    )
+    application_id: str = Field(
+        pattern=r"^current-report-application-[a-f0-9]{32}$"
+    )
+    state: Literal[
+        "publishing",
+        "published",
+        "rolling_back",
+        "rolled_back",
+    ]
+    project_id: UUID
+    pipeline_job_id: UUID
+    analysis_job_id: UUID
+    output_location_id: str = Field(
+        pattern=(
+            r"^(?:project-default|"
+            r"project-output-[a-f0-9]{32})$"
+        )
+    )
+    registry_revision: int = Field(ge=1)
+    hwpx_file_name: str = Field(min_length=1, max_length=255)
+    hwpx_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    hwpx_size_bytes: int = Field(ge=1, le=2 * 1024**3)
+    pdf_file_name: str = Field(min_length=1, max_length=255)
+    pdf_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    pdf_size_bytes: int = Field(ge=1, le=2 * 1024**3)
+    publication_manifest_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    rollback_completed: bool
+    idempotent_replay: bool
+    path_exposed: Literal[False]
+
+
+class CurrentReportDecisionRequest(StrictModel):
+    project_id: UUID
+    pipeline_job_id: UUID
+    application_id: str = Field(
+        pattern=r"^current-report-application-[a-f0-9]{32}$"
+    )
+    document_edit_plan_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    accept_reject_rollback_binding_sha256: str = Field(
+        pattern=r"^[a-f0-9]{64}$"
+    )
+    user_confirmed: Literal[True]
+
+
 class HwpApprovalTargetSummary(StrictModel):
     operation_count: int = Field(ge=1, le=100)
     operation_types: Dict[str, int]
@@ -3409,14 +5800,16 @@ class HwpSampleSemanticOperationBinding(StrictModel):
     column: int = Field(ge=0)
 
 
-class HwpSampleSemanticPreviewResponse(StrictModel):
-    """Exact-sample preview proof; never a claim that apply is available."""
+class HwpSampleTargetStructurePreviewResponse(StrictModel):
+    """Exact target/structure proof; never a content-truth or apply claim."""
 
     schema_version: Literal[
-        "trafficvisson.hwpx-sample-semantic-plan.v1"
+        "trafficvisson.hwpx-sample-target-plan.v1"
     ]
-    mode: Literal["sample_semantic_preview"]
-    state: Literal["semantic_preview_validated_apply_unavailable"]
+    mode: Literal["sample_target_structure_preview"]
+    state: Literal[
+        "target_structure_preview_validated_apply_unavailable"
+    ]
     document_snapshot_id: str = Field(
         pattern=r"^hwpx-sample-[34]q-[a-f0-9]{24}$"
     )
@@ -3440,12 +5833,16 @@ class HwpSampleSemanticPreviewResponse(StrictModel):
     expected_page_range: Tuple[int, int]
     page_range_preserved_by_structure: Literal[True]
     table_growth_allowed: Literal[False]
-    semantic_validation_passed: Literal[True]
+    target_structure_validation_passed: Literal[True]
+    approved_incident_bound: Literal[False]
+    content_provenance_bound: Literal[False]
     com_invocation_performed: Literal[False]
     operation_bindings: List[
         HwpSampleSemanticOperationBinding
     ] = Field(min_length=1, max_length=100)
-    approval_scope: Literal["sample_preview_hash_binding_only"]
+    approval_scope: Literal[
+        "sample_target_structure_hash_binding_only"
+    ]
     approval_token: str = Field(pattern=r"^[a-f0-9]{64}$")
     approval_expires_at: datetime
     apply_eligible: Literal[False]
@@ -3458,9 +5855,11 @@ class HwpSampleSemanticPreviewResponse(StrictModel):
     @model_validator(mode="after")
     def validate_unavailable_state(
         self,
-    ) -> "HwpSampleSemanticPreviewResponse":
+    ) -> "HwpSampleTargetStructurePreviewResponse":
         if self.expected_page_range != (1, 48):
-            raise ValueError("sample semantic preview must preserve pages 1-48")
+            raise ValueError(
+                "sample target preview must preserve pages 1-48"
+            )
         if self.page_pair_indices != sorted(set(self.page_pair_indices)):
             raise ValueError("sample page-pair indices must be sorted and unique")
         if self.touched_pages != sorted(set(self.touched_pages)):
@@ -3471,7 +5870,7 @@ class HwpSampleSemanticPreviewResponse(StrictModel):
         ]
         if self.blocking_reasons != expected_blockers:
             raise ValueError(
-                "sample semantic preview blockers must be explicit and complete"
+                "sample target preview blockers must be explicit and complete"
             )
         return self
 

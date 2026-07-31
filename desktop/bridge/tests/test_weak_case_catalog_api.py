@@ -1,22 +1,38 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import sqlite3
 import stat
 import struct
 import zipfile
 from pathlib import Path
+from uuid import UUID
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.hwpx_weak_cases import HWPX_WEAK_CASE_PURPOSE
 from app.main import create_app
+from app.pipeline_jobs import BridgePipelineRuntime, PipelineJobService
 from app.store import DEMO_PROJECT_ID
+from app.weak_case_approvals import (
+    WeakCaseApprovalError,
+    WeakCaseApprovalStore,
+)
 from app.weak_case_catalog import (
     WeakCaseCatalog,
     WeakCaseCatalogError,
     WeakCaseSourceDefinition,
+    semantic_attestation_sha256,
 )
+from test_post_review_auto_refresh_contract import (
+    _ExactPreviewDouble,
+    _PostReviewContractRuntime,
+    _review_completion_id,
+    _wait_for_status,
+)
+from test_project_catalog_v2 import _write_completed_analysis
 
 
 TOKEN = "w" * 64
@@ -236,6 +252,45 @@ def test_image_resolution_requires_opaque_ids_and_enforces_bound(tmp_path):
     assert caught.value.code == "image_too_large"
 
 
+def test_high_resolution_reference_uses_bounded_preview_but_keeps_source_hash(
+    tmp_path,
+):
+    blank = _bmp(width=800, height=800)
+    original = (
+        blank[:54]
+        + hashlib.shake_256(b"trafficvisson-preview-test").digest(
+            len(blank) - 54
+        )
+    )
+    source = _write_source(
+        tmp_path / DOCUMENT_NAME,
+        image=original,
+    )
+    catalog = _catalog(
+        source,
+        maximum_stream_image_bytes=128 * 1024,
+    )
+    result = catalog.search(
+        issue_type="roadside_mowing_required",
+        query_text="삭초",
+        limit=3,
+    )
+    case = result["cases"][0]
+
+    preview = catalog.resolve_case_preview(
+        case["source_id"],
+        case["case_id"],
+    )
+
+    assert preview.derived_thumbnail is True
+    assert preview.media_type == "image/jpeg"
+    assert preview.size_bytes <= 128 * 1024
+    assert preview.sha256 == hashlib.sha256(preview.body).hexdigest()
+    assert preview.source_sha256 == hashlib.sha256(original).hexdigest()
+    assert preview.source_size_bytes == len(original)
+    assert preview.sha256 != preview.source_sha256
+
+
 def test_cached_source_change_fails_closed(tmp_path):
     source = _write_source(tmp_path / DOCUMENT_NAME)
     catalog = _catalog(source)
@@ -272,7 +327,13 @@ def test_bridge_api_is_project_scoped_path_free_and_bounded(tmp_path):
             headers=_headers(),
         )
         assert listed.status_code == 200, listed.text
-        assert listed.json()["ready_source_count"] == 1
+        listed_payload = listed.json()
+        assert listed_payload["ready_source_count"] == 1
+        companion = listed_payload["sources"][0]["companion_pdf"]
+        assert companion["quarter"] == 3
+        assert companion["status"] == "pdf_missing"
+        assert companion["pdf_images_added_as_cases"] is False
+        assert companion["automatic_training_ingest"] is False
 
         searched = client.post(
             f"/projects/{DEMO_PROJECT_ID}/reference-cases/search",
@@ -289,6 +350,9 @@ def test_bridge_api_is_project_scoped_path_free_and_bounded(tmp_path):
         assert payload["result_count"] == 1
         assert payload["annotation_count"] == 0
         assert payload["incident_count"] == 0
+        assert payload["source_states"][0]["companion_pdf"][
+            "status"
+        ] == "pdf_missing"
         assert str(source) not in searched.text
         assert "BinData" not in searched.text
 
@@ -319,6 +383,12 @@ def test_bridge_api_is_project_scoped_path_free_and_bounded(tmp_path):
         assert int(image.headers["content-length"]) <= (
             app.state.weak_case_catalog.maximum_stream_image_bytes
         )
+        assert image.headers[
+            "x-trafficvisson-derived-thumbnail"
+        ] == "0"
+        assert image.headers[
+            "x-trafficvisson-source-sha256"
+        ] == case["image_sha256"]
 
         arbitrary = client.get(
             (
@@ -335,11 +405,25 @@ def test_user_confirmation_promotes_exact_case_to_project_reference(
     tmp_path,
 ):
     source = _write_source(tmp_path / DOCUMENT_NAME)
+    bridge_root = (tmp_path / "bridge-data").resolve()
+    selected_fixture = _write_completed_analysis(
+        bridge_root,
+        project_id=DEMO_PROJECT_ID,
+        source_seed="approved-reference-bootstrap",
+        candidate_count=1,
+    )
 
     class AuditedFixtureCatalog(WeakCaseCatalog):
         def case_attestation(self, source_id, case_id):
             result = super().case_attestation(source_id, case_id)
             result["sample_layout_binding"] = {
+                "sample_layout_binding_schema": (
+                    "trafficvisson.hwpx-sample-layout.v2"
+                ),
+                "sample_layout_binding_revision": 2,
+                "semantic_projection_revision": (
+                    "audited-photo-caption-evidence-group-v2"
+                ),
                 "picture_target_id": result["picture_target_id"],
                 "picture_index": result["picture_index"],
                 "page_pair_index": 0,
@@ -352,6 +436,11 @@ def test_user_confirmation_promotes_exact_case_to_project_reference(
                 "photo_slot_id": (
                     "sample-photo-slot-" + "a" * 24
                 ),
+                "sample_evidence_group_id": (
+                    "sample-evidence-group-" + "9" * 24
+                ),
+                "group_photo_index": 1,
+                "group_photo_count": 1,
                 "photo_caption": {
                     "role": "photo_caption",
                     "cell_target_id": "hwpx-cell-" + "c" * 24,
@@ -432,6 +521,9 @@ def test_user_confirmation_promotes_exact_case_to_project_reference(
                     b"audited-fixture-binding"
                 ).hexdigest(),
             }
+            result["semantic_attestation_sha256"] = (
+                semantic_attestation_sha256(result)
+            )
             return result
 
     catalog = AuditedFixtureCatalog(
@@ -442,7 +534,7 @@ def test_user_confirmation_promotes_exact_case_to_project_reference(
         TOKEN,
         fixture_mode=True,
         allow_test_client=True,
-        bridge_data_root=str(tmp_path / "bridge-data"),
+        bridge_data_root=str(bridge_root),
         media_stability_min_interval_seconds=0,
         weak_case_catalog=catalog,
     )
@@ -458,7 +550,12 @@ def test_user_confirmation_promotes_exact_case_to_project_reference(
             },
         )
         assert searched.status_code == 200, searched.text
-        case = searched.json()["cases"][0]
+        searched_payload = searched.json()
+        assert searched_payload["approved_reference_count"] == 0
+        assert searched_payload["training_eligible_count"] == 0
+        assert searched_payload["annotation_count"] == 0
+        assert searched_payload["incident_count"] == 0
+        case = searched_payload["cases"][0]
         assert case["approved_reference"] is False
         assert case["image_sha256"] == hashlib.sha256(
             _bmp()
@@ -509,8 +606,101 @@ def test_user_confirmation_promotes_exact_case_to_project_reference(
             "inspection_opinion_body",
         }
         assert approval["document_sha256"] == case["document_sha256"]
+        assert approval["structure_target_summary_sha256"] == case[
+            "structure_target_summary_sha256"
+        ]
+        assert approval["index_manifest_sha256"] == case[
+            "index_manifest_sha256"
+        ]
         assert approval["image_sha256"] == case["image_sha256"]
+        assert approval["image_media_type"] == case["image_media_type"]
+        assert approval["image_width"] == case["image_width"]
+        assert approval["image_height"] == case["image_height"]
+        assert approval["caption"] == case["caption"]
+        assert approval["route"] == case["route"]
+        assert approval["opinion"] == case["opinion"]
+        assert approval["weak_candidates"] == {
+            "caption": case["caption"],
+            "route": case["route"],
+            "location": case["location"],
+            "evaluation": case["evaluation"],
+            "opinion": case["opinion"],
+        }
+        assert approval["quarter"] == 3
+        assert approval["section_path"] == case["section_path"]
+        assert approval["section_index"] == case["section_index"]
+        assert approval["picture_target_id"] == case["picture_target_id"]
+        assert approval["picture_index"] == case["picture_index"]
+        assert approval["photo_page_number"] == 2
+        assert approval["inspection_page_number"] == 1
+        assert approval["table_id"].startswith("hwpx-table-")
+        assert approval["table_index"] >= 0
+        assert approval["cell_target_id"] == case["cell_target_id"]
+        assert approval["cell_row"] >= 0
+        assert approval["cell_column"] >= 0
         assert approval["idempotent_replay"] is False
+        selected = (
+            client.app.state.weak_case_approvals.list_by_approval_ids(
+                DEMO_PROJECT_ID,
+                [approval["approval_id"]],
+            )
+        )
+        assert [record["approval_id"] for record in selected] == [
+            approval["approval_id"]
+        ]
+        # Internal consumers do not pass through the HTTP response model.
+        # Even a self-digested durable row must therefore fail closed if it
+        # tries to turn this historical seed into current-video truth or drops
+        # its exact audited photo-cell address.
+        for changed_field, changed_value in (
+            ("incident_created", True),
+            ("training_scope", "current_video_confirmed"),
+            ("cell_row", None),
+        ):
+            tampered = {
+                key: value
+                for key, value in approval.items()
+                if key not in {"record_sha256", "idempotent_replay"}
+            }
+            tampered[changed_field] = changed_value
+            tampered_sha256 = hashlib.sha256(
+                json.dumps(
+                    tampered,
+                    ensure_ascii=False,
+                    allow_nan=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            ).hexdigest()
+            tampered["record_sha256"] = tampered_sha256
+            with pytest.raises(
+                WeakCaseApprovalError,
+                match="무결성 검사가 실패",
+            ):
+                WeakCaseApprovalStore._row_record(
+                    {
+                        "payload_json": json.dumps(
+                            tampered,
+                            ensure_ascii=False,
+                            allow_nan=False,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        ),
+                        "record_sha256": tampered_sha256,
+                        "project_id": str(DEMO_PROJECT_ID),
+                        "source_id": approval["source_id"],
+                        "case_id": approval["case_id"],
+                        "approval_id": approval["approval_id"],
+                        "revision": approval["revision"],
+                    }
+                )
+        assert (
+            client.app.state.weak_case_approvals.list_by_approval_ids(
+                DEMO_PROJECT_ID,
+                [],
+            )
+            == []
+        )
 
         replay = client.post(
             f"/projects/{DEMO_PROJECT_ID}/reference-cases/approvals",
@@ -553,6 +743,175 @@ def test_user_confirmation_promotes_exact_case_to_project_reference(
         assert listed.json()["approved_reference_count"] == 1
         assert listed.json()["annotation_count"] == 0
         assert listed.json()["incident_count"] == 0
+        assert client.app.state.store.list_current_annotations(
+            DEMO_PROJECT_ID
+        ) == []
+        assert client.app.state.store.list_incidents(
+            DEMO_PROJECT_ID
+        ) == []
+        assert client.app.state.store.list_dataset_versions(
+            DEMO_PROJECT_ID
+        ) == []
+
+        # Exercise the real review-complete HTTP boundary against the same
+        # project-scoped approval ledger. All media/model/report integrations
+        # remain deterministic fixture doubles; no installed sample or user
+        # data is read or changed.
+        exact_preview = _ExactPreviewDouble()
+        client.app.state.derived_outputs._report_preparer = exact_preview
+        bridge_runtime = BridgePipelineRuntime(
+            object(),
+            data_root=bridge_root,
+            candidate_labels=client.app.state.candidate_labels,
+            derived_outputs=client.app.state.derived_outputs,
+        )
+        runtime = _PostReviewContractRuntime(
+            bridge_runtime=bridge_runtime,
+            store=client.app.state.store,
+            selected_analysis=selected_fixture["payload"],
+            labels=client.app.state.candidate_labels,
+            semantic_map_sha256=hashlib.sha256(
+                b"fixture-approved-reference-bootstrap-map"
+            ).hexdigest(),
+        )
+        client.app.state.pipeline_jobs.shutdown()
+        pipeline = PipelineJobService(runtime, data_root=bridge_root)
+        client.app.state.pipeline_jobs = pipeline
+
+        pipeline.configure_profile(
+            DEMO_PROJECT_ID,
+            question_policy="learning_assist",
+            review_mode="precision",
+            default_template_id="sample-q4-v1",
+            default_template_sha256=hashlib.sha256(
+                b"fixture-sample-q4-template"
+            ).hexdigest(),
+            detector_pack_id="fixture-road-detector-v1",
+            ocr_pack_id="fixture-korean-ocr-v1",
+            sam2_pack_id="fixture-sam2-v1",
+            report_provider="codex",
+            report_transmission_consent=False,
+            template_semantic_map_id="sample-q4-semantic-v1",
+            report_route_name="부트스트랩 계약 노선",
+            report_inspector_name="계약 점검자",
+            report_evidence_mode="internal_original",
+            output_location_id="project-default",
+            candidate_rescan_fps=8,
+        )
+        started, replayed = pipeline.start(
+            DEMO_PROJECT_ID,
+            snapshot_id=selected_fixture["snapshot_id"],
+            file_name="20260730_bootstrap_drive.mp4",
+            rights_confirmed=True,
+            idempotency_key="approved-reference-bootstrap-pipeline-v1",
+        )
+        assert replayed is False
+        waiting = _wait_for_status(
+            pipeline,
+            DEMO_PROJECT_ID,
+            UUID(str(started["job_id"])),
+            {"awaiting_review"},
+        )
+        assert waiting["review_completion_id"] is None
+
+        candidate = selected_fixture["payload"]["result"]["candidates"][0]
+        answered = client.post(
+            (
+                f"/projects/{DEMO_PROJECT_ID}/analysis/jobs/"
+                f"{selected_fixture['job_id']}/candidates/"
+                f"{candidate['candidate_id']}/answer"
+            ),
+            headers=_headers(),
+            json={
+                "project_id": str(DEMO_PROJECT_ID),
+                "analysis_job_id": str(selected_fixture["job_id"]),
+                "answer": "yes",
+                "selected_issue_type": "road_debris",
+                "severity": "major",
+                "maintenance_action": "낙하물 수거",
+            },
+        )
+        assert answered.status_code == 201, answered.text
+
+        # The append-only answer is still audit-only until the exact queue is
+        # completed. Sample approval also remains auxiliary training evidence:
+        # neither action may create current Incident/report truth on its own.
+        pre_completion_incidents = client.get(
+            f"/projects/{DEMO_PROJECT_ID}/incidents",
+            headers=_headers(),
+        )
+        assert pre_completion_incidents.status_code == 200
+        assert pre_completion_incidents.json()["count"] == 0
+        assert client.app.state.store.list_current_annotations(
+            DEMO_PROJECT_ID
+        ) == []
+        assert client.app.state.store.list_dataset_versions(
+            DEMO_PROJECT_ID
+        ) == []
+
+        completion_id = _review_completion_id(answered.json())
+        completed_request = client.post(
+            (
+                f"/projects/{DEMO_PROJECT_ID}/pipeline/jobs/"
+                f"{started['job_id']}/review-complete"
+            ),
+            headers=_headers(),
+            json={"review_completion_id": completion_id},
+        )
+        assert completed_request.status_code == 202, completed_request.text
+        completed = _wait_for_status(
+            pipeline,
+            DEMO_PROJECT_ID,
+            UUID(str(started["job_id"])),
+            {"completed", "blocked"},
+        )
+        assert completed["status"] == "completed"
+        assert completed["review_completion_id"] == completion_id
+
+        annotations = client.app.state.store.list_current_annotations(
+            DEMO_PROJECT_ID
+        )
+        assert len(annotations) == 1
+        assert annotations[0]["analysis_job_id"] == str(
+            selected_fixture["job_id"]
+        )
+        incidents = client.get(
+            f"/projects/{DEMO_PROJECT_ID}/incidents",
+            headers=_headers(),
+        )
+        assert incidents.status_code == 200, incidents.text
+        # This is the bootstrap/training-video review. It may create a
+        # user-confirmed Annotation and immutable DatasetVersion, but it is not
+        # an independently verified promoted-model road survey. Incident,
+        # map/report truth therefore remains empty until that later survey
+        # crosses its own full-journey QA boundary.
+        assert incidents.json()["count"] == 0
+        datasets = client.get(
+            f"/projects/{DEMO_PROJECT_ID}/datasets",
+            headers=_headers(),
+        )
+        assert datasets.status_code == 200, datasets.text
+        dataset_rows = datasets.json()["versions"]
+        assert len(dataset_rows) == 1
+        dataset = dataset_rows[0]
+        assert dataset["training_gate_member_count"] == 1
+        assert dataset["approved_reference_member_count"] == 1
+        assert dataset["approved_reference_training_event_count"] == 1
+        assert dataset["approved_reference_members"][0][
+            "approval_id"
+        ] == approval["approval_id"]
+        assert (
+            dataset["approved_references_count_toward_training_gate"]
+            is False
+        )
+        assert (
+            dataset["approved_references_count_toward_validation"]
+            is False
+        )
+        # Training-only bootstrap evidence must not be projected into the HWPX
+        # plan either. The exact preview is prepared only after a promoted
+        # model's independent survey receives user QA authority.
+        assert exact_preview.calls == []
 
         stale = {
             **request,
@@ -569,7 +928,7 @@ def test_user_confirmation_promotes_exact_case_to_project_reference(
         TOKEN,
         fixture_mode=True,
         allow_test_client=True,
-        bridge_data_root=str(tmp_path / "bridge-data"),
+        bridge_data_root=str(bridge_root),
         media_stability_min_interval_seconds=0,
         weak_case_catalog=catalog,
     )
@@ -582,4 +941,68 @@ def test_user_confirmation_promotes_exact_case_to_project_reference(
         assert recovered.json()["approved_reference_count"] == 1
         assert recovered.json()["records"][0]["record_sha256"] == (
             approval["record_sha256"]
+        )
+
+    # A locally resealed SQLite row must still be compared with the immutable
+    # server-owned sample catalog before DatasetVersion reuse. Merely updating
+    # record_sha256 cannot move a marker/caption cell to another address.
+    database_path = (
+        bridge_root
+        / "approved-reference-cases"
+        / "approvals.sqlite3"
+    )
+    with sqlite3.connect(str(database_path)) as connection:
+        row = connection.execute(
+            """
+            SELECT payload_json
+            FROM approved_reference_cases
+            WHERE project_id = ? AND approval_id = ?
+            """,
+            (str(DEMO_PROJECT_ID), approval["approval_id"]),
+        ).fetchone()
+        assert row is not None
+        resealed = json.loads(row[0])
+        resealed["semantic_cells"][0]["row"] += 1
+        without_hash = {
+            key: value
+            for key, value in resealed.items()
+            if key != "record_sha256"
+        }
+        record_sha256 = hashlib.sha256(
+            json.dumps(
+                without_hash,
+                ensure_ascii=False,
+                allow_nan=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        resealed["record_sha256"] = record_sha256
+        connection.execute(
+            """
+            UPDATE approved_reference_cases
+            SET payload_json = ?, record_sha256 = ?
+            WHERE project_id = ? AND approval_id = ?
+            """,
+            (
+                json.dumps(
+                    resealed,
+                    ensure_ascii=False,
+                    allow_nan=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+                record_sha256,
+                str(DEMO_PROJECT_ID),
+                approval["approval_id"],
+            ),
+        )
+        connection.commit()
+
+    with pytest.raises(
+        WeakCaseApprovalError,
+        match="문서·사진·페이지·셀 근거가 변경",
+    ):
+        restarted.state.weak_case_approvals.list_project(
+            DEMO_PROJECT_ID
         )
