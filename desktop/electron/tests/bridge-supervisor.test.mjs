@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -51,6 +53,10 @@ test("bridge child receives a minimal environment without parent credentials", (
         "C:\\model-pack\\trafficsupervision-model-pack.json",
       TRAFFICSUPERVISION_OCR_MODEL_PACK:
         "C:\\ocr-pack\\trafficvisson-model-pack.json",
+      TRAFFICSUPERVISION_BRIDGE_DATA_ROOT:
+        "C:\\must-not-cross\\bridge-data",
+      TRAFFICSUPERVISION_DEV_BRIDGE_DATA_ROOT:
+        "C:\\must-not-cross\\dev-bridge-data",
     },
     "fixture-token",
   );
@@ -89,6 +95,24 @@ test("bridge child receives a minimal environment without parent credentials", (
     environment.TRAFFICSUPERVISION_COMMAND_PROPOSAL_RUNNER_ROOT,
     undefined,
   );
+  assert.equal(environment.TRAFFICSUPERVISION_BRIDGE_DATA_ROOT, undefined);
+  assert.equal(environment.TRAFFICSUPERVISION_DEV_BRIDGE_DATA_ROOT, undefined);
+});
+
+test("an explicit supervisor data root crosses only through the private child contract", () => {
+  const environment = buildBridgeEnvironment(
+    {
+      PATH: "fixture-path",
+      TRAFFICSUPERVISION_BRIDGE_DATA_ROOT:
+        "C:\\must-not-cross\\parent-root",
+    },
+    "fixture-token",
+    { bridgeDataRoot: bridgeRoot },
+  );
+  assert.equal(
+    environment.TRAFFICSUPERVISION_BRIDGE_DATA_ROOT,
+    path.resolve(bridgeRoot),
+  );
 });
 
 test("packaged bridge resolution fails closed when the executable is absent", () => {
@@ -102,8 +126,12 @@ test(
   "supervisor starts the authenticated Python bridge without exposing token or port",
   { timeout: 30_000 },
   async () => {
+    const bridgeDataRoot = mkdtempSync(
+      path.join(tmpdir(), "trafficvisson-bridge-supervisor-"),
+    );
     const supervisor = new BridgeSupervisor({
       bridgeRoot,
+      bridgeDataRoot,
       commandProposalRunnerRoot: bridgeRoot,
       pythonExecutable: process.env.TRAFFICSUPERVISION_PYTHON || "python",
       startupTimeoutMs: 20_000,
@@ -123,6 +151,7 @@ test(
       assert.doesNotMatch(serialized, /log/i);
     } finally {
       await supervisor.stop();
+      rmSync(bridgeDataRoot, { recursive: true, force: true });
     }
     assert.equal(supervisor.publicStatus().state, "stopped");
   },

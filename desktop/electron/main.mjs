@@ -64,6 +64,22 @@ const desktopRoot = path.resolve(currentDirectory, "..");
 const bridgeRoot = app.isPackaged
   ? path.join(process.resourcesPath, "bridge")
   : path.join(desktopRoot, "bridge");
+const developmentBridgeDataRoot =
+  !app.isPackaged &&
+  typeof process.env.TRAFFICSUPERVISION_DEV_BRIDGE_DATA_ROOT === "string" &&
+  process.env.TRAFFICSUPERVISION_DEV_BRIDGE_DATA_ROOT.trim()
+    ? path.resolve(
+        process.env.TRAFFICSUPERVISION_DEV_BRIDGE_DATA_ROOT.trim(),
+      )
+    : undefined;
+if (
+  developmentBridgeDataRoot !== undefined &&
+  !existsSync(developmentBridgeDataRoot)
+) {
+  throw new Error(
+    "TRAFFICSUPERVISION_DEV_BRIDGE_DATA_ROOT must point to an existing directory",
+  );
+}
 const developmentCommandProposalRunnerRoot = path.join(
   desktopRoot,
   "build",
@@ -142,6 +158,7 @@ protocol.registerSchemesAsPrivileged([
 
 const supervisor = new BridgeSupervisor({
   bridgeRoot,
+  bridgeDataRoot: developmentBridgeDataRoot,
   commandProposalRunnerRoot,
   electronVersion: process.versions.electron,
   // A first activation hashes the complete external ML runtime and performs a

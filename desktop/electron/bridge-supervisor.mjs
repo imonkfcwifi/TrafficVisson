@@ -80,7 +80,11 @@ export function resolveFrozenBridgeExecutable({ resourcesPath } = {}) {
   return executable;
 }
 
-export function buildBridgeEnvironment(baseEnvironment, token) {
+export function buildBridgeEnvironment(
+  baseEnvironment,
+  token,
+  { bridgeDataRoot } = {},
+) {
   const safeEnvironment = {};
   for (const [key, value] of Object.entries(baseEnvironment ?? {})) {
     if (SAFE_ENVIRONMENT_KEYS.has(key.toUpperCase()) && typeof value === "string") {
@@ -90,11 +94,22 @@ export function buildBridgeEnvironment(baseEnvironment, token) {
   safeEnvironment.PYTHONDONTWRITEBYTECODE = "1";
   safeEnvironment.PYTHONUNBUFFERED = "1";
   safeEnvironment.TRAFFICSUPERVISION_BRIDGE_TOKEN = token;
+  if (bridgeDataRoot !== undefined) {
+    if (
+      typeof bridgeDataRoot !== "string" ||
+      !path.isAbsolute(bridgeDataRoot)
+    ) {
+      throw new Error("Bridge data root must be an absolute path");
+    }
+    safeEnvironment.TRAFFICSUPERVISION_BRIDGE_DATA_ROOT =
+      path.resolve(bridgeDataRoot);
+  }
   return safeEnvironment;
 }
 
 export class BridgeSupervisor extends EventEmitter {
   #bridgeRoot;
+  #bridgeDataRoot;
   #commandProposalRunnerRoot;
   #pythonExecutable;
   #frozenBridgeExecutable;
@@ -111,6 +126,7 @@ export class BridgeSupervisor extends EventEmitter {
 
   constructor({
     bridgeRoot,
+    bridgeDataRoot,
     commandProposalRunnerRoot,
     pythonExecutable,
     frozenBridgeExecutable,
@@ -121,6 +137,8 @@ export class BridgeSupervisor extends EventEmitter {
   }) {
     super();
     this.#bridgeRoot = path.resolve(bridgeRoot);
+    this.#bridgeDataRoot =
+      bridgeDataRoot === undefined ? undefined : path.resolve(bridgeDataRoot);
     this.#commandProposalRunnerRoot = commandProposalRunnerRoot
       ? path.resolve(commandProposalRunnerRoot)
       : null;
@@ -163,7 +181,11 @@ export class BridgeSupervisor extends EventEmitter {
     }
     const command = this.#frozenBridgeExecutable || this.#pythonExecutable;
     const args = this.#frozenBridgeExecutable ? [] : ["-I", "-B", "-u", launcherPath];
-    const childEnvironment = buildBridgeEnvironment(process.env, this.#token);
+    const childEnvironment = buildBridgeEnvironment(
+      process.env,
+      this.#token,
+      { bridgeDataRoot: this.#bridgeDataRoot },
+    );
     if (this.#electronVersion) {
       childEnvironment.TRAFFICSUPERVISION_ELECTRON_VERSION =
         this.#electronVersion;
